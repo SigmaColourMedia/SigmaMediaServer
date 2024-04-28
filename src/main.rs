@@ -2,17 +2,19 @@ use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use tokio::io::AsyncWriteExt;
-use tokio::net::UdpSocket;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::mpsc;
 
 use crate::acceptor::SSLConfig;
+use crate::http::handle_http_request;
 use crate::server::Server;
 
 mod acceptor;
 mod server;
 mod client;
 mod stun;
+mod http;
 
 #[tokio::main]
 async fn main() {
@@ -26,6 +28,13 @@ async fn main() {
     tokio::spawn(async move {
         while let Some((bytes, addr)) = rx.recv().await {
             server.listen(&bytes, addr).await;
+        }
+    });
+
+    tokio::spawn(async {
+        let tcp_server = TcpListener::bind("localhost:8080").await.unwrap();
+        for (mut stream, remote) in tcp_server.accept().await {
+            handle_http_request(stream).await;
         }
     });
 
