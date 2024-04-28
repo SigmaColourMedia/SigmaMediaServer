@@ -33,8 +33,10 @@ async fn main() {
 
     tokio::spawn(async {
         let tcp_server = TcpListener::bind("localhost:8080").await.unwrap();
-        for (mut stream, remote) in tcp_server.accept().await {
-            handle_http_request(stream).await;
+        loop {
+            for (mut stream, remote) in tcp_server.accept().await {
+                handle_http_request(stream).await;
+            }
         }
     });
 
