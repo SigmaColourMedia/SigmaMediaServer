@@ -69,6 +69,20 @@ impl Client {
             }
             ClientSslState::Shutdown => ClientSslState::Shutdown,
         };
+
+        while let ClientSslState::Established(ssl_stream) = &mut self.ssl_state {
+            let mut my_buff = [0; 300];
+            match ssl_stream.read(&mut my_buff) {
+                Ok(size) => {
+                    println!("read {}", String::from_utf8(Vec::from(&my_buff[..size])).unwrap());
+                    break;
+                }
+                Err(e) => {
+                    println!("error reading packet {}", e);
+                    break;
+                }
+            }
+        }
         Ok(())
     }
 
