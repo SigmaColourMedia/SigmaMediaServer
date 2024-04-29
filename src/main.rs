@@ -15,6 +15,7 @@ mod server;
 mod client;
 mod stun;
 mod http;
+mod iceRegistry;
 
 #[tokio::main]
 async fn main() {
@@ -31,11 +32,11 @@ async fn main() {
         }
     });
 
-    tokio::spawn(async {
+    tokio::spawn(async move {
         let tcp_server = TcpListener::bind("localhost:8080").await.unwrap();
         loop {
             for (mut stream, remote) in tcp_server.accept().await {
-                handle_http_request(stream).await;
+                handle_http_request(stream, &config.fingerprint).await;
             }
         }
     });
