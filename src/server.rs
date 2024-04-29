@@ -5,7 +5,7 @@ use std::sync::Arc;
 use openssl::ssl::SslAcceptor;
 use tokio::net::UdpSocket;
 
-use crate::client::Client;
+use crate::client::{Client, ClientSslState};
 use crate::stun::parse_stun_packet;
 
 pub struct Server {
@@ -24,17 +24,23 @@ impl Server {
     }
 
     pub async fn listen(&mut self, data: &[u8], remote: SocketAddr) {
+        println!("received packets from {} ", remote);
+
         let stun_message = parse_stun_packet(data).await;
         println!("stun message {:?}", stun_message);
         if let Some(client) = self.clients.get_mut(&remote) {
+            if let ClientSslState::Established(ssl_stream) = &client.ssl_state {
+                println!("ssl state {:?}", ssl_stream);
+                return;
+            }
             if let Err(err) = client.read_packet(data) {
                 return println!("Error reading client packet at {} : {}", remote, err);
             }
 
-            println!("received packets from {} {:?} ", remote, data);
 
             let outgoing_packets = client.take_outgoing_packets();
             for packet in outgoing_packets {
+                println!("sending packet to {}", remote);
                 self.socket.send_to(&packet, remote).await.unwrap();
             }
         } else {
