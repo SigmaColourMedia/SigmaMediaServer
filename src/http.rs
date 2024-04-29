@@ -3,16 +3,62 @@ use std::io::Error;
 use std::num::ParseIntError;
 use std::string::FromUtf8Error;
 
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 
-pub async fn handle_http_request(mut stream: TcpStream) {
+pub async fn handle_http_request(mut stream: TcpStream, fingerprint: &str) {
     match parse_http_request(&mut stream).await {
         Some(req) => {
-            println!("{}", req)
+            println!("got req {}", req);
+            match &req.path[..] {
+                "/whip" => {
+                    match &req.method {
+                        HTTPMethod::POST => {}
+                        _ => {
+                            if let Err(err) = write_405_response(&mut stream).await {
+                                eprint!("Error writing a HTTP response {}", err)
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    if let Err(err) = write_404_response(&mut stream).await {
+                        eprint!("Error writing a HTTP response {}", err)
+                    }
+                }
+            };
         }
-        None => {}
-    };
+        None => {
+            if let Err(err) = write_400_response(&mut stream).await {
+                eprint!("Error writing a HTTP response {}", err)
+            }
+        }
+    }
+}
+
+pub async fn handle_whip_request(request: Request, fingerprint: &str) -> Result<String, HttpError> {
+    Err(HttpError::MalformedRequest)
+}
+
+pub async fn write_404_response(stream: &mut TcpStream) -> std::io::Result<()> {
+    let status_line = "HTTP/1.1 404 NOT FOUND";
+
+    let response = format! {"{status_line}\r\n\r\n"};
+    stream.write_all(response.as_bytes()).await
+}
+
+pub async fn write_400_response(stream: &mut TcpStream) -> std::io::Result<()> {
+    let status_line = "HTTP/1.1 400 BAD REQUEST";
+
+    let response = format! {"{status_line}\r\n\r\n"};
+    stream.write_all(response.as_bytes()).await
+}
+
+pub async fn write_405_response(stream: &mut TcpStream) -> std::io::Result<()> {
+    let status_line = "HTTP/1.1 405 METHOD NOT ALLOWED";
+
+    let response = format! {"{status_line}\r\n\r\n"};
+    stream.write_all(response.as_bytes()).await
 }
 
 pub async fn parse_http_request(stream: &mut TcpStream) -> Option<Request> {
@@ -73,6 +119,7 @@ fn parse_header(header: &str) -> Option<Header> {
     Some((key.to_owned(), value.to_owned()))
 }
 
+// todo Don't hold the entire body in memory
 #[derive(Debug)]
 struct Request {
     path: String,
