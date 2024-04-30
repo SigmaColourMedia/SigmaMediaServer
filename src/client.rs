@@ -17,7 +17,7 @@ pub enum ClientSslState {
 
 pub struct Client {
     pub ssl_state: ClientSslState,
-    remote_address: SocketAddr,
+    pub remote_address: SocketAddr,
 }
 
 impl Client {
