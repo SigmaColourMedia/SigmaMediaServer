@@ -1,7 +1,7 @@
 use std::{fmt, io, mem};
 use std::collections::VecDeque;
 use std::io::{Error, ErrorKind, Read, Write};
-use std::net::SocketAddr;
+use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
 
 use openssl::error::ErrorStack;
@@ -10,8 +10,8 @@ use openssl::ssl::{HandshakeError, MidHandshakeSslStream, SslAcceptor, SslStream
 use crate::client::ClientError::{IncompletePacketRead, OpenSslError};
 
 pub enum ClientSslState {
-    Handshake(MidHandshakeSslStream<DTLSPacket>),
-    Established(SslStream<DTLSPacket>),
+    Handshake(MidHandshakeSslStream<UDPPeerStream>),
+    Established(SslStream<UDPPeerStream>),
     Shutdown,
 }
 
@@ -21,9 +21,9 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(remote: SocketAddr, acceptor: Arc<SslAcceptor>) -> Result<Self, ErrorStack> {
-        let dtls_packet = DTLSPacket::new();
-        match acceptor.accept(dtls_packet) {
+    pub fn new(remote: SocketAddr, acceptor: Arc<SslAcceptor>, socket: Arc<UdpSocket>) -> Result<Self, ErrorStack> {
+        let udp_stream = UDPPeerStream::new(socket, remote.clone());
+        match acceptor.accept(udp_stream) {
             Ok(_) => unreachable!("handshake cannot finish with no incoming packets"),
             Err(HandshakeError::SetupFailure(err)) => return Err(err),
             Err(HandshakeError::Failure(_)) => {
@@ -85,21 +85,6 @@ impl Client {
         }
         Ok(())
     }
-
-    pub fn take_outgoing_packets(&mut self) -> impl Iterator<Item=Vec<u8>> + '_ {
-        (match &mut self.ssl_state {
-            ClientSslState::Handshake(mid_handshake) => {
-                Some(mid_handshake.get_mut().outgoing_packets.drain(..))
-            }
-            ClientSslState::Established(ssl_stream)
-            => {
-                Some(ssl_stream.get_mut().outgoing_packets.drain(..))
-            }
-            ClientSslState::Shutdown => None,
-        })
-            .into_iter()
-            .flatten()
-    }
 }
 
 
@@ -136,21 +121,23 @@ impl fmt::Display for ClientError {
 impl std::error::Error for ClientError {}
 
 #[derive(Debug)]
-pub struct DTLSPacket {
-    outgoing_packets: VecDeque<Vec<u8>>,
+pub struct UDPPeerStream {
+    socket: Arc<UdpSocket>,
+    remote: SocketAddr,
     incoming_packets: VecDeque<Vec<u8>>,
 }
 
-impl DTLSPacket {
-    pub fn new() -> Self {
-        DTLSPacket {
+impl UDPPeerStream {
+    pub fn new(socket: Arc<UdpSocket>, remote: SocketAddr) -> Self {
+        UDPPeerStream {
             incoming_packets: VecDeque::new(),
-            outgoing_packets: VecDeque::new(),
+            socket,
+            remote,
         }
     }
 }
 
-impl Read for DTLSPacket {
+impl Read for UDPPeerStream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if let Some(packet) = self.incoming_packets.pop_front() {
             if packet.len() > buf.len() {
@@ -167,11 +154,16 @@ impl Read for DTLSPacket {
     }
 }
 
-impl Write for DTLSPacket {
+impl Write for UDPPeerStream {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        println!("writing");
         let buffer = Vec::from(buf);
-        self.outgoing_packets.push_front(buffer);
+        println!("writing");
+
+
+        match { self.socket.send_to(buf, self.remote) } {
+            Ok(_) => println!("sent data"),
+            Err(e) => println!("blocked by {}", e)
+        }
         Ok(buf.len())
     }
 

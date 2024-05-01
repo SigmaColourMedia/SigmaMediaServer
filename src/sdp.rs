@@ -1,5 +1,3 @@
-use crate::ice_registry::SessionCredentials;
-
 pub fn parse_sdp(data: String) -> Option<SDP> {
     let mut lines = data.lines();
     println!("sdp {:?}", data);
@@ -43,20 +41,20 @@ pub fn parse_sdp(data: String) -> Option<SDP> {
     })
 }
 
-pub fn create_sdp_receive_answer(sdp: &SDP, credentials: &SessionCredentials, fingerprint: &str) -> String {
-    let response = concat!("v=0\r\n",
-    "o=sigma 2616320411 0 IN IP4 127.0.0.1\r\n",
-    format!("a=group:{}", sdp.group),
-    "a=setup:passive",
-    format!("a=ice-ufrag:{}", credentials.host_username),
-    format!("a=ice-pwd:{}", credentials.host_password),
-    "a=ice-options:ice2",
-    "a=ice-lite",
-    format!("a=fingerprint:sha-256 {}", fingerprint),
-    );
-
-    String::new()
-}
+// pub fn create_sdp_receive_answer(sdp: &SDP, credentials: &SessionCredentials, fingerprint: &str) -> String {
+//     let response = concat!("v=0\r\n",
+//     "o=sigma 2616320411 0 IN IP4 127.0.0.1\r\n",
+//     format!("a=group:{}", sdp.group),
+//     "a=setup:passive",
+//     format!("a=ice-ufrag:{}", credentials.host_username),
+//     format!("a=ice-pwd:{}", credentials.host_password),
+//     "a=ice-options:ice2",
+//     "a=ice-lite",
+//     format!("a=fingerprint:sha-256 {}", fingerprint),
+//     );
+//
+//     String::new()
+// }
 
 #[derive(Debug)]
 pub struct SDP {
