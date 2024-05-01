@@ -15,6 +15,8 @@ mod client;
 mod stun;
 mod http;
 mod ice_registry;
+mod sdp;
+mod rnd;
 
 #[tokio::main]
 async fn main() {
