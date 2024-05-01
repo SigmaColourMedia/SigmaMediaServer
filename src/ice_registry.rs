@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 
-use rand::{Rng, thread_rng};
-use rand::distributions::Alphanumeric;
 use tokio::time::Instant;
 
 use crate::client::Client;
+use crate::rnd::get_random_string;
+use crate::sdp::SDP;
 
 type ResourceID = String;
 
@@ -91,10 +91,8 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new_streamer(credentials: SessionCredentials) -> Self {
-        let mut rng = thread_rng();
-
-        let id: String = rng.sample_iter(Alphanumeric).take(12).map(char::from).collect();
+    pub fn new_streamer(credentials: SessionCredentials, sdp: SDP) -> Self {
+        let id = get_random_string(12);
 
         Session {
             id,
@@ -103,14 +101,13 @@ impl Session {
             credentials,
             connection_type: ConnectionType::Streamer(Streamer {
                 viewers_ids: vec![],
+                sdp,
             }),
         }
     }
 
     pub fn new_viewer(target_id: String, credentials: SessionCredentials) -> Self {
-        let mut rng = thread_rng();
-
-        let id: String = rng.sample_iter(Alphanumeric).take(12).map(char::from).collect();
+        let id = get_random_string(12);
         Session {
             id,
             ttl: Instant::now(),
@@ -134,12 +131,13 @@ struct Viewer {
 
 struct Streamer {
     viewers_ids: Vec<ResourceID>,
+    sdp: SDP,
 }
 
 pub struct SessionCredentials {
-    remote_username: String,
-    host_username: String,
-    host_password: String,
+    pub remote_username: String,
+    pub host_username: String,
+    pub host_password: String,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug)]
