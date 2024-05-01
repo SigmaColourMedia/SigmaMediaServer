@@ -8,6 +8,7 @@ use tokio::sync::mpsc::Receiver;
 use crate::client::Client;
 use crate::http::SessionCommand;
 use crate::ice_registry::SessionRegistry;
+use crate::stun::parse_stun_packet;
 
 pub struct Server {
     clients: HashMap<SocketAddr, Client>,
@@ -23,13 +24,15 @@ impl Server {
             clients: HashMap::new(),
             socket,
             acceptor,
-            session_commands_receiver: receiver,
             session_registry: SessionRegistry::new(),
         }
     }
 
     pub fn listen(&mut self, data: &[u8], remote: SocketAddr) {
         println!("received packets from {} ", remote);
+        let stun_message = parse_stun_packet(data);
+        println!("stun msg {:?}", stun_message);
+
         if let Some(client) = self.clients.get_mut(&remote) {
             println!("already connected");
             client.read_packet(data).unwrap();
@@ -39,7 +42,6 @@ impl Server {
         self.clients.insert(remote.clone(), Client::new(remote, self.acceptor.clone(), self.socket.clone()).unwrap());
 
 
-        // let stun_message = parse_stun_packet(data);
         // println!("stun message {:?}", stun_message);
         // if let Some(client) = self.clients.get_mut(&remote) {
         //     if let ClientSslState::Established(ssl_stream) = &client.ssl_state {

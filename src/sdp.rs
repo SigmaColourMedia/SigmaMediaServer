@@ -1,3 +1,5 @@
+use crate::ice_registry::SessionCredentials;
+
 pub fn parse_sdp(data: String) -> Option<SDP> {
     let mut lines = data.lines();
     println!("sdp {:?}", data);
@@ -41,20 +43,34 @@ pub fn parse_sdp(data: String) -> Option<SDP> {
     })
 }
 
-// pub fn create_sdp_receive_answer(sdp: &SDP, credentials: &SessionCredentials, fingerprint: &str) -> String {
-//     let response = concat!("v=0\r\n",
-//     "o=sigma 2616320411 0 IN IP4 127.0.0.1\r\n",
-//     format!("a=group:{}", sdp.group),
-//     "a=setup:passive",
-//     format!("a=ice-ufrag:{}", credentials.host_username),
-//     format!("a=ice-pwd:{}", credentials.host_password),
-//     "a=ice-options:ice2",
-//     "a=ice-lite",
-//     format!("a=fingerprint:sha-256 {}", fingerprint),
-//     );
-//
-//     String::new()
-// }
+pub fn create_sdp_receive_answer(sdp: &SDP, credentials: &SessionCredentials, fingerprint: &str) -> String {
+    let SDP { group, media_descriptions, .. } = &sdp;
+    let SessionCredentials { host_password, host_username, .. } = &credentials;
+
+    let session_description = format!("v=0\r\n\
+o=sigma 2616320411 0 IN IP4 127.0.0.1\r\n\
+a=group:{group}\r\n\
+a=setup:passive\r\n\
+a=ice-ufrag:{host_username}\r\n\
+a=ice-pwd:{host_password}\r\n\
+a=ice-options:ice2\r\n\
+a=ice-lite\r\n\
+a=fingerprint:sha-256 {fingerprint}\r\n");
+
+    let media_description = media_descriptions.into_iter().map(|media| {
+        let media_header = format!("m={media_type} 52000 {proto} {fmt}\r\n\
+        c=IN IP4 127.0.0.1\r\n\
+        a=candidate:1 1 UDP 2122317823 127.0.0.1 52000 typ host\r\n\
+        a=end-of-candidates\r\n\
+        a=recvonly\r\n", media_type = media.media_type, proto = media.protocol, fmt = media.format);
+
+        let rest = media.attributes.join("\r\n");
+        media_header + &rest
+    }).collect::<Vec<String>>().join("\r\n");
+    
+
+    session_description + &media_description
+}
 
 #[derive(Debug)]
 pub struct SDP {

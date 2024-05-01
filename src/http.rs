@@ -6,7 +6,7 @@ use tokio::sync::mpsc::Sender;
 
 use crate::ice_registry::{Session, SessionCredentials};
 use crate::rnd::get_random_string;
-use crate::sdp::parse_sdp;
+use crate::sdp::{create_sdp_receive_answer, parse_sdp};
 
 pub struct HTTPServer {
     fingerprint: String,
@@ -65,12 +65,20 @@ impl HTTPServer {
             host_password,
         };
 
+        let answer = create_sdp_receive_answer(&sdp, &session_credentials, &self.fingerprint);
         let session = Session::new_streamer(session_credentials, sdp);
 
+
+        let response = format!("HTTP/1.1 201 CREATED\r\n\
+        content-length:{content_length}\r\n\
+        content-type:application/sdp\r\n\
+        location: http://localhost:8080/whip?id={resource_id}\r\n\r\n\
+        {answer}", content_length = answer.len(), resource_id = &session.id);
+
+        stream.write_all(response.as_bytes()).await.or(Err(HttpError::InternalServerError))?;
+
+
         self.session_commands_sender.send(SessionCommand::AddStreamer(session)).await.or(Err(HttpError::InternalServerError))?;
-
-
-        // println!("sdp {:?}", sdp);
 
         Ok(())
     }
