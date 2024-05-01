@@ -9,3 +9,4 @@ edition = "2021"
 openssl = "0.10.64"
 tokio = { version = "1", features = ["full"] }
 rand = "0.8.5"
+byteorder = "1.5.0"
