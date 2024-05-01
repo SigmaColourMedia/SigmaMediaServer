@@ -1,8 +1,10 @@
+use std::{io, thread};
 use std::io::{Read, Write};
+use std::net::UdpSocket;
 use std::sync::Arc;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, UdpSocket};
+use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 
 use crate::acceptor::SSLConfig;
@@ -21,18 +23,27 @@ mod rnd;
 #[tokio::main]
 async fn main() {
     let config = SSLConfig::new();
-    let socket = Arc::new(UdpSocket::bind("127.0.0.1:52000").await.unwrap());
-    let remote_socket = socket.clone();
     let (tx, mut rx) = mpsc::channel::<SessionCommand>(1000);
 
-    let mut server = Server::new(config.acceptor.clone(), remote_socket, rx);
 
-
-    tokio::spawn(async move {
+    thread::spawn(move || {
+        let socket = UdpSocket::bind("127.0.0.1:52000").unwrap();
+        socket.set_nonblocking(true).unwrap();
+        let socket = Arc::new(socket);
+        let mut server = Server::new(config.acceptor.clone(), socket.clone(), rx);
         loop {
             let mut buffer = [0; 3600];
-            let (bytes_read, remote_addr) = socket.recv_from(&mut buffer).await.unwrap();
-            server.listen(&buffer[..bytes_read], remote_addr).await;
+            match socket.recv_from(&mut buffer) {
+                Ok((bytes_read, remote_addr)) => {
+                    server.listen(&buffer[..bytes_read], remote_addr);
+                }
+                Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
+                    // println!("would block")
+                }
+                Err(err) => {
+                    eprintln!("Encountered socket IO error {}", err)
+                }
+            }
         };
     });
 

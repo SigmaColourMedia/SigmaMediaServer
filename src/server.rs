@@ -1,15 +1,16 @@
-use std::net::SocketAddr;
+use std::collections::HashMap;
+use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
 
 use openssl::ssl::SslAcceptor;
-use tokio::net::UdpSocket;
 use tokio::sync::mpsc::Receiver;
 
+use crate::client::Client;
 use crate::http::SessionCommand;
 use crate::ice_registry::SessionRegistry;
-use crate::stun::parse_stun_packet;
 
 pub struct Server {
+    clients: HashMap<SocketAddr, Client>,
     session_registry: SessionRegistry,
     session_commands_receiver: Receiver<SessionCommand>,
     socket: Arc<UdpSocket>,
@@ -19,6 +20,7 @@ pub struct Server {
 impl Server {
     pub fn new(acceptor: Arc<SslAcceptor>, socket: Arc<UdpSocket>, receiver: Receiver<SessionCommand>) -> Self {
         Server {
+            clients: HashMap::new(),
             socket,
             acceptor,
             session_commands_receiver: receiver,
@@ -26,11 +28,19 @@ impl Server {
         }
     }
 
-    pub async fn listen(&mut self, data: &[u8], remote: SocketAddr) {
+    pub fn listen(&mut self, data: &[u8], remote: SocketAddr) {
         println!("received packets from {} ", remote);
+        if let Some(client) = self.clients.get_mut(&remote) {
+            println!("already connected");
+            client.read_packet(data).unwrap();
+            return;
+        }
 
-        let stun_message = parse_stun_packet(data).await;
-        println!("stun message {:?}", stun_message);
+        self.clients.insert(remote.clone(), Client::new(remote, self.acceptor.clone(), self.socket.clone()).unwrap());
+
+
+        // let stun_message = parse_stun_packet(data);
+        // println!("stun message {:?}", stun_message);
         // if let Some(client) = self.clients.get_mut(&remote) {
         //     if let ClientSslState::Established(ssl_stream) = &client.ssl_state {
         //         println!("ssl state {:?}", ssl_stream);
