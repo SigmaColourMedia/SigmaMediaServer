@@ -1,13 +1,15 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 
+use rand::{Rng, thread_rng};
+use rand::distributions::Alphanumeric;
 use tokio::time::Instant;
 
 use crate::client::Client;
 
 type ResourceID = String;
 
-struct SessionRegistry {
+pub struct SessionRegistry {
     sessions: HashMap<ResourceID, Session>,
     username_map: HashMap<SessionUsername, ResourceID>,
     address_map: HashMap<SocketAddr, ResourceID>,
@@ -80,7 +82,7 @@ impl SessionRegistry {
     }
 }
 
-struct Session {
+pub struct Session {
     pub id: ResourceID,
     pub ttl: Instant,
     client: Option<Client>,
@@ -89,10 +91,10 @@ struct Session {
 }
 
 impl Session {
-    pub fn new_streamer(id: String, credentials: SessionCredentials) -> Self {
-        // let mut rng = thread_rng();
+    pub fn new_streamer(credentials: SessionCredentials) -> Self {
+        let mut rng = thread_rng();
 
-        // let id: String = rng.sample_iter(Alphanumeric).take(12).map(char::from).collect();
+        let id: String = rng.sample_iter(Alphanumeric).take(12).map(char::from).collect();
 
         Session {
             id,
@@ -105,7 +107,10 @@ impl Session {
         }
     }
 
-    pub fn new_viewer(id: String, target_id: String, credentials: SessionCredentials) -> Self {
+    pub fn new_viewer(target_id: String, credentials: SessionCredentials) -> Self {
+        let mut rng = thread_rng();
+
+        let id: String = rng.sample_iter(Alphanumeric).take(12).map(char::from).collect();
         Session {
             id,
             ttl: Instant::now(),
