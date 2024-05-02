@@ -97,7 +97,7 @@ pub struct Session {
     pub id: ResourceID,
     pub ttl: Instant,
     client: Option<Client>,
-    credentials: SessionCredentials,
+    pub credentials: SessionCredentials,
     connection_type: ConnectionType,
 }
 

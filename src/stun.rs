@@ -1,8 +1,9 @@
-use std::io::{BufReader, Read};
+use std::io::{BufReader, BufWriter, Error, Read, Write};
+use std::net::SocketAddr;
 
-use byteorder::{BigEndian, ReadBytesExt};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use crate::ice_registry::SessionUsername;
+use crate::ice_registry::{SessionCredentials, SessionUsername};
 
 pub fn parse_stun_packet(packet: &[u8]) -> Option<StunBindingRequest> {
     if packet.len() < STUN_HEADER_LEN {
@@ -67,6 +68,9 @@ pub fn parse_stun_packet(packet: &[u8]) -> Option<StunBindingRequest> {
             StunAttributeType::Unknown => {
                 attributes.push(StunAttribute::Unknown)
             }
+            StunAttributeType::XORMappedAddress => {
+                attributes.push(StunAttribute::Unknown)
+            }
         }
     }
 
@@ -76,14 +80,6 @@ pub fn parse_stun_packet(packet: &[u8]) -> Option<StunBindingRequest> {
     });
 }
 
-
-fn pad_to_4bytes(value: u16) -> u16 {
-    let modulo = value % 4;
-    match modulo {
-        0 => value,
-        _ => value + 4 - modulo
-    }
-}
 
 pub fn parse_binding_request(stun_message: StunBindingRequest) -> Option<ICEStunMessageType> {
     let message_integrity = stun_message.attributes.iter().find_map(|attr| match attr {
@@ -118,6 +114,79 @@ pub fn parse_binding_request(stun_message: StunBindingRequest) -> Option<ICEStun
     }
 }
 
+pub fn create_stun_success(credentials: &SessionCredentials, transaction_id: [u8; STUN_TRANSACTION_ID_LEN], remote: &SocketAddr, mut buffer: &mut [u8]) -> Result<usize, Error> {
+    let mut writer = BufWriter::new(buffer);
+    writer.write_u16::<BigEndian>(StunType::SuccessResponse as u16)?; // Success Response
+
+    let xor_address_attr_length: usize = match remote {
+        SocketAddr::V4(_) => 12,
+        SocketAddr::V6(_) => 24
+    };
+
+    let message_length = xor_address_attr_length;
+    writer.write_u16::<BigEndian>(message_length as u16)?;
+    writer.write_u32::<BigEndian>(STUN_COOKIE)?;
+    writer.write(&transaction_id)?;
+    println!("{:?}", writer.buffer());
+
+    compute_xor_mapped_address(remote, transaction_id)?;
+    Ok(1)
+}
+
+fn compute_xor_mapped_address(remote: &SocketAddr, transaction_id: [u8; STUN_TRANSACTION_ID_LEN]) -> Result<Vec<u8>, Error> {
+    let mut buffer = vec![];
+    match remote {
+        SocketAddr::V4(remote_addr) => {
+            buffer.write_u16::<BigEndian>(StunAttributeType::XORMappedAddress as u16)?; // Type
+            buffer.write_u16::<BigEndian>(8)?; // Length
+            buffer.write_u8(0)?; // First byte needs to be unset
+            buffer.write_u8(0x01)?; // IPv4
+
+
+            let masked_port = remote_addr.port() ^ (STUN_COOKIE >> 16) as u16; // Mask with first 16-most-significant-bits
+            let mut masked_address = remote_addr.ip().octets();
+            xor_range(&mut masked_address, &mut STUN_COOKIE.to_be_bytes());
+
+            buffer.write_u16::<BigEndian>(masked_port)?;
+            buffer.write(&masked_address)?;
+        }
+        SocketAddr::V6(remote_addr) => {
+            buffer.write_u16::<BigEndian>(StunAttributeType::XORMappedAddress as u16)?; // Type
+            buffer.write_u16::<BigEndian>(20)?; // Length
+            buffer.write_u8(0)?; // First byte needs to be unset
+            buffer.write_u8(0x02)?; // IPv6
+
+
+            let masked_port = remote_addr.port() ^ (STUN_COOKIE >> 16) as u16; // Mask with first 16-most-significant-bits
+            let mut masked_address = remote_addr.ip().octets();
+            let mut mask = vec![0; 16];
+            mask.write(&STUN_COOKIE.to_be_bytes())?;
+            mask.write(&transaction_id)?;
+
+            xor_range(&mut masked_address, &mask);
+
+            buffer.write_u16::<BigEndian>(masked_port)?;
+            buffer.write(&masked_address)?;
+        }
+    };
+
+    Ok(buffer)
+}
+
+fn xor_range(target: &mut [u8], xor: &[u8]) {
+    for i in 0..target.len() {
+        target[i] ^= xor[i];
+    }
+}
+
+fn pad_to_4bytes(value: u16) -> u16 {
+    let modulo = value % 4;
+    match modulo {
+        0 => value,
+        _ => value + 4 - modulo
+    }
+}
+
 #[derive(Debug)]
 pub struct StunBindingRequest {
     pub attributes: Vec<StunAttribute>,
@@ -145,6 +214,7 @@ enum StunAttributeType {
     MessageIntegrity = 0x8,
     IceControlling = 0x802a,
     UseCandidate = 0x25,
+    XORMappedAddress = 0x002,
     Unknown,
 }
 
