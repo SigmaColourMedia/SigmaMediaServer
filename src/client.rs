@@ -9,12 +9,14 @@ use openssl::ssl::{HandshakeError, MidHandshakeSslStream, SslAcceptor, SslStream
 
 use crate::client::ClientError::{IncompletePacketRead, OpenSslError};
 
+#[derive(Debug)]
 pub enum ClientSslState {
     Handshake(MidHandshakeSslStream<UDPPeerStream>),
     Established(SslStream<UDPPeerStream>),
     Shutdown,
 }
 
+#[derive(Debug)]
 pub struct Client {
     pub ssl_state: ClientSslState,
     pub remote_address: SocketAddr,

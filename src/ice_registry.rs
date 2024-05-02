@@ -48,40 +48,51 @@ impl SessionRegistry {
 
     pub fn add_streamer(&mut self, streamer: Session) -> Option<ResourceID> {
         let id = streamer.id.clone();
+
+        // Update username map
         self.username_map.insert(SessionUsername {
             host: streamer.credentials.host_username.clone(),
             remote: streamer.credentials.remote_username.clone(),
         }, id.clone());
-        self.sessions.insert(streamer.id.clone(), streamer);
-        self.rooms.insert(id.clone());
+        self.sessions.insert(streamer.id.clone(), streamer); // Update sessions map
+        self.rooms.insert(id.clone()); // Update rooms map
+
         Some(id)
     }
 
     pub fn add_viewer(&mut self, viewer: Session) -> Option<ResourceID> {
         let id = viewer.id.clone();
-        match viewer.connection_type {
-            ConnectionType::Viewer(viewer_session) => {
-                let target_id = &viewer_session.target_resource;
-                self.sessions.get_mut(target_id).and_then(|session| {
-                    match &mut session.connection_type {
-                        ConnectionType::Viewer(_) => None,
-                        ConnectionType::Streamer(streamer) => {
-                            self.username_map.insert(SessionUsername {
-                                host: viewer.credentials.host_username.clone(),
-                                remote: viewer.credentials.remote_username.clone(),
-                            }, id.clone());
 
-                            streamer.viewers_ids.push(viewer.id.clone());
-                            Some(id)
+        match &viewer.connection_type {
+            ConnectionType::Viewer(viewer_session) => {
+                self.sessions.get_mut(&viewer_session.target_resource).and_then(|session| {
+                    match &mut session.connection_type {
+                        ConnectionType::Streamer(streamer) => {
+                            // Add viewer to streamer's room
+                            streamer.viewers_ids.push(id.to_owned());
+                            Some(())
                         }
+                        ConnectionType::Viewer(_) => None,
                     }
                 })
             }
-            ConnectionType::Streamer(_) => None,
-        }
+            ConnectionType::Streamer(_) => None
+        }.map(|_| {
+
+            // Update username map
+            self.username_map.insert(SessionUsername {
+                host: viewer.credentials.host_username.clone(),
+                remote: viewer.credentials.remote_username.clone(),
+            }, id.to_owned());
+
+            // Update sessions Hashmap
+            self.sessions.insert(id.to_owned(), viewer);
+            id.clone()
+        })
     }
 }
 
+#[derive(Debug)]
 pub struct Session {
     pub id: ResourceID,
     pub ttl: Instant,
@@ -120,20 +131,24 @@ impl Session {
     }
 }
 
+#[derive(Debug)]
 enum ConnectionType {
     Viewer(Viewer),
     Streamer(Streamer),
 }
 
+#[derive(Debug)]
 struct Viewer {
     target_resource: ResourceID,
 }
 
+#[derive(Debug)]
 struct Streamer {
     viewers_ids: Vec<ResourceID>,
     sdp: SDP,
 }
 
+#[derive(Debug)]
 pub struct SessionCredentials {
     pub remote_username: String,
     pub host_username: String,
@@ -142,6 +157,6 @@ pub struct SessionCredentials {
 
 #[derive(Hash, Eq, PartialEq, Debug)]
 pub struct SessionUsername {
-    remote: String,
-    host: String,
+    pub(crate) remote: String,
+    pub(crate) host: String,
 }

@@ -67,7 +67,7 @@ a=fingerprint:sha-256 {fingerprint}\r\n");
         let rest = media.attributes.join("\r\n");
         media_header + &rest
     }).collect::<Vec<String>>().join("\r\n");
-    
+
 
     session_description + &media_description
 }
