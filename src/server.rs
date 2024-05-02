@@ -6,7 +6,7 @@ use openssl::ssl::SslAcceptor;
 
 use crate::client::Client;
 use crate::ice_registry::SessionRegistry;
-use crate::stun::{ICEStunMessageType, parse_binding_request, parse_stun_packet};
+use crate::stun::{create_stun_success, ICEStunMessageType, parse_binding_request, parse_stun_packet};
 
 pub struct Server {
     clients: HashMap<SocketAddr, Client>,
@@ -33,7 +33,11 @@ impl Server {
                     Some(message_type) => {
                         match message_type {
                             ICEStunMessageType::LiveCheck(msg) => {
-                                println!("received live check {:?}", msg)
+                                println!("received live check {:?}", msg);
+                                if let Some(session) = self.session_registry.get_session_by_username(&msg.username_attribute) {
+                                    let mut buffer: [u8; 44] = [0; 44];
+                                    create_stun_success(&session.credentials, msg.transaction_id, &remote, &mut buffer);
+                                }
                             }
                             ICEStunMessageType::Nomination(msg) => {
                                 println!("received nominate packet {:?}", msg)
