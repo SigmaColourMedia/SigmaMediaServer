@@ -3,23 +3,20 @@ use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
 
 use openssl::ssl::SslAcceptor;
-use tokio::sync::mpsc::Receiver;
 
 use crate::client::Client;
-use crate::http::SessionCommand;
 use crate::ice_registry::SessionRegistry;
-use crate::stun::parse_stun_packet;
+use crate::stun::{ICEStunMessageType, parse_binding_request, parse_stun_packet};
 
 pub struct Server {
     clients: HashMap<SocketAddr, Client>,
-    session_registry: SessionRegistry,
-    session_commands_receiver: Receiver<SessionCommand>,
+    pub session_registry: SessionRegistry,
     socket: Arc<UdpSocket>,
     acceptor: Arc<SslAcceptor>,
 }
 
 impl Server {
-    pub fn new(acceptor: Arc<SslAcceptor>, socket: Arc<UdpSocket>, receiver: Receiver<SessionCommand>) -> Self {
+    pub fn new(acceptor: Arc<SslAcceptor>, socket: Arc<UdpSocket>) -> Self {
         Server {
             clients: HashMap::new(),
             socket,
@@ -30,16 +27,31 @@ impl Server {
 
     pub fn listen(&mut self, data: &[u8], remote: SocketAddr) {
         println!("received packets from {} ", remote);
-        let stun_message = parse_stun_packet(data);
-        println!("stun msg {:?}", stun_message);
-
-        if let Some(client) = self.clients.get_mut(&remote) {
-            println!("already connected");
-            client.read_packet(data).unwrap();
-            return;
+        match parse_stun_packet(data) {
+            Some(binding_request) => {
+                match parse_binding_request(binding_request) {
+                    Some(message_type) => {
+                        match message_type {
+                            ICEStunMessageType::LiveCheck(msg) => {
+                                println!("received live check {:?}", msg)
+                            }
+                            ICEStunMessageType::Nomination(msg) => {
+                                println!("received nominate packet {:?}", msg)
+                            }
+                        }
+                    }
+                    None => {
+                        // todo Invalid binding request
+                    }
+                }
+            }
+            None => {
+                // todo Some other packet
+            }
         }
 
-        self.clients.insert(remote.clone(), Client::new(remote, self.acceptor.clone(), self.socket.clone()).unwrap());
+
+        // self.clients.insert(remote.clone(), Client::new(remote, self.acceptor.clone(), self.socket.clone()).unwrap());
 
 
         // println!("stun message {:?}", stun_message);

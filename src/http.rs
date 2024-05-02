@@ -227,6 +227,7 @@ impl std::fmt::Display for HttpError {
     }
 }
 
+#[derive(Debug)]
 pub enum SessionCommand {
     AddStreamer(Session),
     AddViewer(Session),

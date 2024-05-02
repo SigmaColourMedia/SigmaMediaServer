@@ -1,7 +1,7 @@
-use std::{io, thread};
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::UdpSocket;
 use std::sync::Arc;
+use std::thread;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -29,19 +29,32 @@ async fn main() {
     thread::spawn(move || {
         let socket = UdpSocket::bind("127.0.0.1:52000").unwrap();
         socket.set_nonblocking(true).unwrap();
+
         let socket = Arc::new(socket);
-        let mut server = Server::new(config.acceptor.clone(), socket.clone(), rx);
+        let mut server = Server::new(config.acceptor.clone(), socket.clone());
         loop {
             let mut buffer = [0; 3600];
             match socket.recv_from(&mut buffer) {
                 Ok((bytes_read, remote_addr)) => {
                     server.listen(&buffer[..bytes_read], remote_addr);
                 }
-                Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
-                    // println!("would block")
-                }
                 Err(err) => {
-                    eprintln!("Encountered socket IO error {}", err)
+                    match err.kind() {
+                        ErrorKind::WouldBlock => {
+                            if let Ok(command) = rx.try_recv() {
+                                match command {
+                                    SessionCommand::AddStreamer(session) => {
+                                        println!("adding streamer");
+                                        server.session_registry.add_streamer(session);
+                                    }
+                                    SessionCommand::AddViewer(_) => {}
+                                }
+                            }
+                        }
+                        _ => {
+                            eprintln!("Encountered socket IO error {}", err)
+                        }
+                    }
                 }
             }
         };
