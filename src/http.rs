@@ -1,5 +1,6 @@
 use std::fmt::{Display, Formatter};
 
+use tokio::fs;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::Sender;
@@ -33,6 +34,25 @@ impl HTTPServer {
                                     eprint!("Error writing a HTTP response {}", e)
                                 }
                             }
+                            HTTPMethod::OPTIONS => {
+                                if let Err(e) = write_cors_ok(&mut stream).await {
+                                    eprint!("Error writing a HTTP response {}", e)
+                                }
+                            }
+                            _ => {
+                                if let Err(err) = write_405_response(&mut stream).await {
+                                    eprint!("Error writing a HTTP response {}", err)
+                                }
+                            }
+                        }
+                    }
+                    "/" => {
+                        match &req.method {
+                            HTTPMethod::GET => {
+                                if let Err(e) = write_webpage(&mut stream).await {
+                                    eprint!("Error writing a HTTP response {}", e)
+                                }
+                            }
                             _ => {
                                 if let Err(err) = write_405_response(&mut stream).await {
                                     eprint!("Error writing a HTTP response {}", err)
@@ -48,6 +68,7 @@ impl HTTPServer {
                 };
             }
             None => {
+                println!("not a http rquest");
                 if let Err(err) = write_400_response(&mut stream).await {
                     eprint!("Error writing a HTTP response {}", err)
                 }
@@ -66,13 +87,17 @@ impl HTTPServer {
         };
 
         let answer = create_sdp_receive_answer(&sdp, &session_credentials, &self.fingerprint);
-        let session = Session::new_streamer(session_credentials, sdp);
 
+        let session = Session::new_streamer(session_credentials, sdp);
 
         let response = format!("HTTP/1.1 201 CREATED\r\n\
         content-length:{content_length}\r\n\
         content-type:application/sdp\r\n\
-        location: http://localhost:8080/whip?id={resource_id}\r\n\r\n\
+        location: http://localhost:8080/whip?id={resource_id}\r\n\
+        access-control-allow-origin:*\r\n\
+        access-control-allow-methods:OPTIONS,POST,GET\r\n\
+        access-control-max-age:2592000\r\n\
+        access-control-allow-headers:*\r\n\r\n\
         {answer}", content_length = answer.len(), resource_id = &session.id);
 
         stream.write_all(response.as_bytes()).await.or(Err(HttpError::InternalServerError))?;
@@ -84,25 +109,42 @@ impl HTTPServer {
     }
 }
 
-pub async fn handle_whip_request(request: Request, fingerprint: &str) -> Result<String, HttpError> {
-    Err(HttpError::MalformedRequest)
+async fn write_cors_ok(stream: &mut TcpStream) -> std::io::Result<()> {
+    let status_line = "HTTP/1.1 205 OK";
+
+    let response = format!("{status_line}\r\n\
+    access-control-allow-origin:*\r\n\
+access-control-allow-methods:OPTIONS,POST,GET\r\n\
+access-control-max-age:2592000\r\n\
+access-control-allow-headers:*\r\n\r\n");
+    stream.write_all(response.as_bytes()).await
 }
 
-pub async fn write_404_response(stream: &mut TcpStream) -> std::io::Result<()> {
+async fn write_webpage(stream: &mut TcpStream) -> std::io::Result<()> {
+    let contents = fs::read_to_string("./src/index.html").await?;
+    let response = format!("HTTP/1.1 200 OK\r\n\
+    content-length: {}\r\n\
+    content-type: text/html\r\n\r\n\
+    {}", contents.len(), contents);
+    stream.write_all(response.as_bytes()).await
+}
+
+
+async fn write_404_response(stream: &mut TcpStream) -> std::io::Result<()> {
     let status_line = "HTTP/1.1 404 NOT FOUND";
 
     let response = format! {"{status_line}\r\n\r\n"};
     stream.write_all(response.as_bytes()).await
 }
 
-pub async fn write_400_response(stream: &mut TcpStream) -> std::io::Result<()> {
+async fn write_400_response(stream: &mut TcpStream) -> std::io::Result<()> {
     let status_line = "HTTP/1.1 400 BAD REQUEST";
 
     let response = format! {"{status_line}\r\n\r\n"};
     stream.write_all(response.as_bytes()).await
 }
 
-pub async fn write_405_response(stream: &mut TcpStream) -> std::io::Result<()> {
+async fn write_405_response(stream: &mut TcpStream) -> std::io::Result<()> {
     let status_line = "HTTP/1.1 405 METHOD NOT ALLOWED";
 
     let response = format! {"{status_line}\r\n\r\n"};
@@ -112,7 +154,6 @@ pub async fn write_405_response(stream: &mut TcpStream) -> std::io::Result<()> {
 pub async fn parse_http_request(stream: &mut TcpStream) -> Option<Request> {
     let buf_reader = BufReader::new(stream);
     let mut lines = buf_reader.lines();
-
     let request_line = lines.next_line().await.ok().flatten()?;
 
     let req = request_line.split(" ").collect::<Vec<&str>>();
