@@ -42,8 +42,9 @@ impl SessionRegistry {
         self.username_map.get(session_username).map(|id| self.sessions.get(id)).flatten()
     }
 
-    pub fn get_session_by_address(&self, remote_address: &SocketAddr) -> Option<&Session> {
-        self.address_map.get(remote_address).and_then(|id| self.sessions.get(id))
+
+    pub fn get_session_by_address(&mut self, remote_address: &SocketAddr) -> Option<&mut Session> {
+        self.address_map.get(remote_address).and_then(|id| self.sessions.get_mut(id))
     }
 
     pub fn add_streamer(&mut self, streamer: Session) -> Option<ResourceID> {

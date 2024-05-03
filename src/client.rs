@@ -158,15 +158,7 @@ impl Read for UDPPeerStream {
 
 impl Write for UDPPeerStream {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let buffer = Vec::from(buf);
-        println!("writing");
-
-
-        match { self.socket.send_to(buf, self.remote) } {
-            Ok(_) => println!("sent data"),
-            Err(e) => println!("blocked by {}", e)
-        }
-        Ok(buf.len())
+        self.socket.send_to(buf, self.remote).and_then(|_| Ok(buf.len()))
     }
 
     fn flush(&mut self) -> io::Result<()> {

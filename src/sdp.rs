@@ -48,6 +48,8 @@ pub fn create_sdp_receive_answer(sdp: &SDP, credentials: &SessionCredentials, fi
 
     let session_description = format!("v=0\r\n\
 o=sigma 2616320411 0 IN IP4 127.0.0.1\r\n\
+s=-\r\n\
+t=0 0\r\n\
 a=group:{group}\r\n\
 a=setup:passive\r\n\
 a=ice-ufrag:{host_username}\r\n\
@@ -68,7 +70,7 @@ a=fingerprint:sha-256 {fingerprint}\r\n");
     }).collect::<Vec<String>>().join("\r\n");
 
 
-    session_description + &media_description
+    session_description + &media_description + "\r\n"
 }
 
 #[derive(Debug)]
@@ -92,4 +94,4 @@ const ICE_PASSWORD_ATTRIBUTE_PREFIX: &str = "a=ice-pwd:";
 const GROUP_ATTRIBUTE_PREFIX: &str = "a=group:";
 const MEDIA_LINE_PREFIX: &str = "m=";
 
-const WHITELISTED_ATTRIBUTES: [&str; 8] = ["m=", "a=ssrc", "a=msid", "a=rtcp-mux", "a=rtpmap", "a=fmtp", "a=mid", "a=rtcp"];
+const WHITELISTED_ATTRIBUTES: [&str; 9] = ["m=", "a=ssrc", "a=msid", "a=rtcp-mux", "a=rtpmap", "a=fmtp", "a=mid", "a=rtcp", "a=rtcp-fb"];

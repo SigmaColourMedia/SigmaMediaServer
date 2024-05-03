@@ -26,7 +26,6 @@ impl Server {
     }
 
     pub fn listen(&mut self, data: &[u8], remote: SocketAddr) {
-        println!("received packets from {} ", remote);
         match parse_stun_packet(data) {
             Some(binding_request) => {
                 match parse_binding_request(binding_request) {
@@ -47,24 +46,28 @@ impl Server {
                             ICEStunMessageType::Nomination(msg) => {
                                 println!("received nominate packet {:?}", msg.transaction_id);
 
-                                // Nominate new clients
-                                if let Some(session) = self.session_registry.get_session_by_username(&msg.username_attribute) {
-                                    if let None = &session.client {
+                                if let Some(resource_id) = self.session_registry.get_session_by_username(&msg.username_attribute).map(|session| session.id.clone()) {
+                                    let is_new_client = self.session_registry.get_session(&resource_id).map(|session| session.client.is_none()).unwrap();
+
+                                    if is_new_client {
+                                        println!("adding new client");
                                         let client = Client::new(remote.clone(), self.acceptor.clone(), self.socket.clone());
+
                                         if let Ok(client) = client {
-                                            self.session_registry.nominate_client(client, &session.id);
+                                            self.session_registry.nominate_client(client, &resource_id);
                                         }
                                     }
 
+                                    let credentials = &self.session_registry.get_session(&resource_id).unwrap().credentials;
                                     // Send OK response
                                     let mut buffer: [u8; 84] = [0; 84];
-                                    if let Ok(bytes_written) = create_stun_success(&session.credentials, msg.transaction_id, &remote, &mut buffer) {
+                                    if let Ok(bytes_written) = create_stun_success(credentials, msg.transaction_id, &remote, &mut buffer) {
                                         let output_buffer = &buffer[0..bytes_written];
                                         if let Err(error) = self.socket.send_to(output_buffer, remote) {
                                             eprintln!("Error writing to remote {}", error)
                                         }
                                     }
-                                }
+                                };
                             }
                         }
                     }
@@ -74,48 +77,19 @@ impl Server {
                 }
             }
             None => {
-                if let Some(session) = self.session_registry.get_session_by_address(&remote) {
-                    println!("some other packet")
+                if let Some(client) = self.session_registry.get_session_by_address(&remote).and_then(|session| session.client.as_mut()) {
+                    let mut buffer = [0u8; 400];
+                    if let Ok(bytes_read) = client.read_packet(data) {} else {
+                        println!("error reading packet")
+                    }
                 }
+                // if let Some(client) = self.clients.get_mut(&remote) {
+                //     client.read_packet(data);
+                // } else {
+                //     self.clients.insert(remote.clone(), Client::new(remote.clone(), self.acceptor.clone(), self.socket.clone()).unwrap());
+                // }
             }
         }
-
-
-        // self.clients.insert(remote.clone(), Client::new(remote, self.acceptor.clone(), self.socket.clone()).unwrap());
-
-
-        // println!("stun message {:?}", stun_message);
-        // if let Some(client) = self.clients.get_mut(&remote) {
-        //     if let ClientSslState::Established(ssl_stream) = &client.ssl_state {
-        //         println!("ssl state {:?}", ssl_stream);
-        //         return;
-        //     }
-        //     if let Err(err) = client.read_packet(data) {
-        //         return println!("Error reading client packet at {} : {}", remote, err);
-        //     }
-        //
-        //
-        //     let outgoing_packets = client.take_outgoing_packets();
-        //     for packet in outgoing_packets {
-        //         println!("sending packet to {}", remote);
-        //         self.socket.send_to(&packet, remote).await.unwrap();
-        //     }
-        // } else {
-        //     match self.clients.entry(remote) {
-        //         hash_map::Entry::Vacant(vacant) => {
-        //             println!(
-        //                 "beginning client data channel connection with {}",
-        //                 remote,
-        //             );
-        //
-        //             vacant.insert(
-        //                 Client::new(remote, self.acceptor.clone())
-        //                     .expect("could not create new client instance"),
-        //             );
-        //         }
-        //         hash_map::Entry::Occupied(_) => {}
-        //     }
-        // }
     }
 }
 

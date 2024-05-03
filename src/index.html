@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<video id="local_video">
+    <script>
+
+        const mediaConstraints = {
+            audio: true, // We want an audio track
+            video: true, // And we want a video track
+        };
+
+        async function main() {
+            const conn = new RTCPeerConnection({iceTransportPolicy: "all", bundlePolicy: "max-bundle"})
+            const localStream = await navigator.mediaDevices
+                .getUserMedia(mediaConstraints)
+            document.getElementById("local_video").srcObject = localStream;
+            localStream
+                .getTracks()
+                .forEach((track) => conn.addTrack(track, localStream));
+            const offer = await conn.createOffer()
+            await conn.setLocalDescription(offer)
+            console.log({offer, conn})
+
+            const res = await fetch("http://localhost:8080/whip", {
+                method: "POST",
+                body: offer.sdp
+            })
+            const answer = await res.text();
+            conn.onicecandidate = console.log
+
+            await conn.setRemoteDescription({sdp: answer, type: "answer"})
+            console.log(answer, conn    )
+
+            // const otherConn = new RTCPeerConnection()
+            // await otherConn.setRemoteDescription(offer)
+            // const otherAnsw = await otherConn.createAnswer()
+            // await otherConn.setLocalDescription(otherAnsw)
+            // console.log(otherAnsw.sdp)
+
+        }
+
+        main()
+    </script>
+</body>
+</html>
