@@ -33,10 +33,15 @@ impl Server {
                     Some(message_type) => {
                         match message_type {
                             ICEStunMessageType::LiveCheck(msg) => {
-                                println!("received live check {:?}", msg);
+                                println!("received live check {:?}", msg.transaction_id);
                                 if let Some(session) = self.session_registry.get_session_by_username(&msg.username_attribute) {
-                                    let mut buffer: [u8; 44] = [0; 44];
-                                    create_stun_success(&session.credentials, msg.transaction_id, &remote, &mut buffer);
+                                    let mut buffer: [u8; 84] = [0; 84];
+                                    if let Ok(bytes_written) = create_stun_success(&session.credentials, msg.transaction_id, &remote, &mut buffer) {
+                                        let output_buffer = &buffer[0..bytes_written];
+                                        if let Err(error) = self.socket.send_to(output_buffer, remote) {
+                                            eprintln!("Error writing to remote {}", error)
+                                        }
+                                    }
                                 }
                             }
                             ICEStunMessageType::Nomination(msg) => {
