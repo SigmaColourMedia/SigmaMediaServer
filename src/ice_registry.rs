@@ -35,15 +35,15 @@ impl SessionRegistry {
         })
     }
 
-    pub fn get_session(&mut self, id: &ResourceID) -> Option<&mut Session> {
-        self.sessions.get_mut(id)
+    pub fn get_session(&self, id: &ResourceID) -> Option<&Session> {
+        self.sessions.get(id)
     }
-    pub fn get_session_by_username(&mut self, session_username: &SessionUsername) -> Option<&mut Session> {
-        self.username_map.get(session_username).map(|id| self.sessions.get_mut(id)).flatten()
+    pub fn get_session_by_username(&self, session_username: &SessionUsername) -> Option<&Session> {
+        self.username_map.get(session_username).map(|id| self.sessions.get(id)).flatten()
     }
 
-    pub fn get_session_by_address(&mut self, remote_address: &SocketAddr) -> Option<&mut Session> {
-        self.address_map.get(remote_address).and_then(|id| self.sessions.get_mut(id))
+    pub fn get_session_by_address(&self, remote_address: &SocketAddr) -> Option<&Session> {
+        self.address_map.get(remote_address).and_then(|id| self.sessions.get(id))
     }
 
     pub fn add_streamer(&mut self, streamer: Session) -> Option<ResourceID> {
@@ -96,7 +96,7 @@ impl SessionRegistry {
 pub struct Session {
     pub id: ResourceID,
     pub ttl: Instant,
-    client: Option<Client>,
+    pub client: Option<Client>,
     pub credentials: SessionCredentials,
     connection_type: ConnectionType,
 }

@@ -136,7 +136,6 @@ pub fn create_stun_success(credentials: &SessionCredentials, transaction_id: [u8
 
     let mut message_integrity_attr_buffer = [0u8; 24];
     write_message_integrity_attribute(&mut message_integrity_attr_buffer, writer.buffer(), &credentials.host_password);
-    println!("msg integrity {:?}", message_integrity_attr_buffer);
     writer.write(&message_integrity_attr_buffer)?;
 
     let bytes_written = writer.buffer().len();
@@ -148,7 +147,6 @@ pub fn create_stun_success(credentials: &SessionCredentials, transaction_id: [u8
 // todo handle unwraps
 fn write_message_integrity_attribute(mut buffer: &mut [u8], input: &[u8], key: &str) -> usize {
     let key = PKey::hmac(key.as_bytes()).unwrap();
-    println!("input to hash {:?} and len {}", input, input.len());
 
     let mut signer = Signer::new(MessageDigest::sha1(), &key).unwrap();
     signer.update(input).unwrap();

@@ -33,7 +33,7 @@ impl Server {
                     Some(message_type) => {
                         match message_type {
                             ICEStunMessageType::LiveCheck(msg) => {
-                                println!("received live check {:?}", msg.transaction_id);
+                                println!("received live check");
                                 if let Some(session) = self.session_registry.get_session_by_username(&msg.username_attribute) {
                                     let mut buffer: [u8; 84] = [0; 84];
                                     if let Ok(bytes_written) = create_stun_success(&session.credentials, msg.transaction_id, &remote, &mut buffer) {
@@ -45,7 +45,26 @@ impl Server {
                                 }
                             }
                             ICEStunMessageType::Nomination(msg) => {
-                                println!("received nominate packet {:?}", msg)
+                                println!("received nominate packet {:?}", msg.transaction_id);
+
+                                // Nominate new clients
+                                if let Some(session) = self.session_registry.get_session_by_username(&msg.username_attribute) {
+                                    if let None = &session.client {
+                                        let client = Client::new(remote.clone(), self.acceptor.clone(), self.socket.clone());
+                                        if let Ok(client) = client {
+                                            self.session_registry.nominate_client(client, &session.id);
+                                        }
+                                    }
+
+                                    // Send OK response
+                                    let mut buffer: [u8; 84] = [0; 84];
+                                    if let Ok(bytes_written) = create_stun_success(&session.credentials, msg.transaction_id, &remote, &mut buffer) {
+                                        let output_buffer = &buffer[0..bytes_written];
+                                        if let Err(error) = self.socket.send_to(output_buffer, remote) {
+                                            eprintln!("Error writing to remote {}", error)
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -55,7 +74,9 @@ impl Server {
                 }
             }
             None => {
-                // todo Some other packet
+                if let Some(session) = self.session_registry.get_session_by_address(&remote) {
+                    println!("some other packet")
+                }
             }
         }
 

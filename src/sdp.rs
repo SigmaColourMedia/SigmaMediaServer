@@ -2,7 +2,6 @@ use crate::ice_registry::SessionCredentials;
 
 pub fn parse_sdp(data: String) -> Option<SDP> {
     let mut lines = data.lines();
-    println!("sdp {:?}", data);
     let remote_username = lines.clone().find(|line| line.starts_with(ICE_USERNAME_ATTRIBUTE_PREFIX)).and_then(|line| line.split_once(":").map(|line| line.1))?.to_owned();
     let remote_password = lines.clone().find(|line| line.starts_with(ICE_PASSWORD_ATTRIBUTE_PREFIX)).and_then(|line| line.split_once(":").map(|line| line.1))?.to_owned();
     let bundle = lines.clone().find(|line| line.starts_with(GROUP_ATTRIBUTE_PREFIX)).and_then(|line| line.split_once(":").map(|line| line.1))?.to_owned();
