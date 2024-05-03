@@ -2,6 +2,9 @@ use std::io::{BufReader, BufWriter, Error, Read, Write};
 use std::net::SocketAddr;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use openssl::hash::MessageDigest;
+use openssl::pkey::PKey;
+use openssl::sign::Signer;
 
 use crate::ice_registry::{SessionCredentials, SessionUsername};
 
@@ -114,7 +117,7 @@ pub fn parse_binding_request(stun_message: StunBindingRequest) -> Option<ICEStun
     }
 }
 
-pub fn create_stun_success(credentials: &SessionCredentials, transaction_id: [u8; STUN_TRANSACTION_ID_LEN], remote: &SocketAddr, mut buffer: &mut [u8]) -> Result<usize, Error> {
+pub fn create_stun_success(credentials: &SessionCredentials, transaction_id: [u8; STUN_TRANSACTION_ID_LEN], remote: &SocketAddr, buffer: &mut [u8]) -> Result<usize, Error> {
     let mut writer = BufWriter::new(buffer);
     writer.write_u16::<BigEndian>(StunType::SuccessResponse as u16)?; // Success Response
 
@@ -123,14 +126,35 @@ pub fn create_stun_success(credentials: &SessionCredentials, transaction_id: [u8
         SocketAddr::V6(_) => 24
     };
 
-    let message_length = xor_address_attr_length;
+    let message_length = xor_address_attr_length + 24;
     writer.write_u16::<BigEndian>(message_length as u16)?;
     writer.write_u32::<BigEndian>(STUN_COOKIE)?;
     writer.write(&transaction_id)?;
-    println!("{:?}", writer.buffer());
 
-    compute_xor_mapped_address(remote, transaction_id)?;
-    Ok(1)
+    let xor_attr = compute_xor_mapped_address(remote, transaction_id)?;
+    writer.write(&xor_attr)?;
+
+    let mut message_integrity_attr_buffer = [0u8; 24];
+    write_message_integrity_attribute(&mut message_integrity_attr_buffer, writer.buffer(), &credentials.host_password);
+    println!("msg integrity {:?}", message_integrity_attr_buffer);
+    writer.write(&message_integrity_attr_buffer)?;
+
+    let bytes_written = writer.buffer().len();
+    writer.flush().unwrap(); // Make sure all bytes are written to underlying buffer
+
+    Ok(bytes_written)
+}
+
+// todo handle unwraps
+fn write_message_integrity_attribute(mut buffer: &mut [u8], input: &[u8], key: &str) -> usize {
+    let key = PKey::hmac(key.as_bytes()).unwrap();
+    println!("input to hash {:?} and len {}", input, input.len());
+
+    let mut signer = Signer::new(MessageDigest::sha1(), &key).unwrap();
+    signer.update(input).unwrap();
+    buffer.write_u16::<BigEndian>(StunAttributeType::MessageIntegrity as u16).unwrap();
+    buffer.write_u16::<BigEndian>(20).unwrap();
+    signer.sign(&mut buffer).unwrap()
 }
 
 fn compute_xor_mapped_address(remote: &SocketAddr, transaction_id: [u8; STUN_TRANSACTION_ID_LEN]) -> Result<Vec<u8>, Error> {
@@ -159,9 +183,9 @@ fn compute_xor_mapped_address(remote: &SocketAddr, transaction_id: [u8; STUN_TRA
 
             let masked_port = remote_addr.port() ^ (STUN_COOKIE >> 16) as u16; // Mask with first 16-most-significant-bits
             let mut masked_address = remote_addr.ip().octets();
-            let mut mask = vec![0; 16];
-            mask.write(&STUN_COOKIE.to_be_bytes())?;
-            mask.write(&transaction_id)?;
+            let mut mask = [0; 16];
+            mask[0..4].copy_from_slice(&STUN_COOKIE.to_be_bytes());
+            mask[4..].copy_from_slice(&transaction_id);
 
             xor_range(&mut masked_address, &mask);
 
