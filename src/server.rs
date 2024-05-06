@@ -32,9 +32,9 @@ impl Server {
                     Some(message_type) => {
                         match message_type {
                             ICEStunMessageType::LiveCheck(msg) => {
-                                println!("received live check");
+                                println!("received live check {:?}", msg.transaction_id);
                                 if let Some(session) = self.session_registry.get_session_by_username(&msg.username_attribute) {
-                                    let mut buffer: [u8; 84] = [0; 84];
+                                    let mut buffer: [u8; 200] = [0; 200];
                                     if let Ok(bytes_written) = create_stun_success(&session.credentials, msg.transaction_id, &remote, &mut buffer) {
                                         let output_buffer = &buffer[0..bytes_written];
                                         if let Err(error) = self.socket.send_to(output_buffer, remote) {
@@ -60,7 +60,7 @@ impl Server {
 
                                     let credentials = &self.session_registry.get_session(&resource_id).unwrap().credentials;
                                     // Send OK response
-                                    let mut buffer: [u8; 84] = [0; 84];
+                                    let mut buffer: [u8; 200] = [0; 200];
                                     if let Ok(bytes_written) = create_stun_success(credentials, msg.transaction_id, &remote, &mut buffer) {
                                         let output_buffer = &buffer[0..bytes_written];
                                         if let Err(error) = self.socket.send_to(output_buffer, remote) {
@@ -78,6 +78,7 @@ impl Server {
             }
             None => {
                 if let Some(client) = self.session_registry.get_session_by_address(&remote).and_then(|session| session.client.as_mut()) {
+                    println!("some other packet");
                     let mut buffer = [0u8; 400];
                     if let Ok(bytes_read) = client.read_packet(data) {} else {
                         println!("error reading packet")

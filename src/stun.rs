@@ -1,7 +1,7 @@
 use std::io::{BufReader, BufWriter, Error, Read, Write};
 use std::net::SocketAddr;
 
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{BigEndian, ByteOrder, ReadBytesExt, WriteBytesExt};
 use openssl::hash::MessageDigest;
 use openssl::pkey::PKey;
 use openssl::sign::Signer;
@@ -68,10 +68,7 @@ pub fn parse_stun_packet(packet: &[u8]) -> Option<StunBindingRequest> {
             StunAttributeType::UseCandidate => {
                 attributes.push(StunAttribute::UseCandidate)
             }
-            StunAttributeType::Unknown => {
-                attributes.push(StunAttribute::Unknown)
-            }
-            StunAttributeType::XORMappedAddress => {
+            _ => {
                 attributes.push(StunAttribute::Unknown)
             }
         }
@@ -118,41 +115,109 @@ pub fn parse_binding_request(stun_message: StunBindingRequest) -> Option<ICEStun
 }
 
 pub fn create_stun_success(credentials: &SessionCredentials, transaction_id: [u8; STUN_TRANSACTION_ID_LEN], remote: &SocketAddr, buffer: &mut [u8]) -> Result<usize, Error> {
-    let mut writer = BufWriter::new(buffer);
-    writer.write_u16::<BigEndian>(StunType::SuccessResponse as u16)?; // Success Response
+    let (mut header, mut attributes) = buffer.split_at_mut(20);
 
-    let xor_address_attr_length: usize = match remote {
-        SocketAddr::V4(_) => 12,
-        SocketAddr::V6(_) => 24
-    };
-
-    let message_length = xor_address_attr_length + 24;
-    writer.write_u16::<BigEndian>(message_length as u16)?;
-    writer.write_u32::<BigEndian>(STUN_COOKIE)?;
-    writer.write(&transaction_id)?;
+    let mut username_attribute = [0u8; 120];
+    let username_attr_length = write_username_attribute(&mut username_attribute, credentials);
+    let username_attribute = &username_attribute[..username_attr_length];
 
     let xor_attr = compute_xor_mapped_address(remote, transaction_id)?;
-    writer.write(&xor_attr)?;
 
-    let mut message_integrity_attr_buffer = [0u8; 24];
-    write_message_integrity_attribute(&mut message_integrity_attr_buffer, writer.buffer(), &credentials.host_password);
-    writer.write(&message_integrity_attr_buffer)?;
+    let mut mapped_address_attribute = [0u8; 24];
+    let mapped_address_attribute_len = write_mapped_address_attribute(&mut mapped_address_attribute, remote);
+    let mapped_address_attribute = &mapped_address_attribute[..mapped_address_attribute_len];
 
-    let bytes_written = writer.buffer().len();
-    writer.flush().unwrap(); // Make sure all bytes are written to underlying buffer
+    let message_length = xor_attr.len() + STUN_MESSAGE_INTEGRITY_ATTRIBUTE_LEN + username_attr_length + mapped_address_attribute_len;
 
-    Ok(bytes_written)
+    BigEndian::write_u16(&mut header[..2], StunType::SuccessResponse as u16); // Write message type
+    BigEndian::write_u16(&mut header[2..4], message_length as u16); // Write message length
+    BigEndian::write_u32(&mut header[4..8], STUN_COOKIE); // Write MAGIC Cookie
+    header[8..20].copy_from_slice(&transaction_id); // Write transaction id
+
+    let mut attributes_writer = BufWriter::new(attributes);
+
+    attributes_writer.write(username_attribute)?;
+    attributes_writer.write(&xor_attr)?;
+    attributes_writer.write(&mapped_address_attribute)?;
+
+    let mut message_integrity_attribute = [0u8; 24];
+    write_message_integrity_attribute(&mut message_integrity_attribute, header, attributes_writer.buffer(), &credentials.host_password);
+    attributes_writer.write(&message_integrity_attribute)?;
+
+    attributes_writer.flush()?;
+    std::mem::drop(attributes_writer);
+
+    BigEndian::write_u16(&mut header[2..4], message_length as u16 + 8); // Write message length
+
+    let fingerprint = crc32fast::hash(&buffer[..20 + message_length]) ^ 0x5354554e;
+    let mut fingerprint_attribute = [0u8; 8];
+    BigEndian::write_u16(&mut fingerprint_attribute[..2], StunAttributeType::Fingerprint as u16);
+    BigEndian::write_u16(&mut fingerprint_attribute[2..4], 0x4);
+    BigEndian::write_u32(&mut fingerprint_attribute[4..], fingerprint);
+    buffer[STUN_HEADER_LEN + message_length..STUN_HEADER_LEN + message_length + fingerprint_attribute.len()].copy_from_slice(&mut fingerprint_attribute);
+
+    // println!("message length is {}", message_length);
+    // println!("fingerprint {:?}", fingerprint_attribute);
+    //
+    // println!("the buffer is {:?}", &buffer[..message_length + fingerprint_attribute.len() + 20]);
+
+    Ok(STUN_HEADER_LEN + message_length + 8)
 }
 
 // todo handle unwraps
-fn write_message_integrity_attribute(mut buffer: &mut [u8], input: &[u8], key: &str) -> usize {
+fn write_message_integrity_attribute(mut buffer: &mut [u8], header: &[u8], attributes: &[u8], key: &str) -> usize {
     let key = PKey::hmac(key.as_bytes()).unwrap();
 
     let mut signer = Signer::new(MessageDigest::sha1(), &key).unwrap();
-    signer.update(input).unwrap();
+    signer.update(header).unwrap();
+    signer.update(attributes).unwrap();
     buffer.write_u16::<BigEndian>(StunAttributeType::MessageIntegrity as u16).unwrap();
     buffer.write_u16::<BigEndian>(20).unwrap();
     signer.sign(&mut buffer).unwrap()
+}
+
+
+fn write_username_attribute(buffer: &mut [u8], credentials: &SessionCredentials) -> usize {
+    let mut writer = BufWriter::new(buffer);
+    writer.write_u16::<BigEndian>(StunAttributeType::Username as u16).unwrap();
+    let mut username = format!("{}:{}", credentials.host_username, credentials.remote_username);
+    writer.write_u16::<BigEndian>(username.len() as u16).unwrap();
+
+    let padded_length = pad_to_4bytes(username.len() as u16) as usize;
+    if padded_length > username.len() {
+        username.push_str(&"\0".repeat(padded_length - username.len()));
+        writer.write(username.as_bytes()).unwrap();
+    }
+    let buff_len = writer.buffer().len();
+
+    writer.flush().unwrap();
+    buff_len
+}
+
+fn write_mapped_address_attribute(buffer: &mut [u8], remote: &SocketAddr) -> usize {
+    let mut writer = BufWriter::new(buffer);
+    writer.write_u16::<BigEndian>(StunAttributeType::MappedAddress as u16).unwrap();
+
+    match remote {
+        SocketAddr::V4(remote_addr) => {
+            writer.write_u16::<BigEndian>(0x8).unwrap(); // Message length
+            writer.write_u8(0x0).unwrap();
+            writer.write_u8(0x01).unwrap();
+            writer.write_u16::<BigEndian>(remote_addr.port()).unwrap();
+            writer.write(&remote_addr.ip().octets()).unwrap();
+        }
+        SocketAddr::V6(remote_addr) => {
+            writer.write_u16::<BigEndian>(0x14).unwrap(); // Message length
+            writer.write_u8(0x0).unwrap();
+            writer.write_u8(0x2).unwrap();
+            writer.write_u16::<BigEndian>(remote_addr.port()).unwrap();
+            writer.write(&remote_addr.ip().octets()).unwrap();
+        }
+    };
+
+    let bytes_written = writer.buffer().len();
+    writer.flush().unwrap();
+    bytes_written
 }
 
 fn compute_xor_mapped_address(remote: &SocketAddr, transaction_id: [u8; STUN_TRANSACTION_ID_LEN]) -> Result<Vec<u8>, Error> {
@@ -232,11 +297,13 @@ pub struct ICEStunPacket {
 
 #[derive(Debug)]
 enum StunAttributeType {
+    MappedAddress = 0x1,
     Username = 0x6,
     MessageIntegrity = 0x8,
     IceControlling = 0x802a,
     UseCandidate = 0x25,
-    XORMappedAddress = 0x002,
+    XORMappedAddress = 0x020,
+    Fingerprint = 0x8028,
     Unknown,
 }
 
@@ -257,6 +324,8 @@ pub enum StunAttribute {
 
 
 const STUN_MESSAGE_INTEGRITY_LEN: usize = 20;
+const STUN_MESSAGE_INTEGRITY_ATTRIBUTE_LEN: usize = 24;
+
 const STUN_TRANSACTION_ID_LEN: usize = 12;
 const STUN_HEADER_LEN: usize = 20;
 const STUN_ALIGNMENT: usize = 4;
