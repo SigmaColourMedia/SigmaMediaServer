@@ -1,6 +1,7 @@
 use crate::ice_registry::SessionCredentials;
 
 pub fn parse_sdp(data: String) -> Option<SDP> {
+    println!("{data}");
     let mut lines = data.lines();
     let remote_username = lines.clone().find(|line| line.starts_with(ICE_USERNAME_ATTRIBUTE_PREFIX)).and_then(|line| line.split_once(":").map(|line| line.1))?.to_owned();
     let remote_password = lines.clone().find(|line| line.starts_with(ICE_PASSWORD_ATTRIBUTE_PREFIX)).and_then(|line| line.split_once(":").map(|line| line.1))?.to_owned();
@@ -42,6 +43,7 @@ pub fn parse_sdp(data: String) -> Option<SDP> {
     })
 }
 
+// todo handle unwraps
 pub fn create_sdp_receive_answer(sdp: &SDP, credentials: &SessionCredentials, fingerprint: &str) -> String {
     let SDP { group, media_descriptions, .. } = &sdp;
     let SessionCredentials { host_password, host_username, .. } = &credentials;
@@ -59,14 +61,39 @@ a=ice-lite\r\n\
 a=fingerprint:sha-256 {fingerprint}\r\n");
 
     let media_description = media_descriptions.into_iter().map(|media| {
-        let media_header = format!("m={media_type} 52000 {proto} {fmt}\r\n\
-        c=IN IP4 127.0.0.1\r\n\
-        a=candidate:1 1 UDP 2122317823 127.0.0.1 52000 typ host\r\n\
-        a=end-of-candidates\r\n\
-        a=recvonly\r\n", media_type = media.media_type, proto = media.protocol, fmt = media.format);
-
-        let rest = media.attributes.join("\r\n");
-        media_header + &rest
+        match &media.media_type[..] {
+            "audio" => {
+                let audio_codec = media.attributes.iter().find(|line| line.ends_with("opus/48000/2")).unwrap();
+                let payload_number = audio_codec.split(" ").next().unwrap().split(":").nth(1).unwrap();
+                let media_header = format!("m=audio 52000 {proto} {fmt}\r\n\
+                c=IN IP4 127.0.0.1\r\n\
+a=recvonly\r\n\
+                a=candidate:1 1 UDP 2122317823 127.0.0.1 52000 typ host\r\n\
+                a=end-of-candidates\r\n\
+                {codec}\r\n\
+                a=mid:0\r\n\
+                a=rtcp-mux", proto = media.protocol, fmt = payload_number, codec = audio_codec);
+                media_header
+            }
+            "video" => {
+                let video_codec = media.attributes.iter().find(|line| line.ends_with("H264/90000")).unwrap();
+                let payload_number = video_codec.split(" ").next().unwrap().split(":").nth(1).unwrap();
+                let fmtp = media.attributes.iter().find(|line| line.starts_with(&format!("a=fmtp:{payload_number}"))).unwrap();
+                let msid = media.attributes.iter().find(|line| line.starts_with("a=msid:")).unwrap();
+                let rtcp_lines = media.attributes.iter().filter(|line| line.starts_with(&format!("a=rtcp-fb:{payload_number}"))).collect::<Vec<&String>>().iter().map(|&line| line.to_owned()).collect::<Vec<String>>().join("\r\n");
+                let media_header = format!("m=video 52000 {proto} {fmt}\r\n\
+                c=IN IP4 127.0.0.1\r\n\
+a=recvonly\r\n\
+                a=mid:1\r\n\
+                {codec}\r\n\
+                a=rtcp-mux\r\n\
+                {fmtp}\r\n\
+                {msid}\r\n\
+                {rtcp_lines}", proto = media.protocol, fmt = payload_number, codec = video_codec);
+                media_header
+            }
+            _ => panic!("Unrecognized media type")
+        }
     }).collect::<Vec<String>>().join("\r\n");
 
 
