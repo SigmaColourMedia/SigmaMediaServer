@@ -88,6 +88,8 @@ impl HTTPServer {
 
         let answer = create_sdp_receive_answer(&sdp, &session_credentials, &self.fingerprint);
 
+        println!("answer is {answer}");
+
         let session = Session::new_streamer(session_credentials, sdp);
 
         let response = format!("HTTP/1.1 201 CREATED\r\n\
