@@ -58,30 +58,34 @@ a=ice-ufrag:{host_username}\r\n\
 a=ice-pwd:{host_password}\r\n\
 a=ice-options:ice2\r\n\
 a=ice-lite\r\n\
+a=msid-semantic: WMS *\r\n\
 a=fingerprint:sha-256 {fingerprint}\r\n");
 
     let media_description = media_descriptions.into_iter().map(|media| {
         match &media.media_type[..] {
             "audio" => {
-                let audio_codec = media.attributes.iter().find(|line| line.ends_with("opus/48000/2")).unwrap();
+                let audio_codec = media.attributes.iter().find(|line| line.to_ascii_lowercase().ends_with("opus/48000/2")).unwrap();
                 let payload_number = audio_codec.split(" ").next().unwrap().split(":").nth(1).unwrap();
                 let media_header = format!("m=audio 52000 {proto} {fmt}\r\n\
+a=rtcp:52000 IN IP4 127.0.0.1\r\n\
                 c=IN IP4 127.0.0.1\r\n\
 a=recvonly\r\n\
                 a=candidate:1 1 UDP 2122317823 127.0.0.1 52000 typ host\r\n\
                 a=end-of-candidates\r\n\
                 {codec}\r\n\
                 a=mid:0\r\n\
-                a=rtcp-mux", proto = media.protocol, fmt = payload_number, codec = audio_codec);
+                a=rtcp-mux\r\n\
+                a=maxptime:60", proto = media.protocol, fmt = payload_number, codec = audio_codec);
                 media_header
             }
             "video" => {
-                let video_codec = media.attributes.iter().find(|line| line.ends_with("H264/90000")).unwrap();
+                let video_codec = media.attributes.iter().find(|line| line.to_ascii_lowercase().ends_with("h264/90000")).unwrap();
                 let payload_number = video_codec.split(" ").next().unwrap().split(":").nth(1).unwrap();
                 let fmtp = media.attributes.iter().find(|line| line.starts_with(&format!("a=fmtp:{payload_number}"))).unwrap();
                 let msid = media.attributes.iter().find(|line| line.starts_with("a=msid:")).unwrap();
                 let rtcp_lines = media.attributes.iter().filter(|line| line.starts_with(&format!("a=rtcp-fb:{payload_number}"))).collect::<Vec<&String>>().iter().map(|&line| line.to_owned()).collect::<Vec<String>>().join("\r\n");
                 let media_header = format!("m=video 52000 {proto} {fmt}\r\n\
+                a=rtcp:52000 IN IP4 127.0.0.1\r\n\
                 c=IN IP4 127.0.0.1\r\n\
 a=recvonly\r\n\
                 a=mid:1\r\n\
@@ -89,6 +93,7 @@ a=recvonly\r\n\
                 a=rtcp-mux\r\n\
                 {fmtp}\r\n\
                 {msid}\r\n\
+a=maxptime:60\r\n\
                 {rtcp_lines}", proto = media.protocol, fmt = payload_number, codec = video_codec);
                 media_header
             }

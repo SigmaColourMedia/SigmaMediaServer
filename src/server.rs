@@ -77,8 +77,9 @@ impl Server {
                 }
             }
             None => {
+                println!("some other packet");
+
                 if let Some(client) = self.session_registry.get_session_by_address(&remote).and_then(|session| session.client.as_mut()) {
-                    println!("some other packet");
                     let mut buffer = [0u8; 400];
                     if let Ok(bytes_read) = client.read_packet(data) {} else {
                         println!("error reading packet")
