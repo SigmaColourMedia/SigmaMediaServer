@@ -23,7 +23,11 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(remote: SocketAddr, acceptor: Arc<SslAcceptor>, socket: Arc<UdpSocket>) -> Result<Self, ErrorStack> {
+    pub fn new(
+        remote: SocketAddr,
+        acceptor: Arc<SslAcceptor>,
+        socket: Arc<UdpSocket>,
+    ) -> Result<Self, ErrorStack> {
         let udp_stream = UDPPeerStream::new(socket, remote.clone());
         match acceptor.accept(udp_stream) {
             Ok(_) => unreachable!("handshake cannot finish with no incoming packets"),
@@ -34,14 +38,17 @@ impl Client {
             Err(HandshakeError::WouldBlock(mid_handshake)) => Ok(Client {
                 ssl_state: ClientSslState::Handshake(mid_handshake),
                 remote_address: remote,
-            })
+            }),
         }
     }
 
     pub fn read_packet(&mut self, packet: &[u8]) -> Result<(), ClientError> {
         self.ssl_state = match mem::replace(&mut self.ssl_state, ClientSslState::Shutdown) {
             ClientSslState::Handshake(mut mid_handshake) => {
-                mid_handshake.get_mut().incoming_packets.push_back(Vec::from(packet));
+                mid_handshake
+                    .get_mut()
+                    .incoming_packets
+                    .push_back(Vec::from(packet));
                 match mid_handshake.handshake() {
                     Ok(ssl_stream) => {
                         println!("DTLS handshake finished for remote {}", self.remote_address);
@@ -66,7 +73,10 @@ impl Client {
                 }
             }
             ClientSslState::Established(mut ssl_stream) => {
-                ssl_stream.get_mut().incoming_packets.push_back(Vec::from(packet));
+                ssl_stream
+                    .get_mut()
+                    .incoming_packets
+                    .push_back(Vec::from(packet));
                 ClientSslState::Established(ssl_stream)
             }
             ClientSslState::Shutdown => ClientSslState::Shutdown,
@@ -76,7 +86,10 @@ impl Client {
             let mut my_buff = [0; 300];
             match ssl_stream.read(&mut my_buff) {
                 Ok(size) => {
-                    println!("read {}", String::from_utf8(Vec::from(&my_buff[..size])).unwrap());
+                    println!(
+                        "read {}",
+                        String::from_utf8(Vec::from(&my_buff[..size])).unwrap()
+                    );
                     break;
                 }
                 Err(e) => {
@@ -89,7 +102,6 @@ impl Client {
     }
 }
 
-
 #[derive(Debug)]
 pub enum ClientError {
     NotConnected,
@@ -97,7 +109,6 @@ pub enum ClientError {
     IncompletePacketRead,
     IncompletePacketWrite,
     OpenSslError(ErrorStack),
-
 }
 
 impl fmt::Display for ClientError {
@@ -143,10 +154,7 @@ impl Read for UDPPeerStream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if let Some(packet) = self.incoming_packets.pop_front() {
             if packet.len() > buf.len() {
-                return Err(Error::new(
-                    ErrorKind::Other,
-                    IncompletePacketRead,
-                ));
+                return Err(Error::new(ErrorKind::Other, IncompletePacketRead));
             }
             buf[0..packet.len()].copy_from_slice(&packet);
             Ok(packet.len())
@@ -158,11 +166,12 @@ impl Read for UDPPeerStream {
 
 impl Write for UDPPeerStream {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.socket.send_to(buf, self.remote).and_then(|_| Ok(buf.len()))
+        self.socket
+            .send_to(buf, self.remote)
+            .and_then(|_| Ok(buf.len()))
     }
 
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }
 }
-

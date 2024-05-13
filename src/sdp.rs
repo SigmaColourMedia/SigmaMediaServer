@@ -20,6 +20,7 @@ pub fn parse_sdp(data: String) -> Option<SDP> {
         media_descriptors[media_index].push(line)
     }
 
+
     let media_descriptors = media_descriptors.into_iter().map(|descriptor| {
         let mut iterator = descriptor.into_iter();
         let media_attribute: Vec<&str> = iterator.next()?.splitn(4, " ").collect();
@@ -70,7 +71,7 @@ a=fingerprint:sha-256 {fingerprint}\r\n");
 a=rtcp:52000 IN IP4 127.0.0.1\r\n\
                 c=IN IP4 127.0.0.1\r\n\
 a=recvonly\r\n\
-                a=candidate:1 1 UDP 2122317823 127.0.0.1 52000 typ host\r\n\
+                a=candidate:1 1 UDP 2122317823 192.168.0.157 52000 typ host\r\n\
                 a=end-of-candidates\r\n\
                 {codec}\r\n\
                 a=mid:0\r\n\
@@ -81,7 +82,6 @@ a=recvonly\r\n\
             "video" => {
                 let video_codec = media.attributes.iter().find(|line| line.to_ascii_lowercase().ends_with("h264/90000")).unwrap();
                 let payload_number = video_codec.split(" ").next().unwrap().split(":").nth(1).unwrap();
-                let fmtp = media.attributes.iter().find(|line| line.starts_with(&format!("a=fmtp:{payload_number}"))).unwrap();
                 let msid = media.attributes.iter().find(|line| line.starts_with("a=msid:")).unwrap();
                 let rtcp_lines = media.attributes.iter().filter(|line| line.starts_with(&format!("a=rtcp-fb:{payload_number}"))).collect::<Vec<&String>>().iter().map(|&line| line.to_owned()).collect::<Vec<String>>().join("\r\n");
                 let media_header = format!("m=video 52000 {proto} {fmt}\r\n\
@@ -91,7 +91,6 @@ a=recvonly\r\n\
                 a=mid:1\r\n\
                 {codec}\r\n\
                 a=rtcp-mux\r\n\
-                {fmtp}\r\n\
                 {msid}\r\n\
 a=maxptime:60\r\n\
                 {rtcp_lines}", proto = media.protocol, fmt = payload_number, codec = video_codec);
