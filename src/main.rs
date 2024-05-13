@@ -9,25 +9,25 @@ use tokio::sync::mpsc;
 
 use crate::acceptor::SSLConfig;
 use crate::http::{HTTPServer, SessionCommand};
+use crate::ice_registry::ConnectionType;
 use crate::server::Server;
 
 mod acceptor;
-mod server;
 mod client;
-mod stun;
 mod http;
 mod ice_registry;
-mod sdp;
 mod rnd;
+mod sdp;
+mod server;
+mod stun;
 
 #[tokio::main]
 async fn main() {
     let config = SSLConfig::new();
     let (tx, mut rx) = mpsc::channel::<SessionCommand>(1000);
 
-
     thread::spawn(move || {
-        let socket = UdpSocket::bind("127.0.0.1:52000").unwrap();
+        let socket = UdpSocket::bind("192.168.0.157:52000").unwrap();
         socket.set_nonblocking(true).unwrap();
 
         let socket = Arc::new(socket);
@@ -38,30 +38,44 @@ async fn main() {
                 Ok((bytes_read, remote_addr)) => {
                     server.listen(&buffer[..bytes_read], remote_addr);
                 }
-                Err(err) => {
-                    match err.kind() {
-                        ErrorKind::WouldBlock => {
-                            if let Ok(command) = rx.try_recv() {
-                                match command {
-                                    SessionCommand::AddStreamer(session) => {
-                                        println!("adding streamer");
-                                        server.session_registry.add_streamer(session);
-                                    }
-                                    SessionCommand::AddViewer(_) => {}
+                Err(err) => match err.kind() {
+                    ErrorKind::WouldBlock => {
+                        if let Ok(command) = rx.try_recv() {
+                            match command {
+                                SessionCommand::AddStreamer(session) => {
+                                    server.session_registry.add_streamer(session);
+                                }
+                                SessionCommand::AddViewer(session) => {
+                                    server.session_registry.add_viewer(session).unwrap();
+                                }
+                                SessionCommand::GetRooms(sender) => {
+                                    let rooms = server.session_registry.get_rooms();
+                                    sender.blocking_send(rooms).unwrap()
+                                }
+                                SessionCommand::GetStreamSDP((sender, stream_id)) => {
+                                    let stream_sdp = server
+                                        .session_registry
+                                        .get_session(&stream_id)
+                                        .and_then(|session| match &session.connection_type {
+                                            ConnectionType::Viewer(_) => None,
+                                            ConnectionType::Streamer(streamer) => {
+                                                Some(streamer.sdp.clone())
+                                            }
+                                        });
+                                    sender.send(stream_sdp).unwrap()
                                 }
                             }
                         }
-                        _ => {
-                            eprintln!("Encountered socket IO error {}", err)
-                        }
                     }
-                }
+                    _ => {
+                        eprintln!("Encountered socket IO error {}", err)
+                    }
+                },
             }
-        };
+        }
     });
 
-
-    let tcp_server = TcpListener::bind("127.0.0.1:8080").await.unwrap();
+    let tcp_server = TcpListener::bind("localhost:8080").await.unwrap();
     let http_server = Arc::new(HTTPServer::new(config.fingerprint.clone(), tx.clone()));
 
     loop {
@@ -73,5 +87,3 @@ async fn main() {
         }
     }
 }
-
-
