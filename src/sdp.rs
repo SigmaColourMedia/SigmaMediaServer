@@ -197,7 +197,7 @@ pub struct MediaDescription {
 
 // **** New implementation *****
 
-fn parse_sdp_2(data: String) -> Option<SDPD2> {
+pub fn parse_sdp_2(data: String) -> Option<SDPD2> {
     let mut lines = data.lines();
     let remote_username = lines
         .clone()
@@ -332,11 +332,12 @@ pub fn create_sdp_receive_answer_2(
         "m=audio 52000 UDP/TLS/RTP/SAVPF {payload_number}\r\n\
         c=IN IP4 192.168.0.157\r\n\
         a=recvonly\r\n\
+        a=rtcp-mux\r\n\
         a=candidate:1 1 UDP 2122317823 192.168.0.157 52000 typ host\r\n\
         a=end-of-candidates\r\n\
         {mid_attr}\r\n\
         {rtpmap_attr}\r\n\
-        {fmtp_attr}",
+        {fmtp_attr}\r\n",
         payload_number = audio_media.payload_number,
         mid_attr = find_audio_attr("a=mid:"),
         rtpmap_attr = find_audio_attr(&format!("a=rtpmap:{}", audio_media.payload_number)),
@@ -351,11 +352,27 @@ pub fn create_sdp_receive_answer_2(
             .unwrap()
     };
 
-    String::new()
+    let video_media_description = format!(
+        "m=video 52000 UDP/TLS/RTP/SAVPF {payload_number}\r\n\
+        c=IN IP4 192.168.0.157\r\n\
+        a=recvonly\r\n\
+        a=rtcp-mux\r\n\
+        a=candidate:1 1 UDP 2122317823 192.168.0.157 52000 typ host\r\n\
+        a=end-of-candidates\r\n\
+        {mid_attr}\r\n\
+        {rtpmap_attr}\r\n\
+        {msid_attr}\r\n",
+        payload_number = video_media.payload_number,
+        mid_attr = find_video_attr("a=mid:"),
+        rtpmap_attr = find_video_attr(&format!("a=rtpmap:{}", video_media.payload_number)),
+        msid_attr = find_video_attr("a=msid:")
+    );
+
+    session_description + &audio_media_description + &video_media_description
 }
 
 #[derive(Debug)]
-struct SDPD2 {
+pub struct SDPD2 {
     pub ice_username: String,
     pub ice_pwd: String,
     pub group: String,
