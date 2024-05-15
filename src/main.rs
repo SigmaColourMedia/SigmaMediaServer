@@ -9,6 +9,7 @@ use tokio::sync::mpsc;
 
 use crate::acceptor::SSLConfig;
 use crate::http::{HTTPServer, SessionCommand};
+use crate::ice_registry::ConnectionType;
 use crate::server::Server;
 
 mod acceptor;
@@ -42,13 +43,24 @@ async fn main() {
                         if let Ok(command) = rx.try_recv() {
                             match command {
                                 SessionCommand::AddStreamer(session) => {
-                                    println!("adding streamer");
                                     server.session_registry.add_streamer(session);
                                 }
                                 SessionCommand::AddViewer(_) => {}
                                 SessionCommand::GetRooms(sender) => {
                                     let rooms = server.session_registry.get_rooms();
                                     sender.blocking_send(rooms).unwrap()
+                                }
+                                SessionCommand::GetStreamSDP((sender, stream_id)) => {
+                                    let stream_sdp = server
+                                        .session_registry
+                                        .get_session(&stream_id)
+                                        .and_then(|session| match &session.connection_type {
+                                            ConnectionType::Viewer(_) => None,
+                                            ConnectionType::Streamer(streamer) => {
+                                                Some(streamer.sdp.clone())
+                                            }
+                                        });
+                                    sender.send(stream_sdp).unwrap()
                                 }
                             }
                         }

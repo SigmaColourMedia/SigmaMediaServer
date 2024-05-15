@@ -1,4 +1,5 @@
 use crate::ice_registry::SessionCredentials;
+use crate::rnd::get_random_string;
 
 pub fn parse_sdp(data: String) -> Option<SDP> {
     let mut lines = data.lines();
@@ -44,10 +45,6 @@ pub fn parse_sdp(data: String) -> Option<SDP> {
 
         match media_type {
             "audio" => {
-                let attributes = media
-                    .iter()
-                    .map(|&str| str.to_owned())
-                    .collect::<Vec<String>>();
                 let payload_number = media
                     .iter()
                     .find(|line| line.to_ascii_lowercase().ends_with("opus/48000/2"))
@@ -55,16 +52,11 @@ pub fn parse_sdp(data: String) -> Option<SDP> {
                     .and_then(|attr| attr.split(":").nth(1))
                     .and_then(|num| num.parse::<usize>().ok())?;
                 audio_media = Some(AudioMedia {
-                    attributes,
                     format: AudioPayloadFormat::Opus,
                     payload_number,
                 })
             }
             "video" => {
-                let attributes = media
-                    .iter()
-                    .map(|&str| str.to_owned())
-                    .collect::<Vec<String>>();
                 let payload_number = media
                     .iter()
                     .find(|line| line.to_ascii_lowercase().ends_with("h264/90000")) // todo handle other video codecs
@@ -73,7 +65,6 @@ pub fn parse_sdp(data: String) -> Option<SDP> {
                     .and_then(|num| num.parse::<usize>().ok())?;
 
                 video_media = Some(VideoMedia {
-                    attributes,
                     format: VideoPayloadFormat::H264,
                     payload_number,
                 })
@@ -123,14 +114,6 @@ pub fn create_sdp_receive_answer(
         a=fingerprint:sha-256 {fingerprint}\r\n"
     );
 
-    let find_audio_attr = |query: &str| {
-        audio_media
-            .attributes
-            .iter()
-            .find(|&line| line.starts_with(query))
-            .unwrap()
-    };
-
     let audio_media_description = format!(
         "m=audio 52000 UDP/TLS/RTP/SAVPF {payload_number}\r\n\
         c=IN IP4 192.168.0.157\r\n\
@@ -138,22 +121,10 @@ pub fn create_sdp_receive_answer(
         a=rtcp-mux\r\n\
         a=candidate:1 1 UDP 2122317823 192.168.0.157 52000 typ host\r\n\
         a=end-of-candidates\r\n\
-        {mid_attr}\r\n\
-        {rtpmap_attr}\r\n\
-        {fmtp_attr}\r\n",
+        a=mid=0\r\n\
+        a=rtmpmap:{payload_number} opus/48000/2\r\n",
         payload_number = audio_media.payload_number,
-        mid_attr = find_audio_attr("a=mid:"),
-        rtpmap_attr = find_audio_attr(&format!("a=rtpmap:{}", audio_media.payload_number)),
-        fmtp_attr = find_audio_attr(&format!("a=fmtp:{}", audio_media.payload_number))
     );
-
-    let find_video_attr = |query: &str| {
-        video_media
-            .attributes
-            .iter()
-            .find(|&line| line.starts_with(query))
-            .unwrap()
-    };
 
     let video_media_description = format!(
         "m=video 52000 UDP/TLS/RTP/SAVPF {payload_number}\r\n\
@@ -162,19 +133,97 @@ pub fn create_sdp_receive_answer(
         a=rtcp-mux\r\n\
         a=candidate:1 1 UDP 2122317823 192.168.0.157 52000 typ host\r\n\
         a=end-of-candidates\r\n\
-        {mid_attr}\r\n\
-        {rtpmap_attr}\r\n\
-        {msid_attr}\r\n",
+        a=mid:1\r\n\
+        a=rtpmap:{payload_number} h264/90000\r\n",
         payload_number = video_media.payload_number,
-        mid_attr = find_video_attr("a=mid:"),
-        rtpmap_attr = find_video_attr(&format!("a=rtpmap:{}", video_media.payload_number)),
-        msid_attr = find_video_attr("a=msid:")
     );
 
     session_description + &audio_media_description + &video_media_description
 }
 
-#[derive(Debug)]
+pub fn create_streaming_sdp_answer(
+    streamer_sdp: &SDP,
+    viewer_sdp_raw: &str,
+    fingerprint: &str,
+) -> Option<(String, SessionCredentials)> {
+    let accepted_audio_codec = match &streamer_sdp.audio_media.format {
+        AudioPayloadFormat::Opus => "opus/48000/2",
+    };
+    let accepted_video_codec = match &streamer_sdp.video_media.format {
+        VideoPayloadFormat::H264 => "h264/90000",
+        VideoPayloadFormat::VP8 => "vp8/90000",
+    };
+
+    let find_payload_number = |input: &str, codec: &str| {
+        input
+            .lines()
+            .find(|line| line.starts_with("a=rtpmap:") && line.to_lowercase().ends_with(codec))
+            .and_then(|line| line.split_once(" "))
+            .and_then(|(key, _)| key.split_once(":"))
+            .and_then(|(_, payload_number)| payload_number.parse::<usize>().ok())
+    };
+
+    let audio_codec_payload_number = find_payload_number(viewer_sdp_raw, accepted_audio_codec)?;
+    let video_codec_payload_number = find_payload_number(viewer_sdp_raw, accepted_video_codec)?;
+
+    let remote_username = viewer_sdp_raw
+        .lines()
+        .find(|line| line.starts_with("a=ice-ufrag:"))
+        .and_then(|line| line.split_once(":"))
+        .map(|(_, value)| value.to_owned())?;
+    let host_username = get_random_string(4);
+    let host_password = get_random_string(24);
+
+    let session_description = format!(
+        "v=0\r\n\
+        o=sigma 2616320411 0 IN IP4 192.168.0.157\r\n\
+        s=-\r\n\
+        t=0 0\r\n\
+        a=group:BUNDLE 0 1\r\n\
+        a=setup:passive\r\n\
+        a=ice-ufrag:{host_username}\r\n\
+        a=ice-pwd:{host_password}\r\n\
+        a=ice-options:ice2\r\n\
+        a=ice-lite\r\n\
+        a=msid-semantic: WMS *\r\n\
+        a=fingerprint:sha-256 {fingerprint}\r\n"
+    );
+
+    let audio_media_description = format!(
+        "m=audio 52000 UDP/TLS/RTP/SAVPF {payload_number}\r\n\
+        c=IN IP4 192.168.0.157\r\n\
+        a=sendonly\r\n\
+        a=rtcp-mux\r\n\
+        a=candidate:1 1 UDP 2122317823 192.168.0.157 52000 typ host\r\n\
+        a=end-of-candidates\r\n\
+        a=mid:0\r\n\
+        a=rtpmap:{payload_number} opus/48000/2\r\n",
+        payload_number = audio_codec_payload_number
+    );
+
+    let video_media_description = format!(
+        "m=video 52000 UDP/TLS/RTP/SAVPF {payload_number}\r\n\
+        c=IN IP4 192.168.0.157\r\n\
+        a=sendonly\r\n\
+        a=rtcp-mux\r\n\
+        a=mid:1\r\n\
+        a=rtpmap:{payload_number} vp8/90000\r\n\
+        a=candidate:1 1 UDP 2122317823 192.168.0.157 52000 typ host\r\n\
+        a=end-of-candidates\r\n",
+        payload_number = 120,
+    );
+
+    let sdp_answer = session_description + &audio_media_description + &video_media_description;
+    let credentials = SessionCredentials {
+        remote_username,
+        host_username,
+        host_password,
+    };
+
+    Some((sdp_answer, credentials))
+}
+
+#[derive(Debug, Clone)]
 pub struct SDP {
     pub ice_username: String,
     pub ice_pwd: String,
@@ -183,26 +232,25 @@ pub struct SDP {
     pub audio_media: AudioMedia,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct VideoMedia {
     format: VideoPayloadFormat,
     payload_number: usize,
-    attributes: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum VideoPayloadFormat {
     H264,
+    VP8,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct AudioMedia {
     format: AudioPayloadFormat,
     payload_number: usize,
-    attributes: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum AudioPayloadFormat {
     Opus,
 }

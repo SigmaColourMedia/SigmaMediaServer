@@ -7,7 +7,7 @@ use tokio::sync::mpsc::{channel, Sender};
 
 use crate::ice_registry::{Session, SessionCredentials};
 use crate::rnd::get_random_string;
-use crate::sdp::{create_sdp_receive_answer, parse_sdp};
+use crate::sdp::{create_sdp_receive_answer, create_streaming_sdp_answer, parse_sdp, SDP};
 
 pub struct HTTPServer {
     fingerprint: String,
@@ -115,8 +115,6 @@ impl HTTPServer {
         };
 
         let answer = create_sdp_receive_answer(&sdp, &session_credentials, &self.fingerprint);
-        println!("answer is {answer}");
-
         let session = Session::new_streamer(session_credentials, sdp);
 
         let response = format!(
@@ -154,7 +152,47 @@ impl HTTPServer {
         let body = body.ok_or(HttpError::MalformedRequest)?;
         let search = search.ok_or(HttpError::MalformedRequest)?;
 
-        println!("search is {}", search);
+        let target_id = search
+            .split("&")
+            .find(|param| param.starts_with("target_id="))
+            .and_then(|param| param.split_once("="))
+            .map(|(_, value)| value.to_owned())
+            .ok_or(HttpError::MalformedRequest)?;
+
+        let (tx, mut rx) = tokio::sync::oneshot::channel::<Option<SDP>>();
+
+        self.session_commands_sender
+            .send(SessionCommand::GetStreamSDP((tx, target_id.clone())))
+            .await
+            .unwrap();
+
+        let stream_sdp = rx.await.unwrap().ok_or(HttpError::NotFound)?;
+        let (sdp_answer, credentials) =
+            create_streaming_sdp_answer(&stream_sdp, &body, &self.fingerprint)
+                .ok_or(HttpError::MalformedRequest)?;
+
+        let viewer_session = Session::new_viewer(target_id.to_owned(), credentials);
+        let response = format!(
+            "HTTP/1.1 201 CREATED\r\n\
+        content-type: application/sdp\r\n\
+        content-length:{content_length}\r\n\
+        location:http://localhost:8080/whep?id={viewer_id}\r\n\r\n\
+        {payload}",
+            content_length = sdp_answer.len(),
+            viewer_id = &viewer_session.id,
+            payload = sdp_answer
+        );
+
+        self.session_commands_sender
+            .send(SessionCommand::AddViewer(viewer_session))
+            .await
+            .unwrap();
+
+        stream
+            .write_all(response.as_bytes())
+            .await
+            .map_err(|_| HttpError::InternalServerError)?;
+
         Ok(())
     }
 
@@ -364,5 +402,6 @@ impl std::fmt::Display for HttpError {
 pub enum SessionCommand {
     AddStreamer(Session),
     AddViewer(Session),
+    GetStreamSDP((tokio::sync::oneshot::Sender<Option<SDP>>, String)),
     GetRooms(Sender<Vec<String>>),
 }

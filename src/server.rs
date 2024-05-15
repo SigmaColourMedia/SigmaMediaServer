@@ -133,11 +133,11 @@ impl Server {
                             let mut copy = srtp_buffer.clone();
                             match inbound.unprotect(srtp_buffer) {
                                 Ok(_) => {
-                                    println!("got RTP packet {:?}", srtp_buffer.len())
+                                    // println!("got RTP packet {:?}", srtp_buffer.len())
                                 }
                                 Err(_) => match inbound.unprotect_rtcp(&mut copy) {
                                     Ok(_) => {
-                                        println!("got RTCP packet {}", copy.len())
+                                        // println!("got RTCP packet {}", copy.len())
                                     }
                                     Err(_) => {
                                         eprintln!("Did not get RTCP packet {}", copy.len())

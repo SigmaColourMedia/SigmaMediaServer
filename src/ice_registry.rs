@@ -117,7 +117,7 @@ pub struct Session {
     pub ttl: Instant,
     pub client: Option<Client>,
     pub credentials: SessionCredentials,
-    connection_type: ConnectionType,
+    pub connection_type: ConnectionType,
 }
 
 impl Session {
@@ -151,20 +151,20 @@ impl Session {
 }
 
 #[derive(Debug)]
-enum ConnectionType {
+pub enum ConnectionType {
     Viewer(Viewer),
     Streamer(Streamer),
 }
 
 #[derive(Debug)]
-struct Viewer {
+pub struct Viewer {
     target_resource: ResourceID,
 }
 
 #[derive(Debug)]
-struct Streamer {
+pub struct Streamer {
     viewers_ids: Vec<ResourceID>,
-    sdp: SDP,
+    pub sdp: SDP,
 }
 
 #[derive(Debug)]
