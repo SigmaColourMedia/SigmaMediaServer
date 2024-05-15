@@ -15,25 +15,34 @@
 
         async function main() {
             const conn = new RTCPeerConnection({iceTransportPolicy: "all", bundlePolicy: "max-bundle"})
-            const localStream = await navigator.mediaDevices
-                .getUserMedia(mediaConstraints)
-            document.getElementById("local_video").srcObject = localStream;
-            localStream
-                .getTracks()
-                .forEach((track) => conn.addTrack(track, localStream));
-            const offer = await conn.createOffer()
-            await conn.setLocalDescription(offer)
-            console.log({offer, conn})
 
-            const res = await fetch("http://localhost:8080/whip", {
+            const offer = await conn.createOffer({offerToReceiveVideo: true, offerToReceiveAudio: true})
+            await conn.setLocalDescription(offer)
+
+            const res = await fetch("http://localhost:8080/whep?id=video_id", {
                 method: "POST",
                 body: offer.sdp
             })
-            const answer = await res.text();
-            conn.onicecandidate = console.log
-
-            await conn.setRemoteDescription({sdp: answer, type: "answer"})
-            console.log(answer, conn    )
+            // const conn = new RTCPeerConnection({iceTransportPolicy: "all", bundlePolicy: "max-bundle"})
+            // const localStream = await navigator.mediaDevices
+            //     .getUserMedia(mediaConstraints)
+            // document.getElementById("local_video").srcObject = localStream;
+            // localStream
+            //     .getTracks()
+            //     .forEach((track) => conn.addTrack(track, localStream));
+            // const offer = await conn.createOffer()
+            // await conn.setLocalDescription(offer)
+            // console.log({offer, conn})
+            //
+            // const res = await fetch("http://localhost:8080/whip", {
+            //     method: "POST",
+            //     body: offer.sdp
+            // })
+            // const answer = await res.text();
+            // conn.onicecandidate = console.log
+            //
+            // await conn.setRemoteDescription({sdp: answer, type: "answer"})
+            // console.log(answer, conn    )
 
             // const otherConn = new RTCPeerConnection()
             // await otherConn.setRemoteDescription(offer)

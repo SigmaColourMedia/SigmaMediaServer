@@ -7,7 +7,7 @@ use tokio::sync::mpsc::Sender;
 
 use crate::ice_registry::{Session, SessionCredentials};
 use crate::rnd::get_random_string;
-use crate::sdp::{create_sdp_receive_answer, create_sdp_receive_answer_2, parse_sdp, parse_sdp_2};
+use crate::sdp::{create_sdp_receive_answer, parse_sdp};
 
 pub struct HTTPServer {
     fingerprint: String,
@@ -35,6 +35,21 @@ impl HTTPServer {
                         HTTPMethod::OPTIONS => {
                             if let Err(e) = write_cors_ok(&mut stream).await {
                                 eprint!("Error writing a HTTP response {}", e)
+                            }
+                        }
+                        _ => {
+                            if let Err(err) = write_405_response(&mut stream).await {
+                                eprint!("Error writing a HTTP response {}", err)
+                            }
+                        }
+                    },
+                    "/whep" => match &req.method {
+                        HTTPMethod::POST => {
+                            if let Err(err) = self
+                                .register_viewer(&mut stream, req.body, req.search)
+                                .await
+                            {
+                                eprint!("Error writing a HTTP response {}", err)
                             }
                         }
                         _ => {
@@ -76,7 +91,6 @@ impl HTTPServer {
         stream: &mut TcpStream,
         body: Option<String>,
     ) -> Result<(), HttpError> {
-        let copy = body.clone().unwrap();
         let sdp = body
             .and_then(parse_sdp)
             .ok_or(HttpError::MalformedRequest)?;
@@ -89,12 +103,8 @@ impl HTTPServer {
         };
 
         let answer = create_sdp_receive_answer(&sdp, &session_credentials, &self.fingerprint);
-        let answer2 = create_sdp_receive_answer_2(
-            &parse_sdp_2(copy).unwrap(),
-            &session_credentials,
-            &self.fingerprint,
-        );
-        println!("answer is {answer2}");
+        println!("answer is {answer}");
+
         let session = Session::new_streamer(session_credentials, sdp);
 
         let response = format!(
@@ -123,6 +133,20 @@ impl HTTPServer {
 
         Ok(())
     }
+    async fn register_viewer(
+        &self,
+        stream: &mut TcpStream,
+        body: Option<String>,
+        search: Option<String>,
+    ) -> Result<(), HttpError> {
+        let body = body.ok_or(HttpError::MalformedRequest)?;
+        let search = search.ok_or(HttpError::MalformedRequest)?;
+
+        println!("search is {}", search);
+        Ok(())
+    }
+
+    async fn get_rooms(&self)
 }
 
 async fn write_cors_ok(stream: &mut TcpStream) -> std::io::Result<()> {
@@ -178,7 +202,7 @@ pub async fn parse_http_request(stream: &mut TcpStream) -> Option<Request> {
     let request_line = lines.next_line().await.ok().flatten()?;
 
     let req = request_line.split(" ").collect::<Vec<&str>>();
-    let (method, path) = (req[0].to_owned(), req[1].to_owned());
+    let (method, pathname) = (req[0].to_owned(), req[1].to_owned());
     let method = match &method[..] {
         "GET" => HTTPMethod::GET,
         "POST" => HTTPMethod::POST,
@@ -188,7 +212,12 @@ pub async fn parse_http_request(stream: &mut TcpStream) -> Option<Request> {
             return None;
         }
     };
-    let search = path.split_once("?").map(|(_, search)| search.to_owned());
+
+    let pathname_split = pathname.split_once("?");
+    let (path, search) = match &pathname_split {
+        Some((path, search)) => (path.to_string(), Some(search.to_string())),
+        None => (pathname, None),
+    };
 
     let mut headers: Vec<Header> = Vec::new();
     while let Some(line) = lines.next_line().await.ok().flatten() {
@@ -216,9 +245,9 @@ pub async fn parse_http_request(stream: &mut TcpStream) -> Option<Request> {
 
     Some(Request {
         method,
-        path,
         headers,
         search,
+        path,
         body,
     })
 }
