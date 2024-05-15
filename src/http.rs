@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use tokio::fs;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::{channel, Sender};
 
 use crate::ice_registry::{Session, SessionCredentials};
 use crate::rnd::get_random_string;
@@ -55,6 +55,18 @@ impl HTTPServer {
                         _ => {
                             if let Err(err) = write_405_response(&mut stream).await {
                                 eprint!("Error writing a HTTP response {}", err)
+                            }
+                        }
+                    },
+                    "/rooms" => match &req.method {
+                        HTTPMethod::GET => {
+                            if let Err(err) = self.get_rooms(&mut stream).await {
+                                eprint!("Error writing a HTTP response {}", err)
+                            }
+                        }
+                        _ => {
+                            if let Err(e) = write_webpage(&mut stream).await {
+                                eprint!("Error writing a HTTP response {}", e)
                             }
                         }
                     },
@@ -146,7 +158,36 @@ impl HTTPServer {
         Ok(())
     }
 
-    async fn get_rooms(&self)
+    async fn get_rooms(&self, stream: &mut TcpStream) -> Result<(), HttpError> {
+        let (tx, mut rx) = channel::<Vec<String>>(1000);
+        self.session_commands_sender
+            .send(SessionCommand::GetRooms(tx))
+            .await
+            .unwrap();
+
+        let rooms = rx.recv().await.unwrap();
+
+        let rooms_string = rooms
+            .into_iter()
+            .map(|room_id| format!("\"{}\"", room_id))
+            .collect::<Vec<String>>()
+            .join(",");
+        let body = format!("{{\"rooms\":[{}]}}", rooms_string);
+
+        let response = format!(
+            "HTTP/1.1 200 OK\r\n\
+            content-type: application/json\r\n\
+            content-length: {content_length}\r\n\r\n\
+            {body}",
+            content_length = body.len(),
+            body = body
+        );
+
+        match stream.write_all(response.as_bytes()).await {
+            Ok(_) => Ok(()),
+            Err(_) => Err(HttpError::InternalServerError),
+        }
+    }
 }
 
 async fn write_cors_ok(stream: &mut TcpStream) -> std::io::Result<()> {
@@ -323,4 +364,5 @@ impl std::fmt::Display for HttpError {
 pub enum SessionCommand {
     AddStreamer(Session),
     AddViewer(Session),
+    GetRooms(Sender<Vec<String>>),
 }

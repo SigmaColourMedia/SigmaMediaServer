@@ -46,6 +46,10 @@ async fn main() {
                                     server.session_registry.add_streamer(session);
                                 }
                                 SessionCommand::AddViewer(_) => {}
+                                SessionCommand::GetRooms(sender) => {
+                                    let rooms = server.session_registry.get_rooms();
+                                    sender.blocking_send(rooms).unwrap()
+                                }
                             }
                         }
                     }
