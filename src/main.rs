@@ -21,13 +21,14 @@ mod sdp;
 mod server;
 mod stun;
 
+
 #[tokio::main]
 async fn main() {
     let config = SSLConfig::new();
     let (tx, mut rx) = mpsc::channel::<SessionCommand>(1000);
 
     thread::spawn(move || {
-        let socket = UdpSocket::bind("192.168.0.157:52000").unwrap();
+        let socket = UdpSocket::bind(format!("{HOST_ADDRESS}:52000")).unwrap();
         socket.set_nonblocking(true).unwrap();
 
         let socket = Arc::new(socket);
@@ -75,7 +76,7 @@ async fn main() {
         }
     });
 
-    let tcp_server = TcpListener::bind("192.168.0.157:8080").await.unwrap();
+    let tcp_server = TcpListener::bind(format!("{HOST_ADDRESS}:8080")).await.unwrap();
     let http_server = Arc::new(HTTPServer::new(config.fingerprint.clone(), tx.clone()));
 
     loop {
@@ -87,3 +88,5 @@ async fn main() {
         }
     }
 }
+
+pub const HOST_ADDRESS: &'static str = env!("HOST_ADDRESS");
