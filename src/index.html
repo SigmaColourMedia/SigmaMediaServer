@@ -31,6 +31,9 @@
 
             await conn.setRemoteDescription({type: "answer", sdp: sdp_answer})
 
+            console.log(conn)
+            conn.ontrack = (track) => console.log(track)
+
             // const conn = new RTCPeerConnection({iceTransportPolicy: "all", bundlePolicy: "max-bundle"})
             // const localStream = await navigator.mediaDevices
             //     .getUserMedia(mediaConstraints)

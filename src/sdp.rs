@@ -1,7 +1,9 @@
+use crate::HOST_ADDRESS;
 use crate::ice_registry::SessionCredentials;
 use crate::rnd::get_random_string;
 
 pub fn parse_sdp(data: String) -> Option<SDP> {
+    println!("Received sdp {data}");
     let mut lines = data.lines();
     let remote_username = lines
         .clone()
@@ -53,6 +55,11 @@ pub fn parse_sdp(data: String) -> Option<SDP> {
                     .and_then(|num| num.parse::<usize>().ok())?;
                 audio_media = Some(AudioMedia {
                     format: AudioPayloadFormat::Opus,
+                    extra_lines: media
+                        .iter()
+                        .filter(|&line| line.starts_with("a=ssrc") || line.starts_with("a=msid"))
+                        .map(|line| line.to_string())
+                        .collect(),
                     payload_number,
                 })
             }
@@ -67,6 +74,20 @@ pub fn parse_sdp(data: String) -> Option<SDP> {
                 video_media = Some(VideoMedia {
                     format: VideoPayloadFormat::H264,
                     payload_number,
+                    extra_lines: media
+                        .iter()
+                        .filter(|&line| line.starts_with("a=ssrc") || line.starts_with("a=msid"))
+                        .map(|line| line.to_string())
+                        .collect(),
+                    profile_level_id: media
+                        .iter()
+                        .find(|line| {
+                            line.starts_with(&format!(
+                                "a=fmtp:{} profile-level-id=",
+                                payload_number
+                            ))
+                        })
+                        .map(|&line| line.to_owned())?,
                 })
             }
             _ => return None,
@@ -101,7 +122,7 @@ pub fn create_sdp_receive_answer(
 
     let session_description = format!(
         "v=0\r\n\
-        o=sigma 2616320411 0 IN IP4 127.0.0.1\r\n\
+        o=sigma 2616320411 0 IN IP4 {HOST_ADDRESS}\r\n\
         s=-\r\n\
         t=0 0\r\n\
         a=group:{group}\r\n\
@@ -116,10 +137,10 @@ pub fn create_sdp_receive_answer(
 
     let audio_media_description = format!(
         "m=audio 52000 UDP/TLS/RTP/SAVPF {payload_number}\r\n\
-        c=IN IP4 192.168.0.157\r\n\
+        c=IN IP4 {HOST_ADDRESS}\r\n\
         a=recvonly\r\n\
         a=rtcp-mux\r\n\
-        a=candidate:1 1 UDP 2122317823 192.168.0.157 52000 typ host\r\n\
+        a=candidate:1 1 UDP 2122317823 {HOST_ADDRESS} 52000 typ host\r\n\
         a=end-of-candidates\r\n\
         a=mid=0\r\n\
         a=rtmpmap:{payload_number} opus/48000/2\r\n",
@@ -128,14 +149,15 @@ pub fn create_sdp_receive_answer(
 
     let video_media_description = format!(
         "m=video 52000 UDP/TLS/RTP/SAVPF {payload_number}\r\n\
-        c=IN IP4 192.168.0.157\r\n\
+        c=IN IP4 {HOST_ADDRESS}\r\n\
         a=recvonly\r\n\
         a=rtcp-mux\r\n\
-        a=candidate:1 1 UDP 2122317823 192.168.0.157 52000 typ host\r\n\
+        a=candidate:1 1 UDP 2122317823 {HOST_ADDRESS} 52000 typ host\r\n\
         a=end-of-candidates\r\n\
         a=mid:1\r\n\
         a=rtpmap:{payload_number} h264/90000\r\n",
         payload_number = video_media.payload_number,
+        HOST_ADDRESS = HOST_ADDRESS
     );
 
     session_description + &audio_media_description + &video_media_description
@@ -146,28 +168,6 @@ pub fn create_streaming_sdp_answer(
     viewer_sdp_raw: &str,
     fingerprint: &str,
 ) -> Option<(String, SessionCredentials)> {
-    let accepted_audio_codec = match &streamer_sdp.audio_media.format {
-        AudioPayloadFormat::Opus => "opus/48000/2",
-    };
-    // let accepted_video_codec = match &streamer_sdp.video_media.format {
-    //     VideoPayloadFormat::H264 => "h264/90000",
-    //     VideoPayloadFormat::VP8 => "vp8/90000",
-    // };
-
-    let accepted_video_codec = "vp8/90000";
-
-    let find_payload_number = |input: &str, codec: &str| {
-        input
-            .lines()
-            .find(|line| line.starts_with("a=rtpmap:") && line.to_lowercase().ends_with(codec))
-            .and_then(|line| line.split_once(" "))
-            .and_then(|(key, _)| key.split_once(":"))
-            .and_then(|(_, payload_number)| payload_number.parse::<usize>().ok())
-    };
-
-    let audio_codec_payload_number = find_payload_number(viewer_sdp_raw, accepted_audio_codec)?;
-    let video_codec_payload_number = find_payload_number(viewer_sdp_raw, accepted_video_codec)?;
-
     let remote_username = viewer_sdp_raw
         .lines()
         .find(|line| line.starts_with("a=ice-ufrag:"))
@@ -178,7 +178,7 @@ pub fn create_streaming_sdp_answer(
 
     let session_description = format!(
         "v=0\r\n\
-        o=sigma 2616320411 0 IN IP4 192.168.0.157\r\n\
+        o=sigma 2616320411 0 IN IP4 {HOST_ADDRESS}\r\n\
         s=-\r\n\
         t=0 0\r\n\
         a=group:BUNDLE 0 1\r\n\
@@ -193,26 +193,32 @@ pub fn create_streaming_sdp_answer(
 
     let audio_media_description = format!(
         "m=audio 52000 UDP/TLS/RTP/SAVPF {payload_number}\r\n\
-        c=IN IP4 192.168.0.157\r\n\
+        c=IN IP4 {HOST_ADDRESS}\r\n\
         a=sendonly\r\n\
         a=rtcp-mux\r\n\
-        a=candidate:1 1 UDP 2122317823 192.168.0.157 52000 typ host\r\n\
+        a=candidate:1 1 UDP 2122317823 {HOST_ADDRESS} 52000 typ host\r\n\
         a=end-of-candidates\r\n\
         a=mid:0\r\n\
+        {extra_lines}\r\n\
+        a=fmtp:111 minptime=10;maxaveragebitrate=96000;stereo=1;sprop-stereo=1;useinbandfec=1\r\n\
         a=rtpmap:{payload_number} opus/48000/2\r\n",
-        payload_number = audio_codec_payload_number
+        payload_number = streamer_sdp.audio_media.payload_number,
+        extra_lines = streamer_sdp.audio_media.extra_lines.join("\r\n")
     );
 
     let video_media_description = format!(
         "m=video 52000 UDP/TLS/RTP/SAVPF {payload_number}\r\n\
-        c=IN IP4 192.168.0.157\r\n\
+        c=IN IP4 {HOST_ADDRESS}\r\n\
         a=sendonly\r\n\
         a=rtcp-mux\r\n\
+        a=bundleonly\r\n\
         a=mid:1\r\n\
-        a=rtpmap:{payload_number} vp8/90000\r\n\
-        a=candidate:1 1 UDP 2122317823 192.168.0.157 52000 typ host\r\n\
-        a=end-of-candidates\r\n",
-        payload_number = 120,
+        a=rtpmap:{payload_number} H264/90000\r\n\
+        {extra_lines}\r\n\
+        {profile_level_id}\r\n",
+        payload_number = streamer_sdp.video_media.payload_number,
+        profile_level_id = streamer_sdp.video_media.profile_level_id,
+        extra_lines = streamer_sdp.video_media.extra_lines.join("\r\n")
     );
 
     let sdp_answer = session_description + &audio_media_description + &video_media_description;
@@ -237,7 +243,9 @@ pub struct SDP {
 #[derive(Debug, Clone)]
 struct VideoMedia {
     format: VideoPayloadFormat,
+    profile_level_id: String,
     payload_number: usize,
+    extra_lines: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -250,6 +258,7 @@ enum VideoPayloadFormat {
 struct AudioMedia {
     format: AudioPayloadFormat,
     payload_number: usize,
+    extra_lines: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
