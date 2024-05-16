@@ -200,7 +200,7 @@ pub fn create_streaming_sdp_answer(
         a=end-of-candidates\r\n\
         a=mid:0\r\n\
         a=rtpmap:{payload_number} opus/48000/2\r\n",
-        payload_number = audio_codec_payload_number
+        payload_number = streamer_sdp.audio_media.payload_number
     );
 
     let video_media_description = format!(
@@ -209,10 +209,10 @@ pub fn create_streaming_sdp_answer(
         a=sendonly\r\n\
         a=rtcp-mux\r\n\
         a=mid:1\r\n\
-        a=rtpmap:{payload_number} vp8/90000\r\n\
+        a=rtpmap:{payload_number} h264/90000\r\n\
         a=candidate:1 1 UDP 2122317823 192.168.0.157 52000 typ host\r\n\
         a=end-of-candidates\r\n",
-        payload_number = 120,
+        payload_number = streamer_sdp.video_media.payload_number,
     );
 
     let sdp_answer = session_description + &audio_media_description + &video_media_description;

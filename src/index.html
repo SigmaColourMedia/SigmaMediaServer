@@ -19,7 +19,7 @@
             const offer = await conn.createOffer({offerToReceiveVideo: true, offerToReceiveAudio: true})
             await conn.setLocalDescription(offer)
 
-            const {rooms} = await fetch("http://localhost:8080/rooms").then(res => res.json());
+            const {rooms} = await fetch("http://192.168.0.157:8080/rooms").then(res => res.json());
             let room_id = rooms[0];
 
             const sdp_answer = await fetch(`http://localhost:8080/whep?target_id=${room_id}`, {
@@ -30,6 +30,9 @@
 
 
             await conn.setRemoteDescription({type: "answer", sdp: sdp_answer})
+
+            console.log(conn)
+            conn.ontrack = (track) => console.log(track)
 
             // const conn = new RTCPeerConnection({iceTransportPolicy: "all", bundlePolicy: "max-bundle"})
             // const localStream = await navigator.mediaDevices

@@ -163,7 +163,7 @@ pub struct Viewer {
 
 #[derive(Debug)]
 pub struct Streamer {
-    viewers_ids: Vec<ResourceID>,
+    pub viewers_ids: Vec<ResourceID>,
     pub sdp: SDP,
 }
 
