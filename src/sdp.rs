@@ -149,10 +149,12 @@ pub fn create_streaming_sdp_answer(
     let accepted_audio_codec = match &streamer_sdp.audio_media.format {
         AudioPayloadFormat::Opus => "opus/48000/2",
     };
-    let accepted_video_codec = match &streamer_sdp.video_media.format {
-        VideoPayloadFormat::H264 => "h264/90000",
-        VideoPayloadFormat::VP8 => "vp8/90000",
-    };
+    // let accepted_video_codec = match &streamer_sdp.video_media.format {
+    //     VideoPayloadFormat::H264 => "h264/90000",
+    //     VideoPayloadFormat::VP8 => "vp8/90000",
+    // };
+
+    let accepted_video_codec = "vp8/90000";
 
     let find_payload_number = |input: &str, codec: &str| {
         input
