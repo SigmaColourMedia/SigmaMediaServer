@@ -151,21 +151,19 @@ impl Server {
                             }
                         });
 
-                    if viewer_ids.is_none(){
-                        return
+                    if viewer_ids.is_none() {
+                        return;
                     }
-                    
+
                     let viewer_ids = viewer_ids.unwrap();
 
                     for id in &viewer_ids {
-                        println!("the id {}", id);
                         let client = self
                             .session_registry
                             .get_session(id)
                             .and_then(|session| session.client.as_ref())
                             .and_then(|client| match &client.ssl_state {
                                 ClientSslState::Established(ssl_stream) => {
-                                    println!("found him");
                                     Some((ssl_stream, client.remote_address))
                                 }
                                 _ => {
@@ -179,50 +177,10 @@ impl Server {
                                     .unwrap();
                             let mut outbound_packet = packet.clone();
                             outbound.protect(&mut outbound_packet).unwrap();
-                            println!("sending packet to {}", remote);
                             self.socket.send_to(&outbound_packet, address).unwrap();
                         }
                     }
                 }
-
-                // if let Some(client) = self
-                //     .session_registry
-                //     .get_session_by_address(&remote)
-                //     .and_then(|session| session.client.as_mut())
-                // {
-                //     match &client.ssl_state {
-                //         ClientSslState::Handshake(_) => {
-                //             if let Err(e) = client.read_packet(data) {
-                //                 eprintln!("Error reading packet mid handshake {}", e)
-                //             }
-                //         }
-                //         ClientSslState::Established(ssl_stream) => {
-                //             let (mut inbound, mut outbound) =
-                //                 srtp::openssl::session_pair(ssl_stream.ssl(), Default::default())
-                //                     .unwrap();
-                //
-                //             let mut srtp_buffer = &mut data.to_vec();
-                //             let mut copy = srtp_buffer.clone();
-                //             match inbound.unprotect(srtp_buffer) {
-                //                 Ok(_) => {
-                //                     // println!("got RTP packet {:?}", srtp_buffer.len())
-                //                 }
-                //                 Err(_) => match inbound.unprotect_rtcp(&mut copy) {
-                //                     Ok(_) => {
-                //                         // println!("got RTCP packet {}", copy.len())
-                //                     }
-                //                     Err(_) => {
-                //                         eprintln!("Did not get RTCP packet {}", copy.len())
-                //                     }
-                //                 },
-                //             }
-                //             // println!("some other packet {:?}", data.len())
-                //         }
-                //         ClientSslState::Shutdown => {
-                //             // do nothing
-                //         }
-                //     }
-                // }
             }
         }
     }
