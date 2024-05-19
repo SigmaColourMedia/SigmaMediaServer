@@ -130,12 +130,10 @@ impl Server {
                                 srtp::openssl::session_pair(ssl_stream.ssl(), Default::default())
                                     .unwrap();
                             let mut rtp_buffer = data.to_vec();
+                            let mut rtcp_buffer = data.to_vec();
 
                             let result = inbound
-                                .unprotect(&mut rtp_buffer)
-                                .map_err(|_| inbound.unprotect_rtcp(&mut rtp_buffer))
-                                .ok()
-                                .map(|_| rtp_buffer);
+                                .unprotect(&mut rtp_buffer).map(|_| VideoPacket::RTP(rtp_buffer)).ok().or_else(|| inbound.unprotect_rtcp(&mut rtcp_buffer).map(|_| VideoPacket::RTCP(rtcp_buffer)).ok());
 
                             result
                         }
@@ -175,13 +173,28 @@ impl Server {
                             let (_, mut outbound) =
                                 srtp::openssl::session_pair(stream.ssl(), Default::default())
                                     .unwrap();
-                            let mut outbound_packet = packet.clone();
-                            outbound.protect(&mut outbound_packet).unwrap();
-                            self.socket.send_to(&outbound_packet, address).unwrap();
+                            match &packet {
+                                VideoPacket::RTP(rtp_packet) => {
+                                    let mut outbound_packet = rtp_packet.clone();
+                                    outbound.protect(&mut outbound_packet).unwrap();
+                                    self.socket.send_to(&outbound_packet, address).unwrap();
+                                }
+                                VideoPacket::RTCP(rtcp_packet) => {
+                                    let mut outbound_packet = rtcp_packet.clone();
+                                    outbound.protect_rtcp(&mut outbound_packet).unwrap();
+                                    println!("sending rtcp packet");
+                                    self.socket.send_to(&outbound_packet, address).unwrap();
+                                }
+                            }
                         }
                     }
                 }
             }
         }
     }
+}
+
+enum VideoPacket {
+    RTP(Vec<u8>),
+    RTCP(Vec<u8>),
 }

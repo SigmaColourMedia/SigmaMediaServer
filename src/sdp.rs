@@ -3,6 +3,7 @@ use crate::ice_registry::SessionCredentials;
 use crate::rnd::get_random_string;
 
 pub fn parse_sdp(data: String) -> Option<SDP> {
+    println!("Received sdp {data}");
     let mut lines = data.lines();
     let remote_username = lines
         .clone()
@@ -199,6 +200,7 @@ pub fn create_streaming_sdp_answer(
         a=end-of-candidates\r\n\
         a=mid:0\r\n\
         {extra_lines}\r\n\
+        a=fmtp:111 minptime=10;maxaveragebitrate=96000;stereo=1;sprop-stereo=1;useinbandfec=1\r\n\
         a=rtpmap:{payload_number} opus/48000/2\r\n",
         payload_number = streamer_sdp.audio_media.payload_number,
         extra_lines = streamer_sdp.audio_media.extra_lines.join("\r\n")
@@ -209,12 +211,11 @@ pub fn create_streaming_sdp_answer(
         c=IN IP4 {HOST_ADDRESS}\r\n\
         a=sendonly\r\n\
         a=rtcp-mux\r\n\
+        a=bundleonly\r\n\
         a=mid:1\r\n\
-        a=rtpmap:{payload_number} h264/90000\r\n\
+        a=rtpmap:{payload_number} H264/90000\r\n\
         {extra_lines}\r\n\
-        {profile_level_id}\r\n\
-        a=candidate:1 1 UDP 2122317823 {HOST_ADDRESS} 52000 typ host\r\n\
-        a=end-of-candidates\r\n",
+        {profile_level_id}\r\n",
         payload_number = streamer_sdp.video_media.payload_number,
         profile_level_id = streamer_sdp.video_media.profile_level_id,
         extra_lines = streamer_sdp.video_media.extra_lines.join("\r\n")
