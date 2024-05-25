@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
 
@@ -11,8 +11,8 @@ use crate::stun::{
 };
 
 pub struct Server {
-    clients: HashMap<SocketAddr, Client>,
     pub session_registry: SessionRegistry,
+    packets: usize,
     socket: Arc<UdpSocket>,
     acceptor: Arc<SslAcceptor>,
 }
@@ -20,7 +20,7 @@ pub struct Server {
 impl Server {
     pub fn new(acceptor: Arc<SslAcceptor>, socket: Arc<UdpSocket>) -> Self {
         Server {
-            clients: HashMap::new(),
+            packets: 0,
             socket,
             acceptor,
             session_registry: SessionRegistry::new(),
@@ -28,7 +28,7 @@ impl Server {
     }
 
     pub fn listen(&mut self, data: &[u8], remote: SocketAddr) {
-        match parse_stun_packet(data) {
+        match parse_stun_packet(data.clone()) {
             Some(binding_request) => {
                 match parse_binding_request(binding_request) {
                     Some(message_type) => {
@@ -131,14 +131,22 @@ impl Server {
                                     .unwrap();
                             let mut rtp_buffer = data.to_vec();
                             let mut rtcp_buffer = data.to_vec();
+                            println!("packet len {}", data.len());
 
-                            let result = inbound
-                                .unprotect(&mut rtp_buffer).map(|_| VideoPacket::RTP(rtp_buffer)).ok().or_else(|| inbound.unprotect_rtcp(&mut rtcp_buffer).map(|_| VideoPacket::RTCP(rtcp_buffer)).ok());
-
-                            result
+                            inbound
+                                .unprotect(&mut rtp_buffer)
+                                .map(|_| VideoPacket::RTP(rtp_buffer))
+                                .or_else(|err| {
+                                    inbound
+                                        .unprotect_rtcp(&mut rtcp_buffer)
+                                        .map(|_| VideoPacket::RTCP(rtcp_buffer))
+                                })
+                                .ok()
                         }
                     });
+
                 if let Some(packet) = has_rtp_packet {
+                    println!("{}", packet);
                     let viewer_ids = self
                         .session_registry
                         .get_session_by_address(&remote)
@@ -181,9 +189,8 @@ impl Server {
                                 }
                                 VideoPacket::RTCP(rtcp_packet) => {
                                     let mut outbound_packet = rtcp_packet.clone();
-                                    outbound.protect_rtcp(&mut outbound_packet).unwrap();
-                                    println!("sending rtcp packet");
-                                    self.socket.send_to(&outbound_packet, address).unwrap();
+                                    // outbound.protect_rtcp(&mut outbound_packet).unwrap();
+                                    // self.socket.send_to(&outbound_packet, address).unwrap();
                                 }
                             }
                         }
@@ -194,7 +201,21 @@ impl Server {
     }
 }
 
+#[derive(Debug)]
 enum VideoPacket {
     RTP(Vec<u8>),
     RTCP(Vec<u8>),
+}
+
+impl Display for VideoPacket {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VideoPacket::RTP(packet) => {
+                write!(f, "Video packet RTP {}", packet.len())
+            }
+            VideoPacket::RTCP(packet) => {
+                write!(f, "Video packet RTCP {}", packet.len())
+            }
+        }
+    }
 }
