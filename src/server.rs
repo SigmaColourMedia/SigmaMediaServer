@@ -5,7 +5,7 @@ use std::sync::Arc;
 use openssl::ssl::SslAcceptor;
 
 use crate::client::{Client, ClientSslState};
-use crate::ice_registry::{ConnectionType, SessionRegistry};
+use crate::ice_registry::{ConnectionType, SessionRegistry, UsernameKey};
 use crate::stun::{
     create_stun_success, ICEStunMessageType, parse_binding_request, parse_stun_packet,
 };
@@ -35,13 +35,15 @@ impl Server {
                         match message_type {
                             ICEStunMessageType::LiveCheck(msg) => {
                                 // println!("received live check {:?}", msg.transaction_id);
-                                if let Some(session) = self
-                                    .session_registry
-                                    .get_session_by_username(&msg.username_attribute)
+                                if let Some(session) =
+                                    self.session_registry.get_session_by_username(&UsernameKey {
+                                        host: msg.username_attribute.host.clone(),
+                                    })
                                 {
                                     let mut buffer: [u8; 200] = [0; 200];
                                     if let Ok(bytes_written) = create_stun_success(
                                         &session.credentials,
+                                        &msg.username_attribute,
                                         msg.transaction_id,
                                         &remote,
                                         &mut buffer,
@@ -60,7 +62,9 @@ impl Server {
 
                                 if let Some(resource_id) = self
                                     .session_registry
-                                    .get_session_by_username(&msg.username_attribute)
+                                    .get_session_by_username(&UsernameKey {
+                                        host: msg.username_attribute.host.clone(),
+                                    })
                                     .map(|session| session.id.clone())
                                 {
                                     let is_new_client = self
@@ -88,10 +92,12 @@ impl Server {
                                         .get_session(&resource_id)
                                         .unwrap()
                                         .credentials;
+
                                     // Send OK response
                                     let mut buffer: [u8; 200] = [0; 200];
                                     if let Ok(bytes_written) = create_stun_success(
                                         credentials,
+                                        &msg.username_attribute,
                                         msg.transaction_id,
                                         &remote,
                                         &mut buffer,

@@ -11,7 +11,7 @@ type ResourceID = String;
 
 pub struct SessionRegistry {
     sessions: HashMap<ResourceID, Session>,
-    username_map: HashMap<SessionUsername, ResourceID>,
+    username_map: HashMap<UsernameKey, ResourceID>,
     address_map: HashMap<SocketAddr, ResourceID>,
     rooms: HashSet<ResourceID>,
 }
@@ -44,7 +44,7 @@ impl SessionRegistry {
     pub fn get_session(&self, id: &ResourceID) -> Option<&Session> {
         self.sessions.get(id)
     }
-    pub fn get_session_by_username(&self, session_username: &SessionUsername) -> Option<&Session> {
+    pub fn get_session_by_username(&self, session_username: &UsernameKey) -> Option<&Session> {
         self.username_map
             .get(session_username)
             .map(|id| self.sessions.get(id))
@@ -62,9 +62,8 @@ impl SessionRegistry {
 
         // Update username map
         self.username_map.insert(
-            SessionUsername {
+            UsernameKey {
                 host: streamer.credentials.host_username.clone(),
-                remote: streamer.credentials.remote_username.clone(),
             },
             id.clone(),
         );
@@ -97,9 +96,8 @@ impl SessionRegistry {
         .map(|_| {
             // Update username map
             self.username_map.insert(
-                SessionUsername {
+                UsernameKey {
                     host: viewer.credentials.host_username.clone(),
-                    remote: viewer.credentials.remote_username.clone(),
                 },
                 id.to_owned(),
             );
@@ -169,13 +167,16 @@ pub struct Streamer {
 
 #[derive(Debug)]
 pub struct SessionCredentials {
-    pub remote_username: String,
     pub host_username: String,
     pub host_password: String,
+}
+#[derive(Hash, Eq, PartialEq, Debug)]
+pub struct UsernameKey {
+    pub host: String,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug)]
 pub struct SessionUsername {
-    pub(crate) remote: String,
-    pub(crate) host: String,
+    pub remote: String,
+    pub host: String,
 }

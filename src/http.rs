@@ -44,11 +44,8 @@ impl HTTPServer {
                         }
                     },
                     "/whep" => match &req.method {
-                        HTTPMethod::POST => {
-                            if let Err(err) = self
-                                .register_viewer(&mut stream, req.body, req.search)
-                                .await
-                            {
+                        HTTPMethod::GET => {
+                            if let Err(err) = self.register_viewer(&mut stream, req.search).await {
                                 eprint!("Error writing a HTTP response {}", err)
                             }
                         }
@@ -109,7 +106,6 @@ impl HTTPServer {
         let host_username = get_random_string(4);
         let host_password = get_random_string(24);
         let session_credentials = SessionCredentials {
-            remote_username: sdp.ice_username.clone(),
             host_username,
             host_password,
         };
@@ -146,10 +142,8 @@ impl HTTPServer {
     async fn register_viewer(
         &self,
         stream: &mut TcpStream,
-        body: Option<String>,
         search: Option<String>,
     ) -> Result<(), HttpError> {
-        let body = body.ok_or(HttpError::MalformedRequest)?;
         let search = search.ok_or(HttpError::MalformedRequest)?;
 
         let target_id = search
@@ -167,13 +161,12 @@ impl HTTPServer {
             .unwrap();
 
         let stream_sdp = rx.await.unwrap().ok_or(HttpError::NotFound)?;
-        let (sdp_answer, credentials) =
-            create_streaming_sdp_answer(&stream_sdp, &body, &self.fingerprint)
-                .ok_or(HttpError::MalformedRequest)?;
+        let (sdp_answer, credentials) = create_streaming_sdp_answer(&stream_sdp, &self.fingerprint)
+            .ok_or(HttpError::MalformedRequest)?;
 
         let viewer_session = Session::new_viewer(target_id.to_owned(), credentials);
         let response = format!(
-            "HTTP/1.1 201 CREATED\r\n\
+            "HTTP/1.1 200 OK\r\n\
         content-type: application/sdp\r\n\
         content-length:{content_length}\r\n\
         location:http://localhost:8080/whep?id={viewer_id}\r\n\r\n\

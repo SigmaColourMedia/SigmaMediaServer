@@ -14,52 +14,29 @@
         };
 
         async function main() {
-            const conn = new RTCPeerConnection({iceTransportPolicy: "all", bundlePolicy: "max-bundle"})
+            const conn = new RTCPeerConnection()
 
-            const offer = await conn.createOffer({offerToReceiveVideo: true, offerToReceiveAudio: true})
-            await conn.setLocalDescription(offer)
 
-            const {rooms} = await fetch("http://localhost:8080/rooms").then(res => res.json());
+            const {rooms} = await fetch("/rooms").then(res => res.json());
             let room_id = rooms[0];
 
-            const sdp_answer = await fetch(`http://localhost:8080/whep?target_id=${room_id}`, {
-                method: "POST",
-                body: offer.sdp
-            }).then(res => res.text())
-            console.log(sdp_answer)
+            const sdp_offer = await fetch(`/whep?target_id=${room_id}`).then(res => res.text())
+            console.log(sdp_offer)
 
 
-            await conn.setRemoteDescription({type: "answer", sdp: sdp_answer})
+            await conn.setRemoteDescription({type: "offer", sdp: sdp_offer})
 
+            conn.getReceivers()
+            conn.addTransceiver('audio', { direction: 'recvonly' })
+            conn.addTransceiver('video', { direction: 'recvonly' })
+
+            const answer = await conn.createAnswer()
+
+            console.log("the answer ", answer)
             console.log(conn)
+
+            await conn.setLocalDescription(answer)
             conn.ontrack = (track) => console.log(track)
-
-            // const conn = new RTCPeerConnection({iceTransportPolicy: "all", bundlePolicy: "max-bundle"})
-            // const localStream = await navigator.mediaDevices
-            //     .getUserMedia(mediaConstraints)
-            // document.getElementById("local_video").srcObject = localStream;
-            // localStream
-            //     .getTracks()
-            //     .forEach((track) => conn.addTrack(track, localStream));
-            // const offer = await conn.createOffer()
-            // await conn.setLocalDescription(offer)
-            // console.log({offer, conn})
-            //
-            // const res = await fetch("http://localhost:8080/whip", {
-            //     method: "POST",
-            //     body: offer.sdp
-            // })
-            // const answer = await res.text();
-            // conn.onicecandidate = console.log
-            //
-            // await conn.setRemoteDescription({sdp: answer, type: "answer"})
-            // console.log(answer, conn    )
-
-            // const otherConn = new RTCPeerConnection()
-            // await otherConn.setRemoteDescription(offer)
-            // const otherAnsw = await otherConn.createAnswer()
-            // await otherConn.setLocalDescription(otherAnsw)
-            // console.log(otherAnsw.sdp)
 
         }
 

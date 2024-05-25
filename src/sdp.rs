@@ -131,7 +131,6 @@ pub fn create_sdp_receive_answer(
         a=ice-pwd:{host_password}\r\n\
         a=ice-options:ice2\r\n\
         a=ice-lite\r\n\
-        a=msid-semantic: WMS *\r\n\
         a=fingerprint:sha-256 {fingerprint}\r\n"
     );
 
@@ -165,14 +164,8 @@ pub fn create_sdp_receive_answer(
 
 pub fn create_streaming_sdp_answer(
     streamer_sdp: &SDP,
-    viewer_sdp_raw: &str,
     fingerprint: &str,
 ) -> Option<(String, SessionCredentials)> {
-    let remote_username = viewer_sdp_raw
-        .lines()
-        .find(|line| line.starts_with("a=ice-ufrag:"))
-        .and_then(|line| line.split_once(":"))
-        .map(|(_, value)| value.to_owned())?;
     let host_username = get_random_string(4);
     let host_password = get_random_string(24);
 
@@ -183,11 +176,11 @@ pub fn create_streaming_sdp_answer(
         t=0 0\r\n\
         a=group:BUNDLE 0 1\r\n\
         a=setup:passive\r\n\
+        a=msid-semantic:WMS *\r\n\
         a=ice-ufrag:{host_username}\r\n\
         a=ice-pwd:{host_password}\r\n\
         a=ice-options:ice2\r\n\
         a=ice-lite\r\n\
-        a=msid-semantic: WMS *\r\n\
         a=fingerprint:sha-256 {fingerprint}\r\n"
     );
 
@@ -223,7 +216,6 @@ pub fn create_streaming_sdp_answer(
 
     let sdp_answer = session_description + &audio_media_description + &video_media_description;
     let credentials = SessionCredentials {
-        remote_username,
         host_username,
         host_password,
     };
