@@ -114,6 +114,7 @@ impl Server {
                         }
                     }
                     None => {
+                        println!("invalid binding request {}", data.len())
                         // todo Invalid binding request
                     }
                 }
@@ -150,6 +151,9 @@ impl Server {
                                 .ok()
                         }
                     });
+                if has_rtp_packet.is_none() {
+                    println!("packet {} is not RTP packet", data.len())
+                }
 
                 if let Some(packet) = has_rtp_packet {
                     println!("{}", packet);

@@ -2,6 +2,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::net::UdpSocket;
 use std::sync::Arc;
 use std::thread;
+
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
@@ -19,7 +20,6 @@ mod rnd;
 mod sdp;
 mod server;
 mod stun;
-
 
 #[tokio::main]
 async fn main() {
@@ -75,7 +75,9 @@ async fn main() {
         }
     });
 
-    let tcp_server = TcpListener::bind(format!("localhost:8080")).await.unwrap();
+    let tcp_server = TcpListener::bind(format!("192.168.0.157:8080"))
+        .await
+        .unwrap();
     let http_server = Arc::new(HTTPServer::new(config.fingerprint.clone(), tx.clone()));
 
     loop {

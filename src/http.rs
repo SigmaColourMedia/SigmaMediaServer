@@ -111,6 +111,7 @@ impl HTTPServer {
         };
 
         let answer = create_sdp_receive_answer(&sdp, &session_credentials, &self.fingerprint);
+        println!("the streaming answer {answer}");
         let session = Session::new_streamer(session_credentials, sdp);
 
         let response = format!(

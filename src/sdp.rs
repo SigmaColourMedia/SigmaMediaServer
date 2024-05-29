@@ -175,6 +175,7 @@ pub fn create_streaming_sdp_answer(
         s=-\r\n\
         t=0 0\r\n\
         a=group:BUNDLE 0 1\r\n\
+a=group:LS 0 1\r\n\
         a=setup:passive\r\n\
         a=msid-semantic:WMS *\r\n\
         a=ice-ufrag:{host_username}\r\n\
@@ -204,7 +205,6 @@ pub fn create_streaming_sdp_answer(
         c=IN IP4 {HOST_ADDRESS}\r\n\
         a=sendonly\r\n\
         a=rtcp-mux\r\n\
-        a=bundleonly\r\n\
         a=mid:1\r\n\
         a=rtpmap:{payload_number} H264/90000\r\n\
         {extra_lines}\r\n\

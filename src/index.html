@@ -36,7 +36,18 @@
             console.log(conn)
 
             await conn.setLocalDescription(answer)
-            conn.ontrack = (track) => console.log(track)
+
+
+            const remoteVideo = document.querySelector("video")
+            conn.ontrack = ({ track, streams }) => {
+                track.onunmute = () => {
+                    if (remoteVideo.srcObject) {
+                        return;
+                    }
+                    remoteVideo.srcObject = streams[0];
+                };
+            };
+
 
         }
 
