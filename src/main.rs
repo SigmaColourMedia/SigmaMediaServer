@@ -75,7 +75,7 @@ async fn main() {
         }
     });
 
-    let tcp_server = TcpListener::bind(format!("192.168.0.157:8080"))
+    let tcp_server = TcpListener::bind(format!("127.0.0.1:8080"))
         .await
         .unwrap();
     let http_server = Arc::new(HTTPServer::new(config.fingerprint.clone(), tx.clone()));

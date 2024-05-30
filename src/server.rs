@@ -28,7 +28,7 @@ impl Server {
     }
 
     pub fn listen(&mut self, data: &[u8], remote: SocketAddr) {
-        match parse_stun_packet(data.clone()) {
+        match parse_stun_packet(&data.to_vec()) {
             Some(binding_request) => {
                 match parse_binding_request(binding_request) {
                     Some(message_type) => {
