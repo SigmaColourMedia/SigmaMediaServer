@@ -33,17 +33,18 @@ impl Server {
                             .get_session_by_username(&msg.username_attribute.host)
                         {
                             let mut buffer: [u8; 200] = [0; 200];
-                            if let Ok(bytes_written) = create_stun_success(
+                            let bytes_written = create_stun_success(
                                 &session.credentials,
                                 &msg.username_attribute,
                                 msg.transaction_id,
                                 &remote,
                                 &mut buffer,
-                            ) {
-                                let output_buffer = &buffer[0..bytes_written];
-                                if let Err(error) = self.socket.send_to(output_buffer, remote) {
-                                    eprintln!("Error writing to remote {}", error)
-                                }
+                            )
+                            .expect("Failed to create STUN success response");
+
+                            let output_buffer = &buffer[0..bytes_written];
+                            if let Err(error) = self.socket.send_to(output_buffer, remote) {
+                                eprintln!("Error writing to remote {}", error)
                             }
                         }
                     }
@@ -64,11 +65,10 @@ impl Server {
                                     remote.clone(),
                                     self.acceptor.clone(),
                                     self.socket.clone(),
-                                );
+                                )
+                                .expect("Failed to create Client");
 
-                                if let Ok(client) = client {
-                                    self.session_registry.nominate_client(client, &resource_id);
-                                }
+                                self.session_registry.nominate_client(client, &resource_id);
                             }
 
                             let credentials = &self
@@ -79,17 +79,18 @@ impl Server {
 
                             // Send OK response
                             let mut buffer: [u8; 200] = [0; 200];
-                            if let Ok(bytes_written) = create_stun_success(
+                            let bytes_written = create_stun_success(
                                 credentials,
                                 &msg.username_attribute,
                                 msg.transaction_id,
                                 &remote,
                                 &mut buffer,
-                            ) {
-                                let output_buffer = &buffer[0..bytes_written];
-                                if let Err(error) = self.socket.send_to(output_buffer, remote) {
-                                    eprintln!("Error writing to remote {}", error)
-                                }
+                            )
+                            .expect("Failed to create STUN success message");
+
+                            let output_buffer = &buffer[0..bytes_written];
+                            if let Err(error) = self.socket.send_to(output_buffer, remote) {
+                                eprintln!("Error writing to remote {}", error)
                             }
                         };
                     }

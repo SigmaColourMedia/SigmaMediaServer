@@ -73,7 +73,7 @@ fn parse_stun_packet(packet: &[u8]) -> Option<StunBindingRequest> {
     });
 }
 
- fn parse_binding_request(stun_message: StunBindingRequest) -> Option<ICEStunMessageType> {
+fn parse_binding_request(stun_message: StunBindingRequest) -> Option<ICEStunMessageType> {
     let message_integrity = stun_message.attributes.iter().find_map(|attr| match attr {
         StunAttribute::MessageIntegrity(integrity) => Some(*integrity),
         _ => None,
@@ -105,7 +105,7 @@ fn parse_stun_packet(packet: &[u8]) -> Option<StunBindingRequest> {
     }
 }
 
-pub fn get_stun_packet(data: &[u8]) ->Option<ICEStunMessageType> {
+pub fn get_stun_packet(data: &[u8]) -> Option<ICEStunMessageType> {
     parse_stun_packet(data).and_then(parse_binding_request)
 }
 
@@ -116,7 +116,7 @@ pub fn create_stun_success(
     remote: &SocketAddr,
     buffer: &mut [u8],
 ) -> Result<usize, Error> {
-    let (mut header, mut attributes) = buffer.split_at_mut(20);
+    let (header, attributes) = buffer.split_at_mut(20);
 
     let mut username_attribute = [0u8; 120];
     let username_attr_length = write_username_attribute(&mut username_attribute, session_username);
@@ -170,11 +170,6 @@ pub fn create_stun_success(
     buffer[STUN_HEADER_LEN + message_length
         ..STUN_HEADER_LEN + message_length + fingerprint_attribute.len()]
         .copy_from_slice(&mut fingerprint_attribute);
-
-    // println!("message length is {}", message_length);
-    // println!("fingerprint {:?}", fingerprint_attribute);
-    //
-    // println!("the buffer is {:?}", &buffer[..message_length + fingerprint_attribute.len() + 20]);
 
     Ok(STUN_HEADER_LEN + message_length + 8)
 }
