@@ -8,10 +8,11 @@ use crate::rnd::get_random_string;
 use crate::sdp::SDP;
 
 type ResourceID = String;
+type HostUsername = String;
 
 pub struct SessionRegistry {
     sessions: HashMap<ResourceID, Session>,
-    username_map: HashMap<UsernameKey, ResourceID>,
+    username_map: HashMap<HostUsername, ResourceID>,
     address_map: HashMap<SocketAddr, ResourceID>,
     rooms: HashSet<ResourceID>,
 }
@@ -44,7 +45,7 @@ impl SessionRegistry {
     pub fn get_session(&mut self, id: &ResourceID) -> Option<&mut Session> {
         self.sessions.get_mut(id)
     }
-    pub fn get_session_by_username(&self, session_username: &UsernameKey) -> Option<&Session> {
+    pub fn get_session_by_username(&self, session_username: &HostUsername) -> Option<&Session> {
         self.username_map
             .get(session_username)
             .map(|id| self.sessions.get(id))
@@ -61,12 +62,8 @@ impl SessionRegistry {
         let id = streamer.id.clone();
 
         // Update username map
-        self.username_map.insert(
-            UsernameKey {
-                host: streamer.credentials.host_username.clone(),
-            },
-            id.clone(),
-        );
+        self.username_map
+            .insert(streamer.credentials.host_username.clone(), id.clone());
         self.sessions.insert(streamer.id.clone(), streamer); // Update sessions map
         self.rooms.insert(id.clone()); // Update rooms map
 
@@ -95,12 +92,8 @@ impl SessionRegistry {
         }
         .map(|_| {
             // Update username map
-            self.username_map.insert(
-                UsernameKey {
-                    host: viewer.credentials.host_username.clone(),
-                },
-                id.to_owned(),
-            );
+            self.username_map
+                .insert(viewer.credentials.host_username.clone(), id.to_owned());
 
             // Update sessions Hashmap
             self.sessions.insert(id.to_owned(), viewer);
@@ -169,10 +162,6 @@ pub struct Streamer {
 pub struct SessionCredentials {
     pub host_username: String,
     pub host_password: String,
-}
-#[derive(Hash, Eq, PartialEq, Debug)]
-pub struct UsernameKey {
-    pub host: String,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug)]

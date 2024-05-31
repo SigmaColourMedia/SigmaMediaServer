@@ -5,14 +5,11 @@ use std::sync::Arc;
 use openssl::ssl::SslAcceptor;
 
 use crate::client::{Client, ClientSslState};
-use crate::ice_registry::{ConnectionType, SessionRegistry, UsernameKey};
-use crate::stun::{
-    create_stun_success, ICEStunMessageType, parse_binding_request, parse_stun_packet,
-};
+use crate::ice_registry::{ConnectionType, SessionRegistry};
+use crate::stun::{create_stun_success, get_stun_packet, ICEStunMessageType};
 
 pub struct Server {
     pub session_registry: SessionRegistry,
-    packets: usize,
     socket: Arc<UdpSocket>,
     acceptor: Arc<SslAcceptor>,
 }
@@ -20,7 +17,6 @@ pub struct Server {
 impl Server {
     pub fn new(acceptor: Arc<SslAcceptor>, socket: Arc<UdpSocket>) -> Self {
         Server {
-            packets: 0,
             socket,
             acceptor,
             session_registry: SessionRegistry::new(),
@@ -28,94 +24,74 @@ impl Server {
     }
 
     pub fn listen(&mut self, data: &[u8], remote: SocketAddr) {
-        match parse_stun_packet(&data.to_vec()) {
-            Some(binding_request) => {
-                match parse_binding_request(binding_request) {
-                    Some(message_type) => {
-                        match message_type {
-                            ICEStunMessageType::LiveCheck(msg) => {
-                                // println!("received live check {:?}", msg.transaction_id);
-                                if let Some(session) =
-                                    self.session_registry.get_session_by_username(&UsernameKey {
-                                        host: msg.username_attribute.host.clone(),
-                                    })
-                                {
-                                    let mut buffer: [u8; 200] = [0; 200];
-                                    if let Ok(bytes_written) = create_stun_success(
-                                        &session.credentials,
-                                        &msg.username_attribute,
-                                        msg.transaction_id,
-                                        &remote,
-                                        &mut buffer,
-                                    ) {
-                                        let output_buffer = &buffer[0..bytes_written];
-                                        if let Err(error) =
-                                            self.socket.send_to(output_buffer, remote)
-                                        {
-                                            eprintln!("Error writing to remote {}", error)
-                                        }
-                                    }
+        match get_stun_packet(data) {
+            Some(message_type) => {
+                match message_type {
+                    ICEStunMessageType::LiveCheck(msg) => {
+                        if let Some(session) = self
+                            .session_registry
+                            .get_session_by_username(&msg.username_attribute.host)
+                        {
+                            let mut buffer: [u8; 200] = [0; 200];
+                            if let Ok(bytes_written) = create_stun_success(
+                                &session.credentials,
+                                &msg.username_attribute,
+                                msg.transaction_id,
+                                &remote,
+                                &mut buffer,
+                            ) {
+                                let output_buffer = &buffer[0..bytes_written];
+                                if let Err(error) = self.socket.send_to(output_buffer, remote) {
+                                    eprintln!("Error writing to remote {}", error)
                                 }
-                            }
-                            ICEStunMessageType::Nomination(msg) => {
-                                // println!("received nominate packet {:?}", msg.transaction_id);
-
-                                if let Some(resource_id) = self
-                                    .session_registry
-                                    .get_session_by_username(&UsernameKey {
-                                        host: msg.username_attribute.host.clone(),
-                                    })
-                                    .map(|session| session.id.clone())
-                                {
-                                    let is_new_client = self
-                                        .session_registry
-                                        .get_session(&resource_id)
-                                        .map(|session| session.client.is_none())
-                                        .unwrap();
-
-                                    if is_new_client {
-                                        println!("adding new client");
-                                        let client = Client::new(
-                                            remote.clone(),
-                                            self.acceptor.clone(),
-                                            self.socket.clone(),
-                                        );
-
-                                        if let Ok(client) = client {
-                                            self.session_registry
-                                                .nominate_client(client, &resource_id);
-                                        }
-                                    }
-
-                                    let credentials = &self
-                                        .session_registry
-                                        .get_session(&resource_id)
-                                        .unwrap()
-                                        .credentials;
-
-                                    // Send OK response
-                                    let mut buffer: [u8; 200] = [0; 200];
-                                    if let Ok(bytes_written) = create_stun_success(
-                                        credentials,
-                                        &msg.username_attribute,
-                                        msg.transaction_id,
-                                        &remote,
-                                        &mut buffer,
-                                    ) {
-                                        let output_buffer = &buffer[0..bytes_written];
-                                        if let Err(error) =
-                                            self.socket.send_to(output_buffer, remote)
-                                        {
-                                            eprintln!("Error writing to remote {}", error)
-                                        }
-                                    }
-                                };
                             }
                         }
                     }
-                    None => {
-                        println!("invalid binding request {}", data.len())
-                        // todo Invalid binding request
+                    ICEStunMessageType::Nomination(msg) => {
+                        if let Some(resource_id) = self
+                            .session_registry
+                            .get_session_by_username(&msg.username_attribute.host)
+                            .map(|session| session.id.clone())
+                        {
+                            let is_new_client = self
+                                .session_registry
+                                .get_session(&resource_id)
+                                .map(|session| session.client.is_none())
+                                .unwrap();
+
+                            if is_new_client {
+                                let client = Client::new(
+                                    remote.clone(),
+                                    self.acceptor.clone(),
+                                    self.socket.clone(),
+                                );
+
+                                if let Ok(client) = client {
+                                    self.session_registry.nominate_client(client, &resource_id);
+                                }
+                            }
+
+                            let credentials = &self
+                                .session_registry
+                                .get_session(&resource_id)
+                                .unwrap()
+                                .credentials;
+
+                            // Send OK response
+                            let mut buffer: [u8; 200] = [0; 200];
+                            if let Ok(bytes_written) = create_stun_success(
+                                credentials,
+                                &msg.username_attribute,
+                                msg.transaction_id,
+                                &remote,
+                                &mut buffer,
+                            ) {
+                                let output_buffer = &buffer[0..bytes_written];
+                                if let Err(error) = self.socket.send_to(output_buffer, remote) {
+                                    eprintln!("Error writing to remote {}", error)
+                                }
+                            }
+                        };
                     }
                 }
             }
@@ -137,11 +113,13 @@ impl Server {
                             let mut rtcp_buffer = data.to_vec();
                             println!("packet len {}", data.len());
 
-                            ssl_stream.srtp_inbound
+                            ssl_stream
+                                .srtp_inbound
                                 .unprotect(&mut rtp_buffer)
                                 .map(|_| VideoPacket::RTP(rtp_buffer))
                                 .or_else(|err| {
-                                    ssl_stream.srtp_inbound
+                                    ssl_stream
+                                        .srtp_inbound
                                         .unprotect_rtcp(&mut rtcp_buffer)
                                         .map(|_| VideoPacket::RTCP(rtcp_buffer))
                                 })
@@ -185,7 +163,6 @@ impl Server {
                                 }
                             });
                         if let Some((stream, address)) = client {
-
                             match &packet {
                                 VideoPacket::RTP(rtp_packet) => {
                                     let mut outbound_packet = rtp_packet.clone();

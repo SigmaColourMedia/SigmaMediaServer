@@ -8,7 +8,7 @@ use openssl::sign::Signer;
 
 use crate::ice_registry::{SessionCredentials, SessionUsername};
 
-pub fn parse_stun_packet(packet: &[u8]) -> Option<StunBindingRequest> {
+fn parse_stun_packet(packet: &[u8]) -> Option<StunBindingRequest> {
     if packet.len() < STUN_HEADER_LEN {
         return None;
     }
@@ -73,7 +73,7 @@ pub fn parse_stun_packet(packet: &[u8]) -> Option<StunBindingRequest> {
     });
 }
 
-pub fn parse_binding_request(stun_message: StunBindingRequest) -> Option<ICEStunMessageType> {
+ fn parse_binding_request(stun_message: StunBindingRequest) -> Option<ICEStunMessageType> {
     let message_integrity = stun_message.attributes.iter().find_map(|attr| match attr {
         StunAttribute::MessageIntegrity(integrity) => Some(*integrity),
         _ => None,
@@ -103,6 +103,10 @@ pub fn parse_binding_request(stun_message: StunBindingRequest) -> Option<ICEStun
             transaction_id: stun_message.transaction_id,
         })),
     }
+}
+
+pub fn get_stun_packet(data: &[u8]) ->Option<ICEStunMessageType> {
+    parse_stun_packet(data).and_then(parse_binding_request)
 }
 
 pub fn create_stun_success(
