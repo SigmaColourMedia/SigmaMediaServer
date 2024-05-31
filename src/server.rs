@@ -124,7 +124,7 @@ impl Server {
                     .session_registry
                     .get_session_by_address(&remote)
                     .and_then(|session| session.client.as_mut())
-                    .and_then(|client| match &client.ssl_state {
+                    .and_then(|client| match &mut client.ssl_state {
                         ClientSslState::Handshake(_) => {
                             if let Err(e) = client.read_packet(data) {
                                 eprintln!("Error reading packet mid handshake {}", e)
@@ -133,18 +133,15 @@ impl Server {
                         }
                         ClientSslState::Shutdown => None,
                         ClientSslState::Established(ssl_stream) => {
-                            let (mut inbound, _) =
-                                srtp::openssl::session_pair(ssl_stream.ssl(), Default::default())
-                                    .unwrap();
                             let mut rtp_buffer = data.to_vec();
                             let mut rtcp_buffer = data.to_vec();
                             println!("packet len {}", data.len());
 
-                            inbound
+                            ssl_stream.srtp_inbound
                                 .unprotect(&mut rtp_buffer)
                                 .map(|_| VideoPacket::RTP(rtp_buffer))
                                 .or_else(|err| {
-                                    inbound
+                                    ssl_stream.srtp_inbound
                                         .unprotect_rtcp(&mut rtcp_buffer)
                                         .map(|_| VideoPacket::RTCP(rtcp_buffer))
                                 })
@@ -177,8 +174,8 @@ impl Server {
                         let client = self
                             .session_registry
                             .get_session(id)
-                            .and_then(|session| session.client.as_ref())
-                            .and_then(|client| match &client.ssl_state {
+                            .and_then(|session| session.client.as_mut())
+                            .and_then(|client| match &mut client.ssl_state {
                                 ClientSslState::Established(ssl_stream) => {
                                     Some((ssl_stream, client.remote_address))
                                 }
@@ -188,13 +185,11 @@ impl Server {
                                 }
                             });
                         if let Some((stream, address)) = client {
-                            let (_, mut outbound) =
-                                srtp::openssl::session_pair(stream.ssl(), Default::default())
-                                    .unwrap();
+
                             match &packet {
                                 VideoPacket::RTP(rtp_packet) => {
                                     let mut outbound_packet = rtp_packet.clone();
-                                    outbound.protect(&mut outbound_packet).unwrap();
+                                    stream.srtp_outbound.protect(&mut outbound_packet).unwrap();
                                     self.socket.send_to(&outbound_packet, address).unwrap();
                                 }
                                 VideoPacket::RTCP(rtcp_packet) => {

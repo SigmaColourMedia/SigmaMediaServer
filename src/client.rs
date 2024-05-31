@@ -6,14 +6,21 @@ use std::sync::Arc;
 
 use openssl::error::ErrorStack;
 use openssl::ssl::{HandshakeError, MidHandshakeSslStream, SslAcceptor, SslStream};
+use srtp::openssl::{InboundSession, OutboundSession};
 
 use crate::client::ClientError::{IncompletePacketRead, OpenSslError};
 
 #[derive(Debug)]
 pub enum ClientSslState {
     Handshake(MidHandshakeSslStream<UDPPeerStream>),
-    Established(SslStream<UDPPeerStream>),
+    Established(EstablishedStream),
     Shutdown,
+}
+#[derive(Debug)]
+pub struct EstablishedStream{
+    pub ssl_stream: SslStream<UDPPeerStream>,
+    pub srtp_inbound: InboundSession,
+    pub srtp_outbound: OutboundSession
 }
 
 #[derive(Debug)]
@@ -52,7 +59,14 @@ impl Client {
                 match mid_handshake.handshake() {
                     Ok(ssl_stream) => {
                         println!("DTLS handshake finished for remote {}", self.remote_address);
-                        ClientSslState::Established(ssl_stream)
+                        let (mut inbound, mut outbound) =
+                            srtp::openssl::session_pair(ssl_stream.ssl(), Default::default())
+                                .unwrap();
+                        ClientSslState::Established(EstablishedStream{
+                            ssl_stream,
+                            srtp_outbound: outbound,
+                            srtp_inbound: inbound
+                        })
                     }
                     Err(handshake_error) => match handshake_error {
                         HandshakeError::SetupFailure(err) => {
@@ -73,7 +87,7 @@ impl Client {
                 }
             }
             ClientSslState::Established(mut ssl_stream) => {
-                ssl_stream
+                ssl_stream.ssl_stream
                     .get_mut()
                     .incoming_packets
                     .push_back(Vec::from(packet));
@@ -84,7 +98,7 @@ impl Client {
 
         while let ClientSslState::Established(ssl_stream) = &mut self.ssl_state {
             let mut my_buff = [0; 300];
-            match ssl_stream.read(&mut my_buff) {
+            match ssl_stream.ssl_stream.read(&mut my_buff) {
                 Ok(size) => {
                     println!(
                         "read {}",

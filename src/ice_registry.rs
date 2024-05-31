@@ -41,8 +41,8 @@ impl SessionRegistry {
             })
     }
 
-    pub fn get_session(&self, id: &ResourceID) -> Option<&Session> {
-        self.sessions.get(id)
+    pub fn get_session(&mut self, id: &ResourceID) -> Option<&mut Session> {
+        self.sessions.get_mut(id)
     }
     pub fn get_session_by_username(&self, session_username: &UsernameKey) -> Option<&Session> {
         self.username_map

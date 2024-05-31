@@ -21,7 +21,7 @@ impl SSLConfig {
             .unwrap();
         acceptor_builder.set_verify(SslVerifyMode::NONE);
         acceptor_builder
-            .set_tlsext_use_srtp(srtp::openssl::SRTP_PROFILE_NAMES)
+            .set_tlsext_use_srtp("SRTP_AES128_CM_SHA1_80")
             .unwrap();
 
         let acceptor = Arc::new(acceptor_builder.build());
