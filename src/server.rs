@@ -48,6 +48,8 @@ impl Server {
                     .session_registry
                     .get_session_by_username(&msg.username_attribute.host)
                 {
+                    session.ttl = Instant::now();
+
                     let mut buffer: [u8; 200] = [0; 200];
                     let bytes_written = create_stun_success(
                         &session.credentials,
@@ -68,7 +70,10 @@ impl Server {
                 if let Some(resource_id) = self
                     .session_registry
                     .get_session_by_username(&msg.username_attribute.host)
-                    .map(|session| session.id.clone())
+                    .map(|session| {
+                        session.ttl = Instant::now();
+                        session.id.clone()
+                    })
                 {
                     let is_new_client = self
                         .session_registry

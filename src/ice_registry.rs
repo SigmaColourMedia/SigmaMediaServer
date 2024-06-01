@@ -41,14 +41,35 @@ impl SessionRegistry {
                 Some(id.clone())
             })
     }
+    pub fn get_all_sessions(&self) -> Vec<&Session> {
+        self.sessions.values().collect()
+    }
+
+    pub fn remove_session(&mut self, id: &str) {
+        let target_session = self.sessions.get(id);
+        if let Some(session) = target_session {
+            let username = &session.credentials.host_username;
+            self.username_map.remove(username);
+
+            if let Some(remote) = session.client.as_ref().map(|client| client.remote_address) {
+                self.address_map.remove(&remote);
+            }
+
+            self.rooms.remove(id);
+            self.sessions.remove(id);
+        }
+    }
 
     pub fn get_session(&mut self, id: &str) -> Option<&mut Session> {
         self.sessions.get_mut(id)
     }
-    pub fn get_session_by_username(&self, session_username: &HostUsername) -> Option<&Session> {
+    pub fn get_session_by_username(
+        &mut self,
+        session_username: &HostUsername,
+    ) -> Option<&mut Session> {
         self.username_map
             .get(session_username)
-            .map(|id| self.sessions.get(id))
+            .map(|id| self.sessions.get_mut(id))
             .flatten()
     }
 

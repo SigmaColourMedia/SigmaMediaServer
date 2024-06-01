@@ -2,6 +2,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::net::UdpSocket;
 use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -39,34 +40,49 @@ async fn main() {
                     server.listen(&buffer[..bytes_read], remote_addr);
                 }
                 Err(err) => match err.kind() {
-                    ErrorKind::WouldBlock => {
-                        if let Ok(command) = rx.try_recv() {
-                            match command {
-                                SessionCommand::AddStreamer(session) => {
-                                    server.session_registry.add_streamer(session);
-                                }
-                                SessionCommand::AddViewer(session) => {
-                                    server.session_registry.add_viewer(session).unwrap();
-                                }
-                                SessionCommand::GetRooms(sender) => {
-                                    let rooms = server.session_registry.get_rooms();
-                                    sender.blocking_send(rooms).unwrap()
-                                }
-                                SessionCommand::GetStreamSDP((sender, stream_id)) => {
-                                    let stream_sdp = server
-                                        .session_registry
-                                        .get_session(&stream_id)
-                                        .and_then(|session| match &session.connection_type {
-                                            ConnectionType::Viewer(_) => None,
-                                            ConnectionType::Streamer(streamer) => {
-                                                Some(streamer.sdp.clone())
-                                            }
-                                        });
-                                    sender.send(stream_sdp).unwrap()
+                    ErrorKind::WouldBlock => match rx.try_recv() {
+                        Ok(command) => match command {
+                            SessionCommand::AddStreamer(session) => {
+                                server.session_registry.add_streamer(session);
+                            }
+                            SessionCommand::AddViewer(session) => {
+                                server.session_registry.add_viewer(session).unwrap();
+                            }
+                            SessionCommand::GetRooms(sender) => {
+                                let rooms = server.session_registry.get_rooms();
+                                sender.blocking_send(rooms).unwrap()
+                            }
+                            SessionCommand::GetStreamSDP((sender, stream_id)) => {
+                                let stream_sdp = server
+                                    .session_registry
+                                    .get_session(&stream_id)
+                                    .and_then(|session| match &session.connection_type {
+                                        ConnectionType::Viewer(_) => None,
+                                        ConnectionType::Streamer(streamer) => {
+                                            Some(streamer.sdp.clone())
+                                        }
+                                    });
+                                sender.send(stream_sdp).unwrap()
+                            }
+                        },
+                        Err(_) => {
+                            let sessions: Vec<_> = server
+                                .session_registry
+                                .get_all_sessions()
+                                .iter()
+                                .map(|&session| (session.id.clone(), session.ttl))
+                                .collect();
+
+                            println!("sessions count {}", sessions.len());
+
+                            for (id, ttl) in sessions {
+                                if ttl.elapsed() > Duration::from_secs(5) {
+                                    server.session_registry.remove_session(&id);
+                                    println!("your time is up {:?}", ttl.elapsed())
                                 }
                             }
                         }
-                    }
+                    },
                     _ => {
                         eprintln!("Encountered socket IO error {}", err)
                     }
@@ -75,9 +91,7 @@ async fn main() {
         }
     });
 
-    let tcp_server = TcpListener::bind(format!("127.0.0.1:8080"))
-        .await
-        .unwrap();
+    let tcp_server = TcpListener::bind(format!("127.0.0.1:8080")).await.unwrap();
     let http_server = Arc::new(HTTPServer::new(config.fingerprint.clone(), tx.clone()));
 
     loop {
