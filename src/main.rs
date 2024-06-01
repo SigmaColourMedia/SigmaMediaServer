@@ -7,6 +7,7 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TryRecvError;
 
 use crate::acceptor::SSLConfig;
 use crate::http::{HTTPServer, SessionCommand};
@@ -36,10 +37,12 @@ async fn main() {
         loop {
             let mut buffer = [0; 3600];
             match socket.recv_from(&mut buffer) {
+                // Check for packets
                 Ok((bytes_read, remote_addr)) => {
                     server.listen(&buffer[..bytes_read], remote_addr);
                 }
                 Err(err) => match err.kind() {
+                    // Check for commands
                     ErrorKind::WouldBlock => match rx.try_recv() {
                         Ok(command) => match command {
                             SessionCommand::AddStreamer(session) => {
@@ -65,23 +68,27 @@ async fn main() {
                                 sender.send(stream_sdp).unwrap()
                             }
                         },
-                        Err(_) => {
-                            let sessions: Vec<_> = server
-                                .session_registry
-                                .get_all_sessions()
-                                .iter()
-                                .map(|&session| (session.id.clone(), session.ttl))
-                                .collect();
+                        Err(channel_err) => match channel_err {
+                            // Check for session timeouts
+                            TryRecvError::Empty => {
+                                let sessions: Vec<_> = server
+                                    .session_registry
+                                    .get_all_sessions()
+                                    .iter()
+                                    .map(|&session| (session.id.clone(), session.ttl))
+                                    .collect();
 
-                            println!("sessions count {}", sessions.len());
-
-                            for (id, ttl) in sessions {
-                                if ttl.elapsed() > Duration::from_secs(5) {
-                                    server.session_registry.remove_session(&id);
-                                    println!("your time is up {:?}", ttl.elapsed())
+                                println!("sessions count {}", sessions.len());
+                                for (id, ttl) in sessions {
+                                    if ttl.elapsed() > Duration::from_secs(5) {
+                                        server.session_registry.remove_session(&id);
+                                    }
                                 }
                             }
-                        }
+                            TryRecvError::Disconnected => {
+                                panic!("Command channel unexpectedly closed.")
+                            }
+                        },
                     },
                     _ => {
                         eprintln!("Encountered socket IO error {}", err)
