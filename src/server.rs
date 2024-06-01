@@ -1,8 +1,10 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
+use std::io::{ErrorKind, Write};
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
 
 use openssl::ssl::SslAcceptor;
+use tokio::time::Instant;
 
 use crate::client::{Client, ClientSslState};
 use crate::ice_registry::{ConnectionType, SessionRegistry};
@@ -10,6 +12,8 @@ use crate::stun::{create_stun_success, get_stun_packet, ICEStunMessageType};
 
 pub struct Server {
     pub session_registry: SessionRegistry,
+    inbound_buffer: Vec<u8>,
+    outbound_buffer: Vec<u8>,
     socket: Arc<UdpSocket>,
     acceptor: Arc<SslAcceptor>,
 }
@@ -17,6 +21,8 @@ pub struct Server {
 impl Server {
     pub fn new(acceptor: Arc<SslAcceptor>, socket: Arc<UdpSocket>) -> Self {
         Server {
+            inbound_buffer: Vec::with_capacity(2000),
+            outbound_buffer: Vec::with_capacity(2000),
             socket,
             acceptor,
             session_registry: SessionRegistry::new(),
@@ -24,6 +30,11 @@ impl Server {
     }
 
     pub fn listen(&mut self, data: &[u8], remote: SocketAddr) {
+        self.inbound_buffer.clear();
+        self.inbound_buffer
+            .write_all(data)
+            .expect("Failed to write to internal buffer");
+
         match get_stun_packet(data) {
             Some(message_type) => {
                 match message_type {
@@ -97,107 +108,86 @@ impl Server {
                 }
             }
             None => {
-                let has_rtp_packet = self
+                let mut viewers_to_notify: Option<Vec<String>> = None;
+
+                if let Some(session) = self
                     .session_registry
                     .get_session_by_address(&remote)
-                    .and_then(|session| session.client.as_mut())
-                    .and_then(|client| match &mut client.ssl_state {
-                        ClientSslState::Handshake(_) => {
-                            if let Err(e) = client.read_packet(data) {
-                                eprintln!("Error reading packet mid handshake {}", e)
+                    .and_then(|session| match session.client {
+                        None => None,
+                        Some(_) => Some(session),
+                    })
+                {
+                    session.ttl = Instant::now();
+
+                    match &session.connection_type {
+                        ConnectionType::Viewer(_) => {
+                            let client = session.client.as_mut().unwrap();
+                            match &mut client.ssl_state {
+                                ClientSslState::Handshake(_) => {
+                                    if let Err(e) = client.read_packet(data) {
+                                        eprintln!("Error reading packet mid handshake {}", e)
+                                    }
+                                }
+                                ClientSslState::Established(_) => {}
+                                ClientSslState::Shutdown => {}
                             }
-                            None
                         }
-                        ClientSslState::Shutdown => None,
-                        ClientSslState::Established(ssl_stream) => {
-                            let mut rtp_buffer = data.to_vec();
-                            let mut rtcp_buffer = data.to_vec();
-                            println!("packet len {}", data.len());
-
-                            ssl_stream
-                                .srtp_inbound
-                                .unprotect(&mut rtp_buffer)
-                                .map(|_| VideoPacket::RTP(rtp_buffer))
-                                .or_else(|err| {
-                                    ssl_stream
-                                        .srtp_inbound
-                                        .unprotect_rtcp(&mut rtcp_buffer)
-                                        .map(|_| VideoPacket::RTCP(rtcp_buffer))
-                                })
-                                .ok()
-                        }
-                    });
-                if has_rtp_packet.is_none() {
-                    println!("packet {} is not RTP packet", data.len())
-                }
-
-                if let Some(packet) = has_rtp_packet {
-                    println!("{}", packet);
-                    let viewer_ids = self
-                        .session_registry
-                        .get_session_by_address(&remote)
-                        .and_then(|session| match &session.connection_type {
-                            ConnectionType::Viewer(_) => None,
-                            ConnectionType::Streamer(streamer) => {
-                                Some(streamer.viewers_ids.to_vec())
-                            }
-                        });
-
-                    if viewer_ids.is_none() {
-                        return;
-                    }
-
-                    let viewer_ids = viewer_ids.unwrap();
-
-                    for id in &viewer_ids {
-                        let client = self
-                            .session_registry
-                            .get_session(id)
-                            .and_then(|session| session.client.as_mut())
-                            .and_then(|client| match &mut client.ssl_state {
+                        ConnectionType::Streamer(streamer) => {
+                            let client = session.client.as_mut().unwrap();
+                            match &mut client.ssl_state {
+                                ClientSslState::Handshake(_) => {
+                                    if let Err(e) = client.read_packet(data) {
+                                        eprintln!("Error reading packet mid handshake {}", e)
+                                    }
+                                }
                                 ClientSslState::Established(ssl_stream) => {
-                                    Some((ssl_stream, client.remote_address))
+                                    if let Ok(_) =
+                                        ssl_stream.srtp_inbound.unprotect(&mut self.inbound_buffer)
+                                    {
+                                        viewers_to_notify = Some(
+                                            streamer.viewers_ids.iter().map(Clone::clone).collect(),
+                                        );
+                                    }
                                 }
-                                _ => {
-                                    println!("some other state");
-                                    None
-                                }
-                            });
-                        if let Some((stream, address)) = client {
-                            match &packet {
-                                VideoPacket::RTP(rtp_packet) => {
-                                    let mut outbound_packet = rtp_packet.clone();
-                                    stream.srtp_outbound.protect(&mut outbound_packet).unwrap();
-                                    self.socket.send_to(&outbound_packet, address).unwrap();
-                                }
-                                VideoPacket::RTCP(rtcp_packet) => {
-                                    let mut outbound_packet = rtcp_packet.clone();
-                                    // outbound.protect_rtcp(&mut outbound_packet).unwrap();
-                                    // self.socket.send_to(&outbound_packet, address).unwrap();
+                                ClientSslState::Shutdown => {}
+                            }
+                        }
+                    }
+                }
+
+                if let Some(viewer_ids) = viewers_to_notify {
+                    for id in viewer_ids {
+                        let viewer_session = self.session_registry.get_session(&id);
+                        if let Some(client) =
+                            viewer_session.and_then(|session| session.client.as_mut())
+                        {
+                            if let ClientSslState::Established(ssl_stream) = &mut client.ssl_state {
+                                self.outbound_buffer.clear();
+                                self.outbound_buffer
+                                    .write(&self.inbound_buffer)
+                                    .expect("Failed writing to outbound buffer");
+
+                                let send_result = ssl_stream
+                                    .srtp_outbound
+                                    .protect(&mut self.outbound_buffer)
+                                    .map_err(|err| {
+                                        std::io::Error::new(
+                                            ErrorKind::Other,
+                                            "Error encrypting SRTP packet",
+                                        )
+                                    })
+                                    .and_then(|_| {
+                                        self.socket
+                                            .send_to(&self.outbound_buffer, client.remote_address)
+                                    });
+                                if let Err(err) = send_result {
+                                    eprintln!("Error forwarding RTP packet {}", err)
                                 }
                             }
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-enum VideoPacket {
-    RTP(Vec<u8>),
-    RTCP(Vec<u8>),
-}
-
-impl Display for VideoPacket {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            VideoPacket::RTP(packet) => {
-                write!(f, "Video packet RTP {}", packet.len())
-            }
-            VideoPacket::RTCP(packet) => {
-                write!(f, "Video packet RTCP {}", packet.len())
             }
         }
     }

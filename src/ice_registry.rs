@@ -42,7 +42,7 @@ impl SessionRegistry {
             })
     }
 
-    pub fn get_session(&mut self, id: &ResourceID) -> Option<&mut Session> {
+    pub fn get_session(&mut self, id: &str) -> Option<&mut Session> {
         self.sessions.get_mut(id)
     }
     pub fn get_session_by_username(&self, session_username: &HostUsername) -> Option<&Session> {
@@ -141,18 +141,18 @@ impl Session {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ConnectionType {
     Viewer(Viewer),
     Streamer(Streamer),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Viewer {
     target_resource: ResourceID,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Streamer {
     pub viewers_ids: Vec<ResourceID>,
     pub sdp: SDP,
