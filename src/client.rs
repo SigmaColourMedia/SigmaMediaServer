@@ -1,8 +1,8 @@
+use std::{fmt, io, mem};
 use std::collections::VecDeque;
 use std::io::{Error, ErrorKind, Read, Write};
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
-use std::{fmt, io, mem};
 
 use openssl::error::ErrorStack;
 use openssl::ssl::{HandshakeError, MidHandshakeSslStream, SslAcceptor, SslStream};
@@ -16,6 +16,7 @@ pub enum ClientSslState {
     Established(EstablishedStream),
     Shutdown,
 }
+
 #[derive(Debug)]
 pub struct EstablishedStream {
     pub ssl_stream: SslStream<UDPPeerStream>,
@@ -56,12 +57,14 @@ impl Client {
                     .get_mut()
                     .incoming_packets
                     .push_back(Vec::from(packet));
+
                 match mid_handshake.handshake() {
                     Ok(ssl_stream) => {
                         println!("DTLS handshake finished for remote {}", self.remote_address);
                         let (mut inbound, mut outbound) =
                             srtp::openssl::session_pair(ssl_stream.ssl(), Default::default())
                                 .unwrap();
+
                         ClientSslState::Established(EstablishedStream {
                             ssl_stream,
                             srtp_outbound: outbound,
@@ -97,22 +100,7 @@ impl Client {
             ClientSslState::Shutdown => ClientSslState::Shutdown,
         };
 
-        while let ClientSslState::Established(ssl_stream) = &mut self.ssl_state {
-            let mut my_buff = [0; 300];
-            match ssl_stream.ssl_stream.read(&mut my_buff) {
-                Ok(size) => {
-                    println!(
-                        "read {}",
-                        String::from_utf8(Vec::from(&my_buff[..size])).unwrap()
-                    );
-                    break;
-                }
-                Err(e) => {
-                    println!("error reading packet {}", e);
-                    break;
-                }
-            }
-        }
+
         Ok(())
     }
 }
