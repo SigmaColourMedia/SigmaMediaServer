@@ -61,7 +61,7 @@ impl Client {
                 match mid_handshake.handshake() {
                     Ok(ssl_stream) => {
                         println!("DTLS handshake finished for remote {}", self.remote_address);
-                        let (mut inbound, mut outbound) =
+                        let ( inbound, outbound) =
                             srtp::openssl::session_pair(ssl_stream.ssl(), Default::default())
                                 .unwrap();
 
@@ -107,25 +107,15 @@ impl Client {
 
 #[derive(Debug)]
 pub enum ClientError {
-    NotConnected,
-    NotEstablished,
     IncompletePacketRead,
-    IncompletePacketWrite,
     OpenSslError(ErrorStack),
 }
 
 impl fmt::Display for ClientError {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
-            ClientError::NotConnected => write!(f, "client is not connected"),
-            ClientError::NotEstablished => {
-                write!(f, "client does not have an established WebRTC data channel")
-            }
             ClientError::IncompletePacketRead => {
                 write!(f, "WebRTC connection packet not completely read")
-            }
-            ClientError::IncompletePacketWrite => {
-                write!(f, "WebRTC connection packet not completely written")
             }
             ClientError::OpenSslError(stack) => {
                 write!(f, "OpenSSL error {}", stack)

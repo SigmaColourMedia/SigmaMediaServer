@@ -1,11 +1,11 @@
 use std::fmt::{Display, Formatter};
-use std::path::Path;
 
 use tokio::fs;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{channel, Sender};
 
+use crate::{BUNDLE_PATH, HTML_PATH};
 use crate::ice_registry::{Session, SessionCredentials};
 use crate::rnd::get_random_string;
 use crate::sdp::{create_sdp_receive_answer, create_streaming_sdp_answer, parse_sdp, SDP};
@@ -118,8 +118,7 @@ impl HTTPServer {
     }
 
     async fn serve_bundle(&self, stream: &mut TcpStream) -> Result<(), HttpError> {
-        let file = Path::new("../public/index.js");
-        let text_data = fs::read_to_string(file)
+        let text_data = fs::read_to_string(BUNDLE_PATH)
             .await
             .map_err(|_| HttpError::InternalServerError)?;
 
@@ -134,7 +133,7 @@ impl HTTPServer {
         stream
             .write_all(response.as_bytes())
             .await
-            .map_err(|err| HttpError::InternalServerError)
+            .map_err(|_err| HttpError::InternalServerError)
     }
 
     async fn register_streamer(
@@ -191,7 +190,7 @@ impl HTTPServer {
             .map(|(_, value)| value.to_owned())
             .ok_or(HttpError::MalformedRequest)?;
 
-        let (tx, mut rx) = tokio::sync::oneshot::channel::<Option<SDP>>();
+        let (tx, rx) = tokio::sync::oneshot::channel::<Option<SDP>>();
 
         self.session_commands_sender
             .send(SessionCommand::GetStreamSDP((tx, target_id.clone())))
@@ -260,7 +259,7 @@ impl HTTPServer {
 }
 
 async fn write_webpage(stream: &mut TcpStream) -> Result<(), HttpError> {
-    let contents = fs::read_to_string("../public/index.html").await.map_err(|_| HttpError::InternalServerError)?;
+    let contents = fs::read_to_string(HTML_PATH).await.map_err(|_| HttpError::InternalServerError)?;
     let response = format!(
         "HTTP/1.1 200 OK\r\n\
     content-length: {}\r\n\
@@ -300,7 +299,7 @@ async fn write_405_response(stream: &mut TcpStream) -> std::io::Result<()> {
     stream.write_all(response.as_bytes()).await
 }
 
-pub async fn parse_http_request(stream: &mut TcpStream) -> Option<Request> {
+async fn parse_http_request(stream: &mut TcpStream) -> Option<Request> {
     let buf_reader = BufReader::new(stream);
     let mut lines = buf_reader.lines();
     let request_line = lines.next_line().await.ok().flatten()?;

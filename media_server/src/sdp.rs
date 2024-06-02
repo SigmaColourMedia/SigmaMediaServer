@@ -3,7 +3,7 @@ use crate::ice_registry::SessionCredentials;
 use crate::rnd::get_random_string;
 
 pub fn parse_sdp(data: String) -> Option<SDP> {
-    let mut lines = data.lines();
+    let lines = data.lines();
     let remote_username = lines
         .clone()
         .find(|line| line.starts_with(ICE_USERNAME_ATTRIBUTE_PREFIX))
@@ -53,7 +53,6 @@ pub fn parse_sdp(data: String) -> Option<SDP> {
                     .and_then(|attr| attr.split(":").nth(1))
                     .and_then(|num| num.parse::<usize>().ok())?;
                 audio_media = Some(AudioMedia {
-                    format: AudioPayloadFormat::Opus,
                     ssrc_attributes: media
                         .iter()
                         .filter(|&line| line.starts_with("a=ssrc") || line.starts_with("a=msid"))
@@ -66,13 +65,12 @@ pub fn parse_sdp(data: String) -> Option<SDP> {
             "video" => {
                 let payload_number = media
                     .iter()
-                    .find(|line| line.to_ascii_lowercase().ends_with("h264/90000")) // todo handle other video codecs
+                    .find(|line| line.to_ascii_lowercase().ends_with("h264/90000"))
                     .and_then(|&line| line.split(" ").nth(0))
                     .and_then(|attr| attr.split(":").nth(1))
                     .and_then(|num| num.parse::<usize>().ok())?;
 
                 video_media = Some(VideoMedia {
-                    format: VideoPayloadFormat::H264,
                     payload_number,
                     ssrc_attributes: media
                         .iter()
@@ -236,30 +234,20 @@ pub struct SDP {
 }
 
 #[derive(Debug, Clone)]
-struct VideoMedia {
-    format: VideoPayloadFormat,
+pub struct VideoMedia {
     profile_level_id: String,
     payload_number: usize,
     ssrc_attributes: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
-enum VideoPayloadFormat {
-    H264,
-}
 
 #[derive(Debug, Clone)]
-struct AudioMedia {
-    format: AudioPayloadFormat,
+pub struct AudioMedia {
     profile_level_id: String,
     payload_number: usize,
     ssrc_attributes: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
-enum AudioPayloadFormat {
-    Opus,
-}
 
 const ICE_USERNAME_ATTRIBUTE_PREFIX: &str = "a=ice-ufrag:";
 const ICE_PASSWORD_ATTRIBUTE_PREFIX: &str = "a=ice-pwd:";

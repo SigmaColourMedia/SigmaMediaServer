@@ -1,4 +1,3 @@
-use std::fmt::Display;
 use std::io::{ErrorKind, Write};
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
@@ -58,7 +57,7 @@ impl Server {
                         &remote,
                         &mut buffer,
                     )
-                    .expect("Failed to create STUN success response");
+                        .expect("Failed to create STUN success response");
 
                     let output_buffer = &buffer[0..bytes_written];
                     if let Err(error) = self.socket.send_to(output_buffer, remote) {
@@ -104,7 +103,7 @@ impl Server {
                         &remote,
                         &mut buffer,
                     )
-                    .expect("Failed to create STUN success message");
+                        .expect("Failed to create STUN success message");
 
                     let output_buffer = &buffer[0..bytes_written];
                     if let Err(error) = self.socket.send_to(output_buffer, remote) {
@@ -176,7 +175,7 @@ impl Server {
                         let send_result = ssl_stream
                             .srtp_outbound
                             .protect(&mut self.outbound_buffer)
-                            .map_err(|err| {
+                            .map_err(|_| {
                                 std::io::Error::new(
                                     ErrorKind::Other,
                                     "Error encrypting SRTP packet",
