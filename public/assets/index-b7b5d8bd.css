@@ -1,0 +1,38 @@
+.wrapper {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding-top: 120px;
+}
+
+.heading {
+    margin: 0;
+    text-align: center;
+}
+
+.overlay {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 800px;
+    height: 300px;
+    background: var(--primary-50);
+    border: 1px var(--primary-200) solid;
+}
+
+@keyframes spin {
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+
+#loader {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: 70px;
+    height: 70px;
+    animation: spin 0.5s linear infinite;
+}
