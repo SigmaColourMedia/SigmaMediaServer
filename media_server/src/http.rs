@@ -5,7 +5,7 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{channel, Sender};
 
-use crate::{BUNDLE_PATH, HTML_PATH};
+use crate::{BUNDLE_PATH, HTML_PATH, WHIP_TOKEN};
 use crate::ice_registry::{Session, SessionCredentials};
 use crate::rnd::get_random_string;
 use crate::sdp::{create_sdp_receive_answer, create_streaming_sdp_answer, parse_sdp, SDP};
@@ -28,7 +28,7 @@ impl HTTPServer {
                 match &req.path[..] {
                     "/whip" => match &req.method {
                         HTTPMethod::POST => {
-                            if let Err(err) = self.register_streamer(&mut stream, req.body).await {
+                            if let Err(err) = self.register_streamer(&mut stream, req).await {
                                 HTTPServer::handle_http_error(err, &mut stream).await;
                             }
                         }
@@ -82,7 +82,7 @@ impl HTTPServer {
                 };
             }
             None => {
-                HTTPServer::handle_http_error(HttpError::MalformedRequest, &mut stream).await;
+                HTTPServer::handle_http_error(HttpError::BadRequest, &mut stream).await;
             }
         }
     }
@@ -109,8 +109,8 @@ impl HTTPServer {
                     eprint!("Error writing a HTTP response {}", err)
                 }
             }
-            HttpError::MalformedRequest => {
-                if let Err(err) = write_400_response(stream).await {
+            HttpError::Unauthorized => {
+                if let Err(err) = write_401_response(stream).await {
                     eprint!("Error writing a HTTP response {}", err)
                 }
             }
@@ -139,11 +139,18 @@ impl HTTPServer {
     async fn register_streamer(
         &self,
         stream: &mut TcpStream,
-        body: Option<String>,
+        request: Request,
     ) -> Result<(), HttpError> {
-        let sdp = body
+        let bearer_token = request.headers.iter().find(|(key, _)| key.eq_ignore_ascii_case("authorization")).map(|(_, value)| value).ok_or(HttpError::Unauthorized)?;
+
+        if !bearer_token.eq(&format!("Bearer {}", WHIP_TOKEN)) {
+            return Err(HttpError::Unauthorized);
+        }
+
+
+        let sdp = request.body
             .and_then(parse_sdp)
-            .ok_or(HttpError::MalformedRequest)?;
+            .ok_or(HttpError::BadRequest)?;
         let host_username = get_random_string(4);
         let host_password = get_random_string(24);
         let session_credentials = SessionCredentials {
@@ -181,14 +188,14 @@ impl HTTPServer {
         stream: &mut TcpStream,
         search: Option<String>,
     ) -> Result<(), HttpError> {
-        let search = search.ok_or(HttpError::MalformedRequest)?;
+        let search = search.ok_or(HttpError::BadRequest)?;
 
         let target_id = search
             .split("&")
             .find(|param| param.starts_with("target_id="))
             .and_then(|param| param.split_once("="))
             .map(|(_, value)| value.to_owned())
-            .ok_or(HttpError::MalformedRequest)?;
+            .ok_or(HttpError::BadRequest)?;
 
         let (tx, rx) = tokio::sync::oneshot::channel::<Option<SDP>>();
 
@@ -199,7 +206,7 @@ impl HTTPServer {
 
         let stream_sdp = rx.await.unwrap().ok_or(HttpError::NotFound)?;
         let (sdp_answer, credentials) = create_streaming_sdp_answer(&stream_sdp, &self.fingerprint)
-            .ok_or(HttpError::MalformedRequest)?;
+            .ok_or(HttpError::BadRequest)?;
 
         let viewer_session = Session::new_viewer(target_id.to_owned(), credentials);
         let response = format!(
@@ -292,6 +299,13 @@ async fn write_500_response(stream: &mut TcpStream) -> std::io::Result<()> {
     stream.write_all(response.as_bytes()).await
 }
 
+async fn write_401_response(stream: &mut TcpStream) -> std::io::Result<()> {
+    let status_line = "HTTP/1.1 401 UNAUTHORIZED";
+
+    let response = format! {"{status_line}\r\n\r\n"};
+    stream.write_all(response.as_bytes()).await
+}
+
 async fn write_405_response(stream: &mut TcpStream) -> std::io::Result<()> {
     let status_line = "HTTP/1.1 405 METHOD NOT ALLOWED";
 
@@ -301,6 +315,7 @@ async fn write_405_response(stream: &mut TcpStream) -> std::io::Result<()> {
 
 async fn parse_http_request(stream: &mut TcpStream) -> Option<Request> {
     let buf_reader = BufReader::new(stream);
+
     let mut lines = buf_reader.lines();
     let request_line = lines.next_line().await.ok().flatten()?;
 
@@ -329,13 +344,13 @@ async fn parse_http_request(stream: &mut TcpStream) -> Option<Request> {
         }
         headers.push(parse_header(&line)?)
     }
-
     let content_length = headers
         .iter()
         .find(|(key, _)| key.eq_ignore_ascii_case("content-length"))
         .map(|(_, value)| value.parse::<usize>())
         .map(|result| result.ok())
         .flatten();
+
 
     let body: Option<String> = match content_length {
         None => None,
@@ -404,10 +419,10 @@ impl Display for HTTPMethod {
 #[derive(Debug)]
 enum HttpError {
     NotFound,
+    Unauthorized,
     InternalServerError,
     BadRequest,
     MethodNotAllowed,
-    MalformedRequest,
 }
 
 impl std::fmt::Display for HttpError {
@@ -417,7 +432,7 @@ impl std::fmt::Display for HttpError {
             HttpError::InternalServerError => write!(f, "500 Internal Server Error"),
             HttpError::BadRequest => write!(f, "400 Bad Request"),
             HttpError::MethodNotAllowed => write!(f, "405 Method Not Allowed"),
-            HttpError::MalformedRequest => write!(f, "405 Malformed request"),
+            HttpError::Unauthorized => write!(f, "401 Unauthorized")
         }
     }
 }

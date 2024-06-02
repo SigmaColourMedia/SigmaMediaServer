@@ -115,6 +115,7 @@ async fn main() {
 }
 
 pub const HOST_ADDRESS: &'static str = env!("HOST_ADDRESS");
+pub const WHIP_TOKEN: &'static str = env!("WHIP_TOKEN");
 pub const CERT_PATH: &'static str = "../certs/cert.pem";
 pub const CERT_KEY_PATH: &'static str = "../certs/key.pem";
 pub const HTML_PATH: &'static str = "../public/index.html";
