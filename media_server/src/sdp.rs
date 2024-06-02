@@ -54,12 +54,13 @@ pub fn parse_sdp(data: String) -> Option<SDP> {
                     .and_then(|num| num.parse::<usize>().ok())?;
                 audio_media = Some(AudioMedia {
                     format: AudioPayloadFormat::Opus,
-                    extra_lines: media
+                    ssrc_attributes: media
                         .iter()
                         .filter(|&line| line.starts_with("a=ssrc") || line.starts_with("a=msid"))
                         .map(|line| line.to_string())
                         .collect(),
                     payload_number,
+                    profile_level_id: media.iter().find(|line| line.starts_with(&format!("a=fmtp:{}", payload_number))).map(|line| line.to_string())?,
                 })
             }
             "video" => {
@@ -73,7 +74,7 @@ pub fn parse_sdp(data: String) -> Option<SDP> {
                 video_media = Some(VideoMedia {
                     format: VideoPayloadFormat::H264,
                     payload_number,
-                    extra_lines: media
+                    ssrc_attributes: media
                         .iter()
                         .filter(|&line| line.starts_with("a=ssrc") || line.starts_with("a=msid"))
                         .map(|line| line.to_string())
@@ -141,8 +142,10 @@ pub fn create_sdp_receive_answer(
         a=candidate:1 1 UDP 2122317823 {HOST_ADDRESS} 52000 typ host\r\n\
         a=end-of-candidates\r\n\
         a=mid=0\r\n\
-        a=rtmpmap:{payload_number} opus/48000/2\r\n",
+        a=rtmpmap:{payload_number} opus/48000/2\r\n\
+        {profile_id}",
         payload_number = audio_media.payload_number,
+        profile_id = audio_media.profile_level_id
     );
 
     let video_media_description = format!(
@@ -192,11 +195,12 @@ a=group:LS 0 1\r\n\
         a=candidate:1 1 UDP 2122317823 {HOST_ADDRESS} 52000 typ host\r\n\
         a=end-of-candidates\r\n\
         a=mid:0\r\n\
-        {extra_lines}\r\n\
-        a=fmtp:111 minptime=10;maxaveragebitrate=96000;stereo=1;sprop-stereo=1;useinbandfec=1\r\n\
+        {ssrc}\r\n\
+        {profile_id}\r\n\
         a=rtpmap:{payload_number} opus/48000/2\r\n",
         payload_number = streamer_sdp.audio_media.payload_number,
-        extra_lines = streamer_sdp.audio_media.extra_lines.join("\r\n")
+        ssrc = streamer_sdp.audio_media.ssrc_attributes.join("\r\n"),
+        profile_id = streamer_sdp.audio_media.profile_level_id
     );
 
     let video_media_description = format!(
@@ -206,11 +210,11 @@ a=group:LS 0 1\r\n\
         a=rtcp-mux\r\n\
         a=mid:1\r\n\
         a=rtpmap:{payload_number} H264/90000\r\n\
-        {extra_lines}\r\n\
+        {ssrc}\r\n\
         {profile_level_id}\r\n",
         payload_number = streamer_sdp.video_media.payload_number,
         profile_level_id = streamer_sdp.video_media.profile_level_id,
-        extra_lines = streamer_sdp.video_media.extra_lines.join("\r\n")
+        ssrc = streamer_sdp.video_media.ssrc_attributes.join("\r\n")
     );
 
     let sdp_answer = session_description + &audio_media_description + &video_media_description;
@@ -236,20 +240,20 @@ struct VideoMedia {
     format: VideoPayloadFormat,
     profile_level_id: String,
     payload_number: usize,
-    extra_lines: Vec<String>,
+    ssrc_attributes: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 enum VideoPayloadFormat {
     H264,
-    VP8,
 }
 
 #[derive(Debug, Clone)]
 struct AudioMedia {
     format: AudioPayloadFormat,
+    profile_level_id: String,
     payload_number: usize,
-    extra_lines: Vec<String>,
+    ssrc_attributes: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

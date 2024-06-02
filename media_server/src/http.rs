@@ -118,7 +118,7 @@ impl HTTPServer {
     }
 
     async fn serve_bundle(&self, stream: &mut TcpStream) -> Result<(), HttpError> {
-        let file = Path::new("./public/index.js");
+        let file = Path::new("../public/index.js");
         let text_data = fs::read_to_string(file)
             .await
             .map_err(|_| HttpError::InternalServerError)?;
@@ -153,7 +153,6 @@ impl HTTPServer {
         };
 
         let answer = create_sdp_receive_answer(&sdp, &session_credentials, &self.fingerprint);
-        println!("the streaming answer {answer}");
         let session = Session::new_streamer(session_credentials, sdp);
 
         let response = format!(
@@ -261,7 +260,7 @@ impl HTTPServer {
 }
 
 async fn write_webpage(stream: &mut TcpStream) -> Result<(), HttpError> {
-    let contents = fs::read_to_string("./src/index.html").await.map_err(|_| HttpError::InternalServerError)?;
+    let contents = fs::read_to_string("../public/index.html").await.map_err(|_| HttpError::InternalServerError)?;
     let response = format!(
         "HTTP/1.1 200 OK\r\n\
     content-length: {}\r\n\

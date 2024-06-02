@@ -347,6 +347,4 @@ const STUN_MESSAGE_INTEGRITY_ATTRIBUTE_LEN: usize = 24;
 
 const STUN_TRANSACTION_ID_LEN: usize = 12;
 const STUN_HEADER_LEN: usize = 20;
-const STUN_ALIGNMENT: usize = 4;
 const STUN_COOKIE: u32 = 0x2112a442;
-const STUN_CRC_XOR: u32 = 0x5354554e;

@@ -1,10 +1,9 @@
-use std::io::{ErrorKind, Read, Write};
+use std::io::ErrorKind;
 use std::net::UdpSocket;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
@@ -30,6 +29,7 @@ async fn main() {
 
     thread::spawn(move || {
         let socket = UdpSocket::bind(format!("{HOST_ADDRESS}:52000")).unwrap();
+        println!("Running UDP server at {}:52000", HOST_ADDRESS);
         socket.set_nonblocking(true).unwrap();
 
         let socket = Arc::new(socket);
@@ -99,15 +99,18 @@ async fn main() {
     });
 
     let tcp_server = TcpListener::bind(format!("127.0.0.1:8080")).await.unwrap();
+    println!("Running TCP server at {}:8080", HOST_ADDRESS);
+
     let http_server = Arc::new(HTTPServer::new(config.fingerprint.clone(), tx.clone()));
 
     loop {
-        for (mut stream, remote) in tcp_server.accept().await {
+        while let Ok((stream, _)) = tcp_server.accept().await{
             let http_server = http_server.clone();
             tokio::spawn(async move {
                 http_server.handle_http_request(stream).await;
             });
         }
+
     }
 }
 

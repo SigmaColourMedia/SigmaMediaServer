@@ -14,10 +14,10 @@ impl SSLConfig {
     pub fn new() -> SSLConfig {
         let mut acceptor_builder = SslAcceptor::mozilla_intermediate(SslMethod::dtls()).unwrap();
         acceptor_builder
-            .set_private_key_file("key.pem", SslFiletype::PEM)
+            .set_private_key_file("../certs/key.pem", SslFiletype::PEM)
             .unwrap();
         acceptor_builder
-            .set_certificate_chain_file("cert.pem")
+            .set_certificate_chain_file("../certs/cert.pem")
             .unwrap();
         acceptor_builder.set_verify(SslVerifyMode::NONE);
         acceptor_builder
@@ -26,7 +26,7 @@ impl SSLConfig {
 
         let acceptor = Arc::new(acceptor_builder.build());
 
-        let cert_file = read("cert.pem").unwrap();
+        let cert_file = read("../certs/cert.pem").unwrap();
 
         let x509 = X509::from_pem(&cert_file).unwrap();
         let x509_digest = x509.digest(MessageDigest::sha256()).unwrap();
