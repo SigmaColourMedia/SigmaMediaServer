@@ -5,51 +5,53 @@
     <title>Title</title>
 </head>
 <body>
+<script async src="./static/index.js"></script>
+<s-main></s-main>
 <video height="auto" controls="controls" preload="none" onclick="this.play()" id="local_video">
-    <script>
-        
+<!--    <script>-->
+<!--        -->
 
-        async function main() {
-            const conn = new RTCPeerConnection()
-            const remoteVideo = document.querySelector("video")
+<!--        async function main() {-->
+<!--            const conn = new RTCPeerConnection()-->
+<!--            const remoteVideo = document.querySelector("video")-->
 
-            conn.ontrack = ({ track, streams }) => {
-                console.log({
-                    track,
-                    streams,
-                    msg: "elo"
-                })
-                remoteVideo.srcObject = streams[0];
+<!--            conn.ontrack = ({ track, streams }) => {-->
+<!--                console.log({-->
+<!--                    track,-->
+<!--                    streams,-->
+<!--                    msg: "elo"-->
+<!--                })-->
+<!--                remoteVideo.srcObject = streams[0];-->
 
-            };
+<!--            };-->
 
-            const {rooms} = await fetch("/rooms").then(res => res.json());
-            let room_id = rooms[0];
+<!--            const {rooms} = await fetch("/rooms").then(res => res.json());-->
+<!--            let room_id = rooms[0];-->
 
-            const sdp_offer = await fetch(`/whep?target_id=${room_id}`).then(res => res.text())
-            console.log(sdp_offer)
-
-
-            await conn.setRemoteDescription({type: "offer", sdp: sdp_offer})
-
-            conn.getReceivers()
-            conn.addTransceiver('audio', { direction: 'recvonly' })
-            conn.addTransceiver('video', { direction: 'recvonly' })
-
-            const answer = await conn.createAnswer()
-
-            console.log("the answer ", answer)
-            console.log(conn)
-
-            await conn.setLocalDescription(answer)
+<!--            const sdp_offer = await fetch(`/whep?target_id=${room_id}`).then(res => res.text())-->
+<!--            console.log(sdp_offer)-->
 
 
+<!--            await conn.setRemoteDescription({type: "offer", sdp: sdp_offer})-->
+
+<!--            conn.getReceivers()-->
+<!--            conn.addTransceiver('audio', { direction: 'recvonly' })-->
+<!--            conn.addTransceiver('video', { direction: 'recvonly' })-->
+
+<!--            const answer = await conn.createAnswer()-->
+
+<!--            console.log("the answer ", answer)-->
+<!--            console.log(conn)-->
+
+<!--            await conn.setLocalDescription(answer)-->
 
 
 
-        }
 
-        main()
-    </script>
+
+<!--        }-->
+
+<!--        main()-->
+<!--    </script>-->
 </body>
 </html>

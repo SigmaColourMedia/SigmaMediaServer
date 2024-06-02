@@ -1,2 +1,2 @@
-/target
-media_server/target
+node_modules
+target
