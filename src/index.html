@@ -7,11 +7,7 @@
 <body>
 <video height="auto" controls="controls" preload="none" onclick="this.play()" id="local_video">
     <script>
-
-        const mediaConstraints = {
-            audio: true, // We want an audio track
-            video: true, // And we want a video track
-        };
+        
 
         async function main() {
             const conn = new RTCPeerConnection()

@@ -78,7 +78,7 @@ async fn main() {
                                     .map(|&session| (session.id.clone(), session.ttl))
                                     .collect();
 
-                                println!("sessions count {}", sessions.len());
+                                // println!("sessions count {}", sessions.len());
                                 for (id, ttl) in sessions {
                                     if ttl.elapsed() > Duration::from_secs(5) {
                                         server.session_registry.remove_session(&id);

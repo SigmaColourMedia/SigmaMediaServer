@@ -1,4 +1,5 @@
 use std::fmt::{Display, Formatter};
+use std::path::Path;
 
 use tokio::fs;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -24,47 +25,35 @@ impl HTTPServer {
     pub async fn handle_http_request(&self, mut stream: TcpStream) {
         match parse_http_request(&mut stream).await {
             Some(req) => {
-                println!("got req {}", req);
                 match &req.path[..] {
                     "/whip" => match &req.method {
                         HTTPMethod::POST => {
-                            if let Err(e) = self.register_streamer(&mut stream, req.body).await {
-                                eprint!("Error writing a HTTP response {}", e)
-                            }
-                        }
-                        HTTPMethod::OPTIONS => {
-                            if let Err(e) = write_cors_ok(&mut stream).await {
-                                eprint!("Error writing a HTTP response {}", e)
+                            if let Err(err) = self.register_streamer(&mut stream, req.body).await {
+                                HTTPServer::handle_http_error(err, &mut stream).await;
                             }
                         }
                         _ => {
-                            if let Err(err) = write_405_response(&mut stream).await {
-                                eprint!("Error writing a HTTP response {}", err)
-                            }
+                            HTTPServer::handle_http_error(HttpError::MethodNotAllowed, &mut stream).await;
                         }
                     },
                     "/whep" => match &req.method {
                         HTTPMethod::GET => {
                             if let Err(err) = self.register_viewer(&mut stream, req.search).await {
-                                eprint!("Error writing a HTTP response {}", err)
+                                HTTPServer::handle_http_error(err, &mut stream).await;
                             }
                         }
                         _ => {
-                            if let Err(err) = write_405_response(&mut stream).await {
-                                eprint!("Error writing a HTTP response {}", err)
-                            }
+                            HTTPServer::handle_http_error(HttpError::MethodNotAllowed, &mut stream).await;
                         }
                     },
                     "/rooms" => match &req.method {
                         HTTPMethod::GET => {
                             if let Err(err) = self.get_rooms(&mut stream).await {
-                                eprint!("Error writing a HTTP response {}", err)
+                                HTTPServer::handle_http_error(err, &mut stream).await;
                             }
                         }
                         _ => {
-                            if let Err(e) = write_webpage(&mut stream).await {
-                                eprint!("Error writing a HTTP response {}", e)
-                            }
+                            HTTPServer::handle_http_error(HttpError::MethodNotAllowed, &mut stream).await;
                         }
                     },
                     "/" => match &req.method {
@@ -74,25 +63,78 @@ impl HTTPServer {
                             }
                         }
                         _ => {
-                            if let Err(err) = write_405_response(&mut stream).await {
-                                eprint!("Error writing a HTTP response {}", err)
-                            }
+                            HTTPServer::handle_http_error(HttpError::MethodNotAllowed, &mut stream).await
+                        }
+                    },
+                    "/static/index.js" => match &req.method {
+                        HTTPMethod::GET => {
+                            if let Err(http_error) = self.serve_bundle(&mut stream).await {
+                                HTTPServer::handle_http_error(http_error, &mut stream).await
+                            };
+                        }
+                        _ => {
+                            HTTPServer::handle_http_error(HttpError::MethodNotAllowed, &mut stream).await
                         }
                     },
                     _ => {
-                        if let Err(err) = write_404_response(&mut stream).await {
-                            eprint!("Error writing a HTTP response {}", err)
-                        }
+                        HTTPServer::handle_http_error(HttpError::NotFound, &mut stream).await;
                     }
                 };
             }
             None => {
-                println!("not a http rquest");
-                if let Err(err) = write_400_response(&mut stream).await {
+                HTTPServer::handle_http_error(HttpError::MalformedRequest, &mut stream).await;
+            }
+        }
+    }
+
+    async fn handle_http_error(http_error: HttpError, stream: &mut TcpStream) {
+        match http_error {
+            HttpError::NotFound => {
+                if let Err(err) = write_404_response(stream).await {
+                    eprint!("Error writing a HTTP response {}", err)
+                }
+            }
+            HttpError::InternalServerError => {
+                if let Err(err) = write_500_response(stream).await {
+                    eprint!("Error writing a HTTP response {}", err)
+                }
+            }
+            HttpError::BadRequest => {
+                if let Err(err) = write_400_response(stream).await {
+                    eprint!("Error writing a HTTP response {}", err)
+                }
+            }
+            HttpError::MethodNotAllowed => {
+                if let Err(err) = write_405_response(stream).await {
+                    eprint!("Error writing a HTTP response {}", err)
+                }
+            }
+            HttpError::MalformedRequest => {
+                if let Err(err) = write_400_response(stream).await {
                     eprint!("Error writing a HTTP response {}", err)
                 }
             }
         }
+    }
+
+    async fn serve_bundle(&self, stream: &mut TcpStream) -> Result<(), HttpError> {
+        let file = Path::new("./public/index.js");
+        let text_data = fs::read_to_string(file)
+            .await
+            .map_err(|_| HttpError::InternalServerError)?;
+
+        let response = format!(
+            "HTTP/1.1 200 OK\r\n\
+        content-length:{content_length}\r\n\
+        content-type:text/javascript\r\n\r\n\
+        {text_data}",
+            content_length = text_data.len(),
+        );
+
+        stream
+            .write_all(response.as_bytes())
+            .await
+            .map_err(|err| HttpError::InternalServerError)
     }
 
     async fn register_streamer(
@@ -118,11 +160,7 @@ impl HTTPServer {
             "HTTP/1.1 201 CREATED\r\n\
         content-length:{content_length}\r\n\
         content-type:application/sdp\r\n\
-        location: http://localhost:8080/whip?id={resource_id}\r\n\
-        access-control-allow-origin:*\r\n\
-        access-control-allow-methods:OPTIONS,POST,GET\r\n\
-        access-control-max-age:2592000\r\n\
-        access-control-allow-headers:*\r\n\r\n\
+        location: http://localhost:8080/whip?id={resource_id}\r\n\r\n\
         {answer}",
             content_length = answer.len(),
             resource_id = &session.id
@@ -222,21 +260,8 @@ impl HTTPServer {
     }
 }
 
-async fn write_cors_ok(stream: &mut TcpStream) -> std::io::Result<()> {
-    let status_line = "HTTP/1.1 205 OK";
-
-    let response = format!(
-        "{status_line}\r\n\
-    access-control-allow-origin:*\r\n\
-access-control-allow-methods:OPTIONS,POST,GET\r\n\
-access-control-max-age:2592000\r\n\
-access-control-allow-headers:*\r\n\r\n"
-    );
-    stream.write_all(response.as_bytes()).await
-}
-
-async fn write_webpage(stream: &mut TcpStream) -> std::io::Result<()> {
-    let contents = fs::read_to_string("./src/index.html").await?;
+async fn write_webpage(stream: &mut TcpStream) -> Result<(), HttpError> {
+    let contents = fs::read_to_string("./src/index.html").await.map_err(|_| HttpError::InternalServerError)?;
     let response = format!(
         "HTTP/1.1 200 OK\r\n\
     content-length: {}\r\n\
@@ -245,7 +270,7 @@ async fn write_webpage(stream: &mut TcpStream) -> std::io::Result<()> {
         contents.len(),
         contents
     );
-    stream.write_all(response.as_bytes()).await
+    stream.write_all(response.as_bytes()).await.map_err(|_| HttpError::InternalServerError)
 }
 
 async fn write_404_response(stream: &mut TcpStream) -> std::io::Result<()> {
@@ -257,6 +282,13 @@ async fn write_404_response(stream: &mut TcpStream) -> std::io::Result<()> {
 
 async fn write_400_response(stream: &mut TcpStream) -> std::io::Result<()> {
     let status_line = "HTTP/1.1 400 BAD REQUEST";
+
+    let response = format! {"{status_line}\r\n\r\n"};
+    stream.write_all(response.as_bytes()).await
+}
+
+async fn write_500_response(stream: &mut TcpStream) -> std::io::Result<()> {
+    let status_line = "HTTP/1.1 500 INTERNAL SERVER ERROR";
 
     let response = format! {"{status_line}\r\n\r\n"};
     stream.write_all(response.as_bytes()).await
@@ -303,7 +335,7 @@ pub async fn parse_http_request(stream: &mut TcpStream) -> Option<Request> {
     let content_length = headers
         .iter()
         .find(|(key, _)| key.eq_ignore_ascii_case("content-length"))
-        .map(|(key, value)| value.parse::<usize>())
+        .map(|(_, value)| value.parse::<usize>())
         .map(|result| result.ok())
         .flatten();
 
