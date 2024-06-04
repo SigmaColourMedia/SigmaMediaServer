@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project version="4">
-  <component name="ProjectModuleManager">
-    <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/dtls-rust.iml" filepath="$PROJECT_DIR$/.idea/dtls-rust.iml" />
-      <module fileurl="file://$PROJECT_DIR$/../../smid/src/.idea/src.iml" filepath="$PROJECT_DIR$/../../smid/src/.idea/src.iml" />
-    </modules>
-  </component>
-</project>
