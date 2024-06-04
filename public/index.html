@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>SMSS Watch</title>
+</head>
+<body>
+<style>
+    @keyframes spin {
+        100% {
+            transform: rotate(360deg);
+        }
+    }
+
+    html {
+        box-sizing: border-box;
+    }
+
+    *, *:before, *:after {
+        box-sizing: inherit;
+    }
+
+    html, body {
+        margin: 0;
+        padding: 0;
+        background: white;
+
+        --shadow-1: 0px 4px 8px -2px rgba(23, 24, 28, 0.08), 0px 2px 4px -2px rgba(23, 24, 28, 0.06);
+        --primary-50: #F6F4FE;
+        --primary-200: #E0D9FB;
+        --primary-500: #9E77ED;
+        --primary-600: #8347E0;
+        --primary-900: #51268C;
+        --neutral-600: #717998;
+        --neutral-900: #393C46;
+        --brand-gradient: linear-gradient(63.44deg, #17181C 16.72%, #2D3038 60.44%, #393C46 83.39%);
+
+    }
+
+    .header {
+        box-sizing: border-box;
+        display: flex;
+        padding: 12px;
+        background: var(--neutral-900);
+        border-bottom: 1px var(--neutral-900) solid;
+        height: 68px;
+        width: 100%;
+    }
+
+    #loader {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        width: 70px;
+        height: 70px;
+        animation: spin 0.5s linear infinite;
+    }
+
+    #header-link {
+        display: flex;
+        padding: 14px;
+        cursor: pointer;
+        border: 1px var(--primary-50) solid;
+        border-radius: 100%;
+        background: inherit;
+        justify-content: center;
+        align-items: center;
+        font-size: 24px;
+        color: var(--primary-50);
+    }
+</style>
+<script async src="./static/index.js"></script>
+<main>
+    <header class="header">
+        <button id="header-link">Σ</button>
+    </header>
+    <svg fill="none" height="48" id="loader" viewBox="0 0 48 48" width="48" xmlns="http://www.w3.org/2000/svg">
+        <path d="M48 24C48 28.7468 46.5924 33.3869 43.9553 37.3337C41.3181 41.2805 37.5698 44.3566 33.1844 46.1731C28.799 47.9896 23.9734 48.4649 19.3178 47.5388C14.6623 46.6128 10.3859 44.327 7.02944 40.9706C3.67298 37.6141 1.3872 33.3377 0.461153 28.6822C-0.464892 24.0266 0.0103881 19.201 1.82689 14.8156C3.64339 10.4302 6.71953 6.68188 10.6663 4.04473C14.6131 1.40758 19.2532 -5.66044e-08 24 0V4.8C20.2026 4.8 16.4905 5.92606 13.3331 8.03578C10.1756 10.1455 7.71472 13.1441 6.26151 16.6525C4.80831 20.1608 4.42809 24.0213 5.16892 27.7457C5.90976 31.4702 7.73838 34.8913 10.4235 37.5765C13.1087 40.2616 16.5298 42.0902 20.2543 42.8311C23.9787 43.5719 27.8392 43.1917 31.3475 41.7385C34.8559 40.2853 37.8545 37.8244 39.9642 34.667C42.0739 31.5095 43.2 27.7974 43.2 24H48Z"
+              fill="#8347E0"/>
+    </svg>
+    <s-main></s-main>
+</main>
+<script>
+    customElements.whenDefined("s-main").then(() => {
+        const loader = document.getElementById("loader")
+        loader.remove()
+    })
+    document.getElementById("header-link").onclick = () => window.location.assign(window.location.origin)
+</script>
+<!--    <script>-->
+<!--        -->
+
+<!--        async function main() {-->
+<!--            const conn = new RTCPeerConnection()-->
+<!--            const remoteVideo = document.querySelector("video")-->
+
+<!--            conn.ontrack = ({ track, streams }) => {-->
+<!--                console.log({-->
+<!--                    track,-->
+<!--                    streams,-->
+<!--                    msg: "elo"-->
+<!--                })-->
+<!--                remoteVideo.srcObject = streams[0];-->
+
+<!--            };-->
+
+<!--            const {rooms} = await fetch("/rooms").then(res => res.json());-->
+<!--            let room_id = rooms[0];-->
+
+<!--            const sdp_offer = await fetch(`/whep?target_id=${room_id}`).then(res => res.text())-->
+<!--            console.log(sdp_offer)-->
+
+
+<!--            await conn.setRemoteDescription({type: "offer", sdp: sdp_offer})-->
+
+<!--            conn.getReceivers()-->
+<!--            conn.addTransceiver('audio', { direction: 'recvonly' })-->
+<!--            conn.addTransceiver('video', { direction: 'recvonly' })-->
+
+<!--            const answer = await conn.createAnswer()-->
+
+<!--            console.log("the answer ", answer)-->
+<!--            console.log(conn)-->
+
+<!--            await conn.setLocalDescription(answer)-->
+
+
+<!--        }-->
+
+<!--        main()-->
+<!--    </script>-->
+</body>
+</html>

@@ -1,5 +1,5 @@
 [package]
-name = "dtls-rust"
+name = "sinder"
 version = "0.1.0"
 edition = "2021"
 
