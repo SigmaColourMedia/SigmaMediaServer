@@ -8,7 +8,7 @@ use openssl::sign::Signer;
 
 use crate::ice_registry::{SessionCredentials, SessionUsername};
 
-pub fn parse_stun_packet(packet: &[u8]) -> Option<StunBindingRequest> {
+fn parse_stun_packet(packet: &[u8]) -> Option<StunBindingRequest> {
     if packet.len() < STUN_HEADER_LEN {
         return None;
     }
@@ -31,7 +31,6 @@ pub fn parse_stun_packet(packet: &[u8]) -> Option<StunBindingRequest> {
     let mut transaction_id = [0; 12];
     reader.read(&mut transaction_id).ok()?;
 
-
     let mut attributes: Vec<StunAttribute> = Vec::new();
 
     while let Ok(attribute_type_key) = reader.read_u16::<BigEndian>() {
@@ -40,7 +39,7 @@ pub fn parse_stun_packet(packet: &[u8]) -> Option<StunBindingRequest> {
             0x8 => StunAttributeType::MessageIntegrity,
             0x802a => StunAttributeType::IceControlling,
             0x25 => StunAttributeType::UseCandidate,
-            _ => StunAttributeType::Unknown
+            _ => StunAttributeType::Unknown,
         };
 
         let mut length = reader.read_u16::<BigEndian>().unwrap();
@@ -62,15 +61,9 @@ pub fn parse_stun_packet(packet: &[u8]) -> Option<StunBindingRequest> {
                 buffer.copy_from_slice(&value_buffer[..STUN_MESSAGE_INTEGRITY_LEN]);
                 attributes.push(StunAttribute::MessageIntegrity(buffer));
             }
-            StunAttributeType::IceControlling => {
-                attributes.push(StunAttribute::IceControlling)
-            }
-            StunAttributeType::UseCandidate => {
-                attributes.push(StunAttribute::UseCandidate)
-            }
-            _ => {
-                attributes.push(StunAttribute::Unknown)
-            }
+            StunAttributeType::IceControlling => attributes.push(StunAttribute::IceControlling),
+            StunAttributeType::UseCandidate => attributes.push(StunAttribute::UseCandidate),
+            _ => attributes.push(StunAttribute::Unknown),
         }
     }
 
@@ -80,8 +73,7 @@ pub fn parse_stun_packet(packet: &[u8]) -> Option<StunBindingRequest> {
     });
 }
 
-
-pub fn parse_binding_request(stun_message: StunBindingRequest) -> Option<ICEStunMessageType> {
+fn parse_binding_request(stun_message: StunBindingRequest) -> Option<ICEStunMessageType> {
     let message_integrity = stun_message.attributes.iter().find_map(|attr| match attr {
         StunAttribute::MessageIntegrity(integrity) => Some(*integrity),
         _ => None,
@@ -91,43 +83,56 @@ pub fn parse_binding_request(stun_message: StunBindingRequest) -> Option<ICEStun
         StunAttribute::UseCandidate => Some(()),
         _ => None,
     });
-    let session_username = stun_message.attributes.into_iter().find_map(|attr| match attr {
-        StunAttribute::Username(username_session) => Some(username_session),
-        _ => None,
-    })?;
+    let session_username = stun_message
+        .attributes
+        .into_iter()
+        .find_map(|attr| match attr {
+            StunAttribute::Username(username_session) => Some(username_session),
+            _ => None,
+        })?;
 
     match nominate_flag {
-        None => {
-            Some(ICEStunMessageType::LiveCheck(ICEStunPacket {
-                message_integrity,
-                username_attribute: session_username,
-                transaction_id: stun_message.transaction_id,
-            }))
-        }
-        Some(_) => {
-            Some(ICEStunMessageType::Nomination(ICEStunPacket {
-                message_integrity,
-                username_attribute: session_username,
-                transaction_id: stun_message.transaction_id,
-            }))
-        }
+        None => Some(ICEStunMessageType::LiveCheck(ICEStunPacket {
+            message_integrity,
+            username_attribute: session_username,
+            transaction_id: stun_message.transaction_id,
+        })),
+        Some(_) => Some(ICEStunMessageType::Nomination(ICEStunPacket {
+            message_integrity,
+            username_attribute: session_username,
+            transaction_id: stun_message.transaction_id,
+        })),
     }
 }
 
-pub fn create_stun_success(credentials: &SessionCredentials, transaction_id: [u8; STUN_TRANSACTION_ID_LEN], remote: &SocketAddr, buffer: &mut [u8]) -> Result<usize, Error> {
-    let (mut header, mut attributes) = buffer.split_at_mut(20);
+pub fn get_stun_packet(data: &[u8]) -> Option<ICEStunMessageType> {
+    parse_stun_packet(data).and_then(parse_binding_request)
+}
+
+pub fn create_stun_success(
+    credentials: &SessionCredentials,
+    session_username: &SessionUsername,
+    transaction_id: [u8; STUN_TRANSACTION_ID_LEN],
+    remote: &SocketAddr,
+    buffer: &mut [u8],
+) -> Result<usize, Error> {
+    let (header, attributes) = buffer.split_at_mut(20);
 
     let mut username_attribute = [0u8; 120];
-    let username_attr_length = write_username_attribute(&mut username_attribute, credentials);
+    let username_attr_length = write_username_attribute(&mut username_attribute, session_username);
     let username_attribute = &username_attribute[..username_attr_length];
 
     let xor_attr = compute_xor_mapped_address(remote, transaction_id)?;
 
     let mut mapped_address_attribute = [0u8; 24];
-    let mapped_address_attribute_len = write_mapped_address_attribute(&mut mapped_address_attribute, remote);
+    let mapped_address_attribute_len =
+        write_mapped_address_attribute(&mut mapped_address_attribute, remote);
     let mapped_address_attribute = &mapped_address_attribute[..mapped_address_attribute_len];
 
-    let message_length = xor_attr.len() + STUN_MESSAGE_INTEGRITY_ATTRIBUTE_LEN + username_attr_length + mapped_address_attribute_len;
+    let message_length = xor_attr.len()
+        + STUN_MESSAGE_INTEGRITY_ATTRIBUTE_LEN
+        + username_attr_length
+        + mapped_address_attribute_len;
 
     BigEndian::write_u16(&mut header[..2], StunType::SuccessResponse as u16); // Write message type
     BigEndian::write_u16(&mut header[2..4], message_length as u16); // Write message length
@@ -141,7 +146,12 @@ pub fn create_stun_success(credentials: &SessionCredentials, transaction_id: [u8
     attributes_writer.write(&mapped_address_attribute)?;
 
     let mut message_integrity_attribute = [0u8; 24];
-    write_message_integrity_attribute(&mut message_integrity_attribute, header, attributes_writer.buffer(), &credentials.host_password);
+    write_message_integrity_attribute(
+        &mut message_integrity_attribute,
+        header,
+        attributes_writer.buffer(),
+        &credentials.host_password,
+    );
     attributes_writer.write(&message_integrity_attribute)?;
 
     attributes_writer.flush()?;
@@ -151,37 +161,47 @@ pub fn create_stun_success(credentials: &SessionCredentials, transaction_id: [u8
 
     let fingerprint = crc32fast::hash(&buffer[..20 + message_length]) ^ 0x5354554e;
     let mut fingerprint_attribute = [0u8; 8];
-    BigEndian::write_u16(&mut fingerprint_attribute[..2], StunAttributeType::Fingerprint as u16);
+    BigEndian::write_u16(
+        &mut fingerprint_attribute[..2],
+        StunAttributeType::Fingerprint as u16,
+    );
     BigEndian::write_u16(&mut fingerprint_attribute[2..4], 0x4);
     BigEndian::write_u32(&mut fingerprint_attribute[4..], fingerprint);
-    buffer[STUN_HEADER_LEN + message_length..STUN_HEADER_LEN + message_length + fingerprint_attribute.len()].copy_from_slice(&mut fingerprint_attribute);
-
-    // println!("message length is {}", message_length);
-    // println!("fingerprint {:?}", fingerprint_attribute);
-    //
-    // println!("the buffer is {:?}", &buffer[..message_length + fingerprint_attribute.len() + 20]);
+    buffer[STUN_HEADER_LEN + message_length
+        ..STUN_HEADER_LEN + message_length + fingerprint_attribute.len()]
+        .copy_from_slice(&mut fingerprint_attribute);
 
     Ok(STUN_HEADER_LEN + message_length + 8)
 }
 
 // todo handle unwraps
-fn write_message_integrity_attribute(mut buffer: &mut [u8], header: &[u8], attributes: &[u8], key: &str) -> usize {
+fn write_message_integrity_attribute(
+    mut buffer: &mut [u8],
+    header: &[u8],
+    attributes: &[u8],
+    key: &str,
+) -> usize {
     let key = PKey::hmac(key.as_bytes()).unwrap();
 
     let mut signer = Signer::new(MessageDigest::sha1(), &key).unwrap();
     signer.update(header).unwrap();
     signer.update(attributes).unwrap();
-    buffer.write_u16::<BigEndian>(StunAttributeType::MessageIntegrity as u16).unwrap();
+    buffer
+        .write_u16::<BigEndian>(StunAttributeType::MessageIntegrity as u16)
+        .unwrap();
     buffer.write_u16::<BigEndian>(20).unwrap();
     signer.sign(&mut buffer).unwrap()
 }
 
-
-fn write_username_attribute(buffer: &mut [u8], credentials: &SessionCredentials) -> usize {
+fn write_username_attribute(buffer: &mut [u8], credentials: &SessionUsername) -> usize {
     let mut writer = BufWriter::new(buffer);
-    writer.write_u16::<BigEndian>(StunAttributeType::Username as u16).unwrap();
-    let mut username = format!("{}:{}", credentials.host_username, credentials.remote_username);
-    writer.write_u16::<BigEndian>(username.len() as u16).unwrap();
+    writer
+        .write_u16::<BigEndian>(StunAttributeType::Username as u16)
+        .unwrap();
+    let mut username = format!("{}:{}", credentials.host, credentials.remote);
+    writer
+        .write_u16::<BigEndian>(username.len() as u16)
+        .unwrap();
 
     let padded_length = pad_to_4bytes(username.len() as u16) as usize;
     if padded_length > username.len() {
@@ -196,7 +216,9 @@ fn write_username_attribute(buffer: &mut [u8], credentials: &SessionCredentials)
 
 fn write_mapped_address_attribute(buffer: &mut [u8], remote: &SocketAddr) -> usize {
     let mut writer = BufWriter::new(buffer);
-    writer.write_u16::<BigEndian>(StunAttributeType::MappedAddress as u16).unwrap();
+    writer
+        .write_u16::<BigEndian>(StunAttributeType::MappedAddress as u16)
+        .unwrap();
 
     match remote {
         SocketAddr::V4(remote_addr) => {
@@ -220,7 +242,10 @@ fn write_mapped_address_attribute(buffer: &mut [u8], remote: &SocketAddr) -> usi
     bytes_written
 }
 
-fn compute_xor_mapped_address(remote: &SocketAddr, transaction_id: [u8; STUN_TRANSACTION_ID_LEN]) -> Result<Vec<u8>, Error> {
+fn compute_xor_mapped_address(
+    remote: &SocketAddr,
+    transaction_id: [u8; STUN_TRANSACTION_ID_LEN],
+) -> Result<Vec<u8>, Error> {
     let mut buffer = vec![];
     match remote {
         SocketAddr::V4(remote_addr) => {
@@ -228,7 +253,6 @@ fn compute_xor_mapped_address(remote: &SocketAddr, transaction_id: [u8; STUN_TRA
             buffer.write_u16::<BigEndian>(8)?; // Length
             buffer.write_u8(0)?; // First byte needs to be unset
             buffer.write_u8(0x01)?; // IPv4
-
 
             let masked_port = remote_addr.port() ^ (STUN_COOKIE >> 16) as u16; // Mask with first 16-most-significant-bits
             let mut masked_address = remote_addr.ip().octets();
@@ -242,7 +266,6 @@ fn compute_xor_mapped_address(remote: &SocketAddr, transaction_id: [u8; STUN_TRA
             buffer.write_u16::<BigEndian>(20)?; // Length
             buffer.write_u8(0)?; // First byte needs to be unset
             buffer.write_u8(0x02)?; // IPv6
-
 
             let masked_port = remote_addr.port() ^ (STUN_COOKIE >> 16) as u16; // Mask with first 16-most-significant-bits
             let mut masked_address = remote_addr.ip().octets();
@@ -270,7 +293,7 @@ fn pad_to_4bytes(value: u16) -> u16 {
     let modulo = value % 4;
     match modulo {
         0 => value,
-        _ => value + 4 - modulo
+        _ => value + 4 - modulo,
     }
 }
 
@@ -291,9 +314,7 @@ pub struct ICEStunPacket {
     pub username_attribute: SessionUsername,
     pub message_integrity: [u8; STUN_MESSAGE_INTEGRITY_LEN],
     pub transaction_id: [u8; STUN_TRANSACTION_ID_LEN],
-
 }
-
 
 #[derive(Debug)]
 enum StunAttributeType {
@@ -306,7 +327,6 @@ enum StunAttributeType {
     Fingerprint = 0x8028,
     Unknown,
 }
-
 
 enum StunType {
     BindingRequest = 0x0001,
@@ -322,12 +342,9 @@ pub enum StunAttribute {
     UseCandidate,
 }
 
-
 const STUN_MESSAGE_INTEGRITY_LEN: usize = 20;
 const STUN_MESSAGE_INTEGRITY_ATTRIBUTE_LEN: usize = 24;
 
 const STUN_TRANSACTION_ID_LEN: usize = 12;
 const STUN_HEADER_LEN: usize = 20;
-const STUN_ALIGNMENT: usize = 4;
 const STUN_COOKIE: u32 = 0x2112a442;
-const STUN_CRC_XOR: u32 = 0x5354554e;

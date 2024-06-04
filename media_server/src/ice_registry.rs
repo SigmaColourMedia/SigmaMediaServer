@@ -8,10 +8,11 @@ use crate::rnd::get_random_string;
 use crate::sdp::SDP;
 
 type ResourceID = String;
+type HostUsername = String;
 
 pub struct SessionRegistry {
     sessions: HashMap<ResourceID, Session>,
-    username_map: HashMap<SessionUsername, ResourceID>,
+    username_map: HashMap<HostUsername, ResourceID>,
     address_map: HashMap<SocketAddr, ResourceID>,
     rooms: HashSet<ResourceID>,
 }
@@ -40,14 +41,35 @@ impl SessionRegistry {
                 Some(id.clone())
             })
     }
-
-    pub fn get_session(&self, id: &ResourceID) -> Option<&Session> {
-        self.sessions.get(id)
+    pub fn get_all_sessions(&self) -> Vec<&Session> {
+        self.sessions.values().collect()
     }
-    pub fn get_session_by_username(&self, session_username: &SessionUsername) -> Option<&Session> {
+
+    pub fn remove_session(&mut self, id: &str) {
+        let target_session = self.sessions.get(id);
+        if let Some(session) = target_session {
+            let username = &session.credentials.host_username;
+            self.username_map.remove(username);
+
+            if let Some(remote) = session.client.as_ref().map(|client| client.remote_address) {
+                self.address_map.remove(&remote);
+            }
+
+            self.rooms.remove(id);
+            self.sessions.remove(id);
+        }
+    }
+
+    pub fn get_session(&mut self, id: &str) -> Option<&mut Session> {
+        self.sessions.get_mut(id)
+    }
+    pub fn get_session_by_username(
+        &mut self,
+        session_username: &HostUsername,
+    ) -> Option<&mut Session> {
         self.username_map
             .get(session_username)
-            .map(|id| self.sessions.get(id))
+            .map(|id| self.sessions.get_mut(id))
             .flatten()
     }
 
@@ -61,13 +83,8 @@ impl SessionRegistry {
         let id = streamer.id.clone();
 
         // Update username map
-        self.username_map.insert(
-            SessionUsername {
-                host: streamer.credentials.host_username.clone(),
-                remote: streamer.credentials.remote_username.clone(),
-            },
-            id.clone(),
-        );
+        self.username_map
+            .insert(streamer.credentials.host_username.clone(), id.clone());
         self.sessions.insert(streamer.id.clone(), streamer); // Update sessions map
         self.rooms.insert(id.clone()); // Update rooms map
 
@@ -96,13 +113,8 @@ impl SessionRegistry {
         }
         .map(|_| {
             // Update username map
-            self.username_map.insert(
-                SessionUsername {
-                    host: viewer.credentials.host_username.clone(),
-                    remote: viewer.credentials.remote_username.clone(),
-                },
-                id.to_owned(),
-            );
+            self.username_map
+                .insert(viewer.credentials.host_username.clone(), id.to_owned());
 
             // Update sessions Hashmap
             self.sessions.insert(id.to_owned(), viewer);
@@ -150,18 +162,18 @@ impl Session {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ConnectionType {
     Viewer(Viewer),
     Streamer(Streamer),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Viewer {
     target_resource: ResourceID,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Streamer {
     pub viewers_ids: Vec<ResourceID>,
     pub sdp: SDP,
@@ -169,13 +181,12 @@ pub struct Streamer {
 
 #[derive(Debug)]
 pub struct SessionCredentials {
-    pub remote_username: String,
     pub host_username: String,
     pub host_password: String,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug)]
 pub struct SessionUsername {
-    pub(crate) remote: String,
-    pub(crate) host: String,
+    pub remote: String,
+    pub host: String,
 }

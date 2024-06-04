@@ -4,6 +4,7 @@ use std::fs::read;
 use openssl::hash::MessageDigest;
 use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod, SslVerifyMode};
 use openssl::x509::X509;
+use crate::{CERT_KEY_PATH, CERT_PATH};
 
 pub struct SSLConfig {
     pub acceptor: Arc<SslAcceptor>,
@@ -14,19 +15,19 @@ impl SSLConfig {
     pub fn new() -> SSLConfig {
         let mut acceptor_builder = SslAcceptor::mozilla_intermediate(SslMethod::dtls()).unwrap();
         acceptor_builder
-            .set_private_key_file("key.pem", SslFiletype::PEM)
+            .set_private_key_file(CERT_KEY_PATH, SslFiletype::PEM)
             .unwrap();
         acceptor_builder
-            .set_certificate_chain_file("cert.pem")
+            .set_certificate_chain_file(CERT_PATH)
             .unwrap();
         acceptor_builder.set_verify(SslVerifyMode::NONE);
         acceptor_builder
-            .set_tlsext_use_srtp(srtp::openssl::SRTP_PROFILE_NAMES)
+            .set_tlsext_use_srtp("SRTP_AES128_CM_SHA1_80")
             .unwrap();
 
         let acceptor = Arc::new(acceptor_builder.build());
 
-        let cert_file = read("cert.pem").unwrap();
+        let cert_file = read(CERT_PATH).unwrap();
 
         let x509 = X509::from_pem(&cert_file).unwrap();
         let x509_digest = x509.digest(MessageDigest::sha256()).unwrap();

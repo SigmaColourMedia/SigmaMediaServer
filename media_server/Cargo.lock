@@ -184,18 +184,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dtls-rust"
-version = "0.1.0"
-dependencies = [
- "byteorder",
- "crc32fast",
- "openssl",
- "rand",
- "srtp",
- "tokio",
-]
-
-[[package]]
 name = "env_logger"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -622,6 +610,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a9e9e0b4211b72e7b8b6e85c807d36c212bdb33ea8587f7569562a84df5465b1"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "sinder"
+version = "0.1.0"
+dependencies = [
+ "byteorder",
+ "crc32fast",
+ "openssl",
+ "rand",
+ "srtp",
+ "tokio",
 ]
 
 [[package]]
