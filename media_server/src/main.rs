@@ -98,19 +98,20 @@ async fn main() {
         }
     });
 
-    let tcp_server = TcpListener::bind(format!("{HOST_ADDRESS}:8080")).await.unwrap();
+    let tcp_server = TcpListener::bind(format!("{HOST_ADDRESS}:8080"))
+        .await
+        .unwrap();
     println!("Running TCP server at {}:8080", HOST_ADDRESS);
 
     let http_server = Arc::new(HTTPServer::new(config.fingerprint.clone(), tx.clone()));
 
     loop {
-        while let Ok((stream, _)) = tcp_server.accept().await{
+        while let Ok((stream, remote)) = tcp_server.accept().await {
             let http_server = http_server.clone();
             tokio::spawn(async move {
-                http_server.handle_http_request(stream).await;
+                http_server.handle_http_request(stream, remote).await;
             });
         }
-
     }
 }
 

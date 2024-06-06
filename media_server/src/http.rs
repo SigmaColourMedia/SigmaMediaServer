@@ -1,14 +1,15 @@
 use std::fmt::{Display, Formatter};
+use std::net::{IpAddr, SocketAddr};
 
 use tokio::fs;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{channel, Sender};
 
-use crate::{BUNDLE_PATH, HTML_PATH, WHIP_TOKEN};
 use crate::ice_registry::{Session, SessionCredentials};
 use crate::rnd::get_random_string;
 use crate::sdp::{create_sdp_receive_answer, create_streaming_sdp_answer, parse_sdp, SDP};
+use crate::{BUNDLE_PATH, HTML_PATH, WHIP_TOKEN};
 
 pub struct HTTPServer {
     fingerprint: String,
@@ -22,7 +23,7 @@ impl HTTPServer {
             session_commands_sender: sender,
         }
     }
-    pub async fn handle_http_request(&self, mut stream: TcpStream) {
+    pub async fn handle_http_request(&self, mut stream: TcpStream, remote: SocketAddr) {
         match parse_http_request(&mut stream).await {
             Some(req) => {
                 match &req.path[..] {
@@ -33,47 +34,32 @@ impl HTTPServer {
                             }
                         }
                         _ => {
-                            HTTPServer::handle_http_error(HttpError::MethodNotAllowed, &mut stream).await;
+                            HTTPServer::handle_http_error(HttpError::MethodNotAllowed, &mut stream)
+                                .await;
                         }
                     },
                     "/whep" => match &req.method {
                         HTTPMethod::GET => {
-                            if let Err(err) = self.register_viewer(&mut stream, req.search).await {
+                            if let Err(err) =
+                                self.register_viewer(&mut stream, req.search, remote).await
+                            {
                                 HTTPServer::handle_http_error(err, &mut stream).await;
                             }
                         }
                         _ => {
-                            HTTPServer::handle_http_error(HttpError::MethodNotAllowed, &mut stream).await;
+                            HTTPServer::handle_http_error(HttpError::MethodNotAllowed, &mut stream)
+                                .await;
                         }
                     },
                     "/rooms" => match &req.method {
                         HTTPMethod::GET => {
-                            if let Err(err) = self.get_rooms(&mut stream).await {
+                            if let Err(err) = self.get_rooms(&mut stream, remote).await {
                                 HTTPServer::handle_http_error(err, &mut stream).await;
                             }
                         }
                         _ => {
-                            HTTPServer::handle_http_error(HttpError::MethodNotAllowed, &mut stream).await;
-                        }
-                    },
-                    "/" => match &req.method {
-                        HTTPMethod::GET => {
-                            if let Err(e) = write_webpage(&mut stream).await {
-                                eprint!("Error writing a HTTP response {}", e)
-                            }
-                        }
-                        _ => {
-                            HTTPServer::handle_http_error(HttpError::MethodNotAllowed, &mut stream).await
-                        }
-                    },
-                    "/static/index.js" => match &req.method {
-                        HTTPMethod::GET => {
-                            if let Err(http_error) = self.serve_bundle(&mut stream).await {
-                                HTTPServer::handle_http_error(http_error, &mut stream).await
-                            };
-                        }
-                        _ => {
-                            HTTPServer::handle_http_error(HttpError::MethodNotAllowed, &mut stream).await
+                            HTTPServer::handle_http_error(HttpError::MethodNotAllowed, &mut stream)
+                                .await;
                         }
                     },
                     _ => {
@@ -117,38 +103,24 @@ impl HTTPServer {
         }
     }
 
-    async fn serve_bundle(&self, stream: &mut TcpStream) -> Result<(), HttpError> {
-        let text_data = fs::read_to_string(BUNDLE_PATH)
-            .await
-            .map_err(|_| HttpError::InternalServerError)?;
-
-        let response = format!(
-            "HTTP/1.1 200 OK\r\n\
-        content-length:{content_length}\r\n\
-        content-type:text/javascript\r\n\r\n\
-        {text_data}",
-            content_length = text_data.len(),
-        );
-
-        stream
-            .write_all(response.as_bytes())
-            .await
-            .map_err(|_err| HttpError::InternalServerError)
-    }
-
     async fn register_streamer(
         &self,
         stream: &mut TcpStream,
         request: Request,
     ) -> Result<(), HttpError> {
-        let bearer_token = request.headers.iter().find(|(key, _)| key.eq_ignore_ascii_case("authorization")).map(|(_, value)| value).ok_or(HttpError::Unauthorized)?;
+        let bearer_token = request
+            .headers
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("authorization"))
+            .map(|(_, value)| value)
+            .ok_or(HttpError::Unauthorized)?;
 
         if !bearer_token.eq(&format!("Bearer {}", WHIP_TOKEN)) {
             return Err(HttpError::Unauthorized);
         }
 
-
-        let sdp = request.body
+        let sdp = request
+            .body
             .and_then(parse_sdp)
             .ok_or(HttpError::BadRequest)?;
         let host_username = get_random_string(4);
@@ -187,6 +159,7 @@ impl HTTPServer {
         &self,
         stream: &mut TcpStream,
         search: Option<String>,
+        remote: SocketAddr,
     ) -> Result<(), HttpError> {
         let search = search.ok_or(HttpError::BadRequest)?;
 
@@ -209,15 +182,24 @@ impl HTTPServer {
             .ok_or(HttpError::BadRequest)?;
 
         let viewer_session = Session::new_viewer(target_id.to_owned(), credentials);
+
+        let cors_allowed_origin = match remote.ip().is_loopback() {
+            true => "http://localhost:9000",
+            false => "https://nynon.work",
+        };
+
         let response = format!(
             "HTTP/1.1 200 OK\r\n\
         content-type: application/sdp\r\n\
         content-length:{content_length}\r\n\
+        Access-Control-Allow-Methods: GET\r\n\
+        Access-Control-Allow-Origin: {CORS_ALLOWED_ORIGIN}\r\n\
         location:http://localhost:8080/whep?id={viewer_id}\r\n\r\n\
         {payload}",
             content_length = sdp_answer.len(),
             viewer_id = &viewer_session.id,
-            payload = sdp_answer
+            payload = sdp_answer,
+            CORS_ALLOWED_ORIGIN = cors_allowed_origin
         );
 
         self.session_commands_sender
@@ -233,7 +215,7 @@ impl HTTPServer {
         Ok(())
     }
 
-    async fn get_rooms(&self, stream: &mut TcpStream) -> Result<(), HttpError> {
+    async fn get_rooms(&self, stream: &mut TcpStream, remote: SocketAddr) -> Result<(), HttpError> {
         let (tx, mut rx) = channel::<Vec<String>>(1000);
         self.session_commands_sender
             .send(SessionCommand::GetRooms(tx))
@@ -249,13 +231,21 @@ impl HTTPServer {
             .join(",");
         let body = format!("{{\"rooms\":[{}]}}", rooms_string);
 
+        let cors_allowed_origin = match remote.ip().is_loopback() {
+            true => "http://localhost:9000",
+            false => "https://nynon.work",
+        };
+
         let response = format!(
             "HTTP/1.1 200 OK\r\n\
             content-type: application/json\r\n\
+            Access-Control-Allow-Methods: GET\r\n\
+            Access-Control-Allow-Origin: {CORS_ALLOWED_ORIGIN}\r\n\
             content-length: {content_length}\r\n\r\n\
             {body}",
             content_length = body.len(),
-            body = body
+            body = body,
+            CORS_ALLOWED_ORIGIN = cors_allowed_origin
         );
 
         match stream.write_all(response.as_bytes()).await {
@@ -265,17 +255,12 @@ impl HTTPServer {
     }
 }
 
-async fn write_webpage(stream: &mut TcpStream) -> Result<(), HttpError> {
-    let contents = fs::read_to_string(HTML_PATH).await.map_err(|_| HttpError::InternalServerError)?;
-    let response = format!(
-        "HTTP/1.1 200 OK\r\n\
-    content-length: {}\r\n\
-    content-type: text/html\r\n\r\n\
-    {}",
-        contents.len(),
-        contents
-    );
-    stream.write_all(response.as_bytes()).await.map_err(|_| HttpError::InternalServerError)
+async fn write_cors(stream: &mut TcpStream, remote: SocketAddr) -> std::io::Result<()> {
+    let status_line = "HTTP/1.1 205 NO CONTENT";
+    println!("{}", remote.ip());
+
+    let response = format! {"{status_line}\r\n\r\n"};
+    stream.write_all(response.as_bytes()).await
 }
 
 async fn write_404_response(stream: &mut TcpStream) -> std::io::Result<()> {
@@ -350,7 +335,6 @@ async fn parse_http_request(stream: &mut TcpStream) -> Option<Request> {
         .map(|(_, value)| value.parse::<usize>())
         .map(|result| result.ok())
         .flatten();
-
 
     let body: Option<String> = match content_length {
         None => None,
@@ -432,7 +416,7 @@ impl std::fmt::Display for HttpError {
             HttpError::InternalServerError => write!(f, "500 Internal Server Error"),
             HttpError::BadRequest => write!(f, "400 Bad Request"),
             HttpError::MethodNotAllowed => write!(f, "405 Method Not Allowed"),
-            HttpError::Unauthorized => write!(f, "401 Unauthorized")
+            HttpError::Unauthorized => write!(f, "401 Unauthorized"),
         }
     }
 }
