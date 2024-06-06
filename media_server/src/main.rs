@@ -98,7 +98,7 @@ async fn main() {
         }
     });
 
-    let tcp_server = TcpListener::bind(format!("127.0.0.1:8080")).await.unwrap();
+    let tcp_server = TcpListener::bind(format!("{HOST_ADDRESS}:8080")).await.unwrap();
     println!("Running TCP server at {}:8080", HOST_ADDRESS);
 
     let http_server = Arc::new(HTTPServer::new(config.fingerprint.clone(), tx.clone()));
