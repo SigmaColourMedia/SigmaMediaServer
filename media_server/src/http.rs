@@ -40,8 +40,9 @@ impl HTTPServer {
                     },
                     "/whep" => match &req.method {
                         HTTPMethod::GET => {
-                            if let Err(err) =
-                                self.register_viewer(&mut stream, req.search, remote).await
+                            if let Err(err) = self
+                                .register_viewer(&mut stream, req.search, &req.headers)
+                                .await
                             {
                                 HTTPServer::handle_http_error(err, &mut stream).await;
                             }
@@ -53,7 +54,7 @@ impl HTTPServer {
                     },
                     "/rooms" => match &req.method {
                         HTTPMethod::GET => {
-                            if let Err(err) = self.get_rooms(&mut stream, remote).await {
+                            if let Err(err) = self.get_rooms(&mut stream, &req.headers).await {
                                 HTTPServer::handle_http_error(err, &mut stream).await;
                             }
                         }
@@ -159,7 +160,7 @@ impl HTTPServer {
         &self,
         stream: &mut TcpStream,
         search: Option<String>,
-        remote: SocketAddr,
+        headers: &Vec<Header>,
     ) -> Result<(), HttpError> {
         let search = search.ok_or(HttpError::BadRequest)?;
 
@@ -183,9 +184,15 @@ impl HTTPServer {
 
         let viewer_session = Session::new_viewer(target_id.to_owned(), credentials);
 
-        let cors_allowed_origin = match remote.ip().is_loopback() {
-            true => "http://localhost:9000",
-            false => "https://nynon.work",
+        let request_origin = headers
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("origin"))
+            .map(|(_, val)| val)
+            .ok_or(HttpError::BadRequest)?;
+
+        let cors_allowed_origin = match request_origin.as_str() {
+            "http://localhost:9000" => "http://localhost:9000",
+            _ => "https://nynon.work",
         };
 
         let response = format!(
@@ -215,7 +222,11 @@ impl HTTPServer {
         Ok(())
     }
 
-    async fn get_rooms(&self, stream: &mut TcpStream, remote: SocketAddr) -> Result<(), HttpError> {
+    async fn get_rooms(
+        &self,
+        stream: &mut TcpStream,
+        headers: &Vec<Header>,
+    ) -> Result<(), HttpError> {
         let (tx, mut rx) = channel::<Vec<String>>(1000);
         self.session_commands_sender
             .send(SessionCommand::GetRooms(tx))
@@ -231,9 +242,15 @@ impl HTTPServer {
             .join(",");
         let body = format!("{{\"rooms\":[{}]}}", rooms_string);
 
-        let cors_allowed_origin = match remote.ip().is_loopback() {
-            true => "http://localhost:9000",
-            false => "https://nynon.work",
+        let request_origin = headers
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("origin"))
+            .map(|(_, val)| val)
+            .ok_or(HttpError::BadRequest)?;
+
+        let cors_allowed_origin = match request_origin.as_str() {
+            "http://localhost:9000" => "http://localhost:9000",
+            _ => "https://nynon.work",
         };
 
         let response = format!(
