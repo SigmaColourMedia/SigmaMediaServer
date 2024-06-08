@@ -1,4 +1,7 @@
+use openssl::ssl::{SslConnector, SslMethod};
+use reqwest::header::HeaderMap;
 use std::fmt::{Display, Formatter};
+use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr};
 
 use tokio::fs;
@@ -9,7 +12,7 @@ use tokio::sync::mpsc::{channel, Sender};
 use crate::ice_registry::{Session, SessionCredentials};
 use crate::rnd::get_random_string;
 use crate::sdp::{create_sdp_receive_answer, create_streaming_sdp_answer, parse_sdp, SDP};
-use crate::{BUNDLE_PATH, HTML_PATH, WHIP_TOKEN};
+use crate::{BUNDLE_PATH, DISCORD_API_URL, HTML_PATH, WHIP_TOKEN};
 
 pub struct HTTPServer {
     fingerprint: String,
@@ -133,6 +136,7 @@ impl HTTPServer {
 
         let answer = create_sdp_receive_answer(&sdp, &session_credentials, &self.fingerprint);
         let session = Session::new_streamer(session_credentials, sdp);
+        let session_id = session.id.to_string();
 
         let response = format!(
             "HTTP/1.1 201 CREATED\r\n\
@@ -141,7 +145,7 @@ impl HTTPServer {
         location: http://localhost:8080/whip?id={resource_id}\r\n\r\n\
         {answer}",
             content_length = answer.len(),
-            resource_id = &session.id
+            resource_id = session_id
         );
 
         stream
@@ -153,6 +157,8 @@ impl HTTPServer {
             .send(SessionCommand::AddStreamer(session))
             .await
             .or(Err(HttpError::InternalServerError))?;
+
+        notify_discord(session_id).await;
 
         Ok(())
     }
@@ -269,6 +275,28 @@ impl HTTPServer {
             Ok(_) => Ok(()),
             Err(_) => Err(HttpError::InternalServerError),
         }
+    }
+}
+
+// todo clean this up,
+async fn notify_discord(target_id: String) {
+    println!("im here");
+    let payload = format!(
+        "{{\"content\": \"Nowy strumyczek pod https://nynon.work?watch={}\"}}",
+        target_id
+    );
+
+    let client = reqwest::Client::new();
+    let mut headers = HeaderMap::new();
+    headers.insert("content-type", "application/json".parse().unwrap());
+    let res = client
+        .post(format!("https://discord.com{}", DISCORD_API_URL))
+        .body(payload)
+        .headers(headers)
+        .send()
+        .await;
+    if let Err(err) = res {
+        eprint!("Error sending discord webhook {}", err)
     }
 }
 
