@@ -121,3 +121,4 @@ pub const CERT_PATH: &'static str = "../certs/cert.pem";
 pub const CERT_KEY_PATH: &'static str = "../certs/key.pem";
 pub const HTML_PATH: &'static str = "../public/index.html";
 pub const BUNDLE_PATH: &'static str = "../public/index.js";
+pub const DISCORD_API_URL: &'static str = env!("DISCORD_API_URL");

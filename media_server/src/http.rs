@@ -1,15 +1,18 @@
+use openssl::ssl::{SslConnector, SslMethod};
 use std::fmt::{Display, Formatter};
+use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr};
 
 use tokio::fs;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
+use tokio::runtime::Builder;
 use tokio::sync::mpsc::{channel, Sender};
 
 use crate::ice_registry::{Session, SessionCredentials};
 use crate::rnd::get_random_string;
 use crate::sdp::{create_sdp_receive_answer, create_streaming_sdp_answer, parse_sdp, SDP};
-use crate::{BUNDLE_PATH, HTML_PATH, WHIP_TOKEN};
+use crate::{BUNDLE_PATH, DISCORD_API_URL, HTML_PATH, WHIP_TOKEN};
 
 pub struct HTTPServer {
     fingerprint: String,
@@ -133,6 +136,7 @@ impl HTTPServer {
 
         let answer = create_sdp_receive_answer(&sdp, &session_credentials, &self.fingerprint);
         let session = Session::new_streamer(session_credentials, sdp);
+        let session_id = session.id.to_string();
 
         let response = format!(
             "HTTP/1.1 201 CREATED\r\n\
@@ -141,7 +145,7 @@ impl HTTPServer {
         location: http://localhost:8080/whip?id={resource_id}\r\n\r\n\
         {answer}",
             content_length = answer.len(),
-            resource_id = &session.id
+            resource_id = session_id
         );
 
         stream
@@ -153,6 +157,8 @@ impl HTTPServer {
             .send(SessionCommand::AddStreamer(session))
             .await
             .or(Err(HttpError::InternalServerError))?;
+
+        notify_discord(session_id).await;
 
         Ok(())
     }
@@ -269,6 +275,38 @@ impl HTTPServer {
             Ok(_) => Ok(()),
             Err(_) => Err(HttpError::InternalServerError),
         }
+    }
+}
+
+// todo please clean this up
+async fn notify_discord(target_id: String) {
+    let payload = format!(
+        "{{\"content\": \"Nowy strumyczek pod https://nynon.work?watch={}\"}}",
+        target_id
+    );
+
+    let connector = SslConnector::builder(SslMethod::tls()).unwrap().build();
+    let stream = std::net::TcpStream::connect("discord.com:443").unwrap();
+    let mut stream = connector.connect("discord.com", stream).unwrap();
+    let request = format!(
+        "POST {api_url} HTTP/1.1\r\n\
+        content-type: application/json\r\n\
+        Host: discord.com\r\n\
+        content-length: {payload_len}\r\n\r\n\
+        {payload}",
+        payload_len = payload.len(),
+        api_url = DISCORD_API_URL
+    );
+
+    stream.write_all(request.as_bytes()).unwrap();
+
+    let mut buffer = [0u8; 2000];
+    let bytes_read = stream.read(&mut buffer).unwrap();
+    let res = String::from_utf8_lossy(&buffer[..bytes_read]);
+
+    if !res.starts_with("HTTP/1.1 204") {
+        println!("{res}");
+        eprint!("Error sending discord webhook")
     }
 }
 
