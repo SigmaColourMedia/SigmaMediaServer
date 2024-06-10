@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr};
+use std::ops::Add;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{channel, Sender};
@@ -24,7 +25,7 @@ impl HTTPServer {
             session_commands_sender: sender,
         }
     }
-    pub async fn handle_http_request(&self, mut stream: TcpStream, remote: SocketAddr) {
+    pub async fn handle_http_request(&self, mut stream: TcpStream) {
         match parse_http_request(&mut stream).await {
             Some(req) => {
                 match &req.path[..] {
@@ -418,6 +419,74 @@ impl Display for Request {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let msg = format!("{} {}", self.method, self.path);
         write!(f, "{}", &msg)
+    }
+}
+
+struct ResponseBuilder {
+    status: Option<usize>,
+    headers: HashMap<String, String>,
+    body: Option<String>,
+}
+
+impl ResponseBuilder {
+    fn new() -> Self {
+        ResponseBuilder {
+            body: None,
+            status: None,
+            headers: HashMap::new(),
+        }
+    }
+
+    fn set_status(&mut self, status: usize) {
+        self.status = Some(status)
+    }
+
+    fn set_header(&mut self, key: String, value: String) {
+        self.headers.insert(key, value);
+    }
+
+    fn set_body(&mut self, body: String) {
+        self.body = Some(body)
+    }
+
+    fn build(mut self) -> String {
+        let status = self.status.expect("No status provided for response");
+
+        let status_text = match status {
+            200 => "OK",
+            400 => "BAD REQUEST",
+            401 => "UNAUTHORIZED",
+            404 => "NOT FOUND",
+            405 => "METHOD NOT ALLOWED",
+            _ => "",
+        };
+
+        let mut response = format!("HTTP/1.1 {status} {status_text}\r\n");
+
+        let concat_headers = |headers: HashMap<String, String>| {
+            headers
+                .into_iter()
+                .map(|(key, value)| format!("{}:{}\r\n", key, value))
+                .collect::<String>()
+        };
+
+        match self.body {
+            None => {
+                let headers = concat_headers(self.headers);
+                response.push_str(&headers);
+                response.push_str("\r\n");
+            }
+            Some(body) => {
+                self.headers
+                    .insert("content-length".to_string(), body.len().to_string());
+                let headers = concat_headers(self.headers);
+                response.push_str(&headers);
+                response.push_str("\r\n");
+                response.push_str(&body)
+            }
+        };
+
+        response
     }
 }
 

@@ -109,7 +109,7 @@ async fn main() {
         while let Ok((stream, remote)) = tcp_server.accept().await {
             let http_server = http_server.clone();
             tokio::spawn(async move {
-                http_server.handle_http_request(stream, remote).await;
+                http_server.handle_http_request(stream).await;
             });
         }
     }
