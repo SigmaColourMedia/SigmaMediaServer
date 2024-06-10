@@ -162,13 +162,9 @@ impl HTTPServer {
         stream: &mut TcpStream,
         request: &Request,
     ) -> Result<(), HttpError> {
-        let search = request.search.as_ref().ok_or(HttpError::BadRequest)?;
-
-        let target_id = search
-            .split("&")
-            .find(|param| param.starts_with("target_id="))
-            .and_then(|param| param.split_once("="))
-            .map(|(_, value)| value.to_owned())
+        let target_id = request
+            .search
+            .get("target_id")
             .ok_or(HttpError::BadRequest)?;
 
         let (tx, rx) = tokio::sync::oneshot::channel::<Option<SDP>>();
@@ -340,7 +336,6 @@ async fn parse_http_request(stream: &mut TcpStream) -> Option<Request> {
     stream.read(&mut buffer).await.unwrap();
 
     let req = parse_http(&buffer).await;
-    println!("{:?}", req);
 
     req
 }
@@ -365,13 +360,14 @@ async fn parse_http(data: &[u8]) -> Option<Request> {
 
     let pathname_split = pathname.split_once("?");
     let (path, search) = match &pathname_split {
-        Some((path, search)) => (path.to_string(), Some(search.to_string())),
-        None => (pathname.to_string(), None),
+        Some((path, search)) => (path.to_string(), parse_search(search)?),
+        None => (pathname.to_string(), HashMap::new()),
     };
 
     let mut headers: HashMap<String, String> = HashMap::new();
     while let Some(line) = lines.next() {
         if line.is_empty() {
+            // END OF HEADERS
             break;
         }
         let (key, value) = line.split_once(":")?;
@@ -398,12 +394,22 @@ async fn parse_http(data: &[u8]) -> Option<Request> {
     })
 }
 
-// todo Don't hold the entire body in memory
+fn parse_search(search: &str) -> Option<HashMap<String, String>> {
+    let mut search_map = HashMap::new();
+    let split_iter = search.split("&");
+    for split in split_iter {
+        let (key, value) = split.split_once("=")?;
+        search_map.insert(key.to_string(), value.to_string());
+    }
+
+    Some(search_map)
+}
+
 #[derive(Debug)]
 struct Request {
     path: String,
-    search: Option<String>,
     method: HTTPMethod,
+    search: HashMap<String, String>,
     headers: HashMap<String, String>,
     body: Option<String>,
 }
