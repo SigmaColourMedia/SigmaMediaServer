@@ -1,18 +1,16 @@
 use openssl::ssl::{SslConnector, SslMethod};
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr};
-
-use tokio::fs;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
-use tokio::runtime::Builder;
 use tokio::sync::mpsc::{channel, Sender};
 
 use crate::ice_registry::{Session, SessionCredentials};
 use crate::rnd::get_random_string;
 use crate::sdp::{create_sdp_receive_answer, create_streaming_sdp_answer, parse_sdp, SDP};
-use crate::{BUNDLE_PATH, DISCORD_API_URL, HTML_PATH, WHIP_TOKEN};
+use crate::{DISCORD_API_URL, WHIP_TOKEN};
 
 pub struct HTTPServer {
     fingerprint: String,
@@ -43,10 +41,7 @@ impl HTTPServer {
                     },
                     "/whep" => match &req.method {
                         HTTPMethod::GET => {
-                            if let Err(err) = self
-                                .register_viewer(&mut stream, req.search, &req.headers)
-                                .await
-                            {
+                            if let Err(err) = self.register_viewer(&mut stream, &req).await {
                                 HTTPServer::handle_http_error(err, &mut stream).await;
                             }
                         }
@@ -57,7 +52,7 @@ impl HTTPServer {
                     },
                     "/rooms" => match &req.method {
                         HTTPMethod::GET => {
-                            if let Err(err) = self.get_rooms(&mut stream, &req.headers).await {
+                            if let Err(err) = self.get_rooms(&mut stream, &req).await {
                                 HTTPServer::handle_http_error(err, &mut stream).await;
                             }
                         }
@@ -112,11 +107,11 @@ impl HTTPServer {
         stream: &mut TcpStream,
         request: Request,
     ) -> Result<(), HttpError> {
+        println!("here");
+
         let bearer_token = request
             .headers
-            .iter()
-            .find(|(key, _)| key.eq_ignore_ascii_case("authorization"))
-            .map(|(_, value)| value)
+            .get("authorization")
             .ok_or(HttpError::Unauthorized)?;
 
         if !bearer_token.eq(&format!("Bearer {}", WHIP_TOKEN)) {
@@ -165,10 +160,9 @@ impl HTTPServer {
     async fn register_viewer(
         &self,
         stream: &mut TcpStream,
-        search: Option<String>,
-        headers: &Vec<Header>,
+        request: &Request,
     ) -> Result<(), HttpError> {
-        let search = search.ok_or(HttpError::BadRequest)?;
+        let search = request.search.as_ref().ok_or(HttpError::BadRequest)?;
 
         let target_id = search
             .split("&")
@@ -190,11 +184,7 @@ impl HTTPServer {
 
         let viewer_session = Session::new_viewer(target_id.to_owned(), credentials);
 
-        let request_origin = headers
-            .iter()
-            .find(|(key, _)| key.eq_ignore_ascii_case("origin"))
-            .map(|(_, val)| val)
-            .ok_or(HttpError::BadRequest)?;
+        let request_origin = request.headers.get("origin").ok_or(HttpError::BadRequest)?;
 
         let cors_allowed_origin = match request_origin.as_str() {
             "http://localhost:9000" => "http://localhost:9000",
@@ -228,11 +218,7 @@ impl HTTPServer {
         Ok(())
     }
 
-    async fn get_rooms(
-        &self,
-        stream: &mut TcpStream,
-        headers: &Vec<Header>,
-    ) -> Result<(), HttpError> {
+    async fn get_rooms(&self, stream: &mut TcpStream, request: &Request) -> Result<(), HttpError> {
         let (tx, mut rx) = channel::<Vec<String>>(1000);
         self.session_commands_sender
             .send(SessionCommand::GetRooms(tx))
@@ -248,11 +234,7 @@ impl HTTPServer {
             .join(",");
         let body = format!("{{\"rooms\":[{}]}}", rooms_string);
 
-        let request_origin = headers
-            .iter()
-            .find(|(key, _)| key.eq_ignore_ascii_case("origin"))
-            .map(|(_, val)| val)
-            .ok_or(HttpError::BadRequest)?;
+        let request_origin = request.headers.get("origin").ok_or(HttpError::BadRequest)?;
 
         let cors_allowed_origin = match request_origin.as_str() {
             "http://localhost:9000" => "http://localhost:9000",
@@ -354,14 +336,24 @@ async fn write_405_response(stream: &mut TcpStream) -> std::io::Result<()> {
 }
 
 async fn parse_http_request(stream: &mut TcpStream) -> Option<Request> {
-    let buf_reader = BufReader::new(stream);
+    let mut buffer = [0u8; 2000];
+    stream.read(&mut buffer).await.unwrap();
 
-    let mut lines = buf_reader.lines();
-    let request_line = lines.next_line().await.ok().flatten()?;
+    let req = parse_http(&buffer).await;
+    println!("{:?}", req);
 
-    let req = request_line.split(" ").collect::<Vec<&str>>();
-    let (method, pathname) = (req[0].to_owned(), req[1].to_owned());
-    let method = match &method[..] {
+    req
+}
+
+async fn parse_http(data: &[u8]) -> Option<Request> {
+    let string_data = std::str::from_utf8(data).ok()?;
+    let mut lines = string_data.lines();
+
+    let mut request_line = lines.next()?.split(" ");
+
+    let method = request_line.next()?;
+    let pathname = request_line.next()?;
+    let method = match method {
         "GET" => HTTPMethod::GET,
         "POST" => HTTPMethod::POST,
         "OPTIONS" => HTTPMethod::OPTIONS,
@@ -374,49 +366,36 @@ async fn parse_http_request(stream: &mut TcpStream) -> Option<Request> {
     let pathname_split = pathname.split_once("?");
     let (path, search) = match &pathname_split {
         Some((path, search)) => (path.to_string(), Some(search.to_string())),
-        None => (pathname, None),
+        None => (pathname.to_string(), None),
     };
 
-    let mut headers: Vec<Header> = Vec::new();
-    while let Some(line) = lines.next_line().await.ok().flatten() {
+    let mut headers: HashMap<String, String> = HashMap::new();
+    while let Some(line) = lines.next() {
         if line.is_empty() {
             break;
         }
-        headers.push(parse_header(&line)?)
+        let (key, value) = line.split_once(":")?;
+        let key = key.trim().to_lowercase();
+        let value = value.trim().to_string();
+        headers.insert(key, value);
     }
-    let content_length = headers
-        .iter()
-        .find(|(key, _)| key.eq_ignore_ascii_case("content-length"))
-        .map(|(_, value)| value.parse::<usize>())
-        .map(|result| result.ok())
-        .flatten();
 
-    let body: Option<String> = match content_length {
-        None => None,
-        Some(length) => {
-            let mut body = vec![0; length];
-            lines.get_mut().read_exact(&mut body).await.ok()?;
-            String::from_utf8(body).ok()
-        }
-    };
+    let content_length = headers.get("content-length");
+
+    let body = content_length.and_then(|length| {
+        let length = length.parse::<usize>().ok()?;
+        let payload = lines.collect::<Vec<&str>>().join("\r\n").into_bytes();
+        let truncated_payload = std::str::from_utf8(&payload[..length]).ok()?.to_string();
+        Some(truncated_payload)
+    });
 
     Some(Request {
         method,
         headers,
         search,
-        path,
         body,
+        path,
     })
-}
-
-type Header = (String, String);
-
-fn parse_header(header: &str) -> Option<Header> {
-    let (key, value) = header.split_once(":")?;
-    let key = key.trim();
-    let value = value.trim();
-
-    Some((key.to_owned(), value.to_owned()))
 }
 
 // todo Don't hold the entire body in memory
@@ -425,7 +404,7 @@ struct Request {
     path: String,
     search: Option<String>,
     method: HTTPMethod,
-    headers: Vec<Header>,
+    headers: HashMap<String, String>,
     body: Option<String>,
 }
 
