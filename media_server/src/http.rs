@@ -1,9 +1,11 @@
 use openssl::ssl::{SslConnector, SslMethod};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::future::Future;
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr};
 use std::ops::Add;
+use std::pin::Pin;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::{channel, Sender};
@@ -108,8 +110,6 @@ impl HTTPServer {
         stream: &mut TcpStream,
         request: Request,
     ) -> Result<(), HttpError> {
-        println!("here");
-
         let bearer_token = request
             .headers
             .get("authorization")
@@ -341,7 +341,7 @@ async fn parse_http_request(stream: &mut TcpStream) -> Option<Request> {
     req
 }
 
-async fn parse_http(data: &[u8]) -> Option<Request> {
+pub async fn parse_http(data: &[u8]) -> Option<Request> {
     let string_data = std::str::from_utf8(data).ok()?;
     let mut lines = string_data.lines();
 
@@ -405,14 +405,72 @@ fn parse_search(search: &str) -> Option<HashMap<String, String>> {
 
     Some(search_map)
 }
+type CallbackFuture<'a> = dyn Future<Output = String> + Send + 'a;
+type CallbackFn = fn(Request, &str, Sender<SessionCommand>) -> Pin<Box<CallbackFuture<'_>>>;
+pub struct RouterBuilder {
+    fingerprint: Option<String>,
+    sender: Option<Sender<SessionCommand>>,
+    route_handlers: HashMap<String, CallbackFn>,
+}
+
+impl RouterBuilder {
+    pub fn new() -> Self {
+        RouterBuilder {
+            sender: None,
+            fingerprint: None,
+            route_handlers: HashMap::new(),
+        }
+    }
+
+    pub fn add_handler(&mut self, route: &str, handler: CallbackFn) {
+        self.route_handlers.insert(route.to_string(), handler);
+    }
+    pub fn add_sender(&mut self, sender: Sender<SessionCommand>) {
+        self.sender = Some(sender)
+    }
+    pub fn add_fingerprint(&mut self, fingerprint: String) {
+        self.fingerprint = Some(fingerprint)
+    }
+
+    pub fn build(self) -> Router {
+        Router {
+            sender: self.sender.expect("Command Sender was not provided"),
+            fingerprint: self.fingerprint.expect("Fingerprint was not provided"),
+            route_handlers: self.route_handlers,
+        }
+    }
+}
+
+pub struct Router {
+    fingerprint: String,
+    sender: Sender<SessionCommand>,
+    route_handlers: HashMap<String, CallbackFn>,
+}
+
+impl Router {
+    pub async fn handle_request(&self, request: Request, stream: &mut TcpStream) {
+        if let Some(handler) = self.route_handlers.get(&request.path) {
+            let response = handler(request, &self.fingerprint, self.sender.clone()).await;
+            println!("{}", response);
+            if let Err(err) = stream.write_all(response.as_bytes()).await {
+                println!("Error writing to stream {}", err)
+            }
+        } else {
+            let response = ResponseBuilder::new().set_status(404).build();
+            if let Err(err) = stream.write_all(response.as_bytes()).await {
+                println!("Error writing to stream {}", err)
+            }
+        }
+    }
+}
 
 #[derive(Debug)]
-struct Request {
-    path: String,
-    method: HTTPMethod,
-    search: HashMap<String, String>,
-    headers: HashMap<String, String>,
-    body: Option<String>,
+pub struct Request {
+    pub path: String,
+    pub method: HTTPMethod,
+    pub search: HashMap<String, String>,
+    pub headers: HashMap<String, String>,
+    pub body: Option<String>,
 }
 
 impl Display for Request {
@@ -422,14 +480,14 @@ impl Display for Request {
     }
 }
 
-struct ResponseBuilder {
+pub struct ResponseBuilder {
     status: Option<usize>,
     headers: HashMap<String, String>,
     body: Option<String>,
 }
 
 impl ResponseBuilder {
-    fn new() -> Self {
+    pub fn new() -> Self {
         ResponseBuilder {
             body: None,
             status: None,
@@ -437,23 +495,27 @@ impl ResponseBuilder {
         }
     }
 
-    fn set_status(&mut self, status: usize) {
-        self.status = Some(status)
+    pub fn set_status(mut self, status: usize) -> Self {
+        self.status = Some(status);
+        self
     }
 
-    fn set_header(&mut self, key: String, value: String) {
-        self.headers.insert(key, value);
+    pub fn set_header(mut self, key: &str, value: &str) -> Self {
+        self.headers.insert(key.to_string(), value.to_string());
+        self
     }
 
-    fn set_body(&mut self, body: String) {
-        self.body = Some(body)
+    pub fn set_body(mut self, body: String) -> Self {
+        self.body = Some(body);
+        self
     }
 
-    fn build(mut self) -> String {
+    pub fn build(mut self) -> String {
         let status = self.status.expect("No status provided for response");
 
         let status_text = match status {
             200 => "OK",
+            201 => "CREATED",
             400 => "BAD REQUEST",
             401 => "UNAUTHORIZED",
             404 => "NOT FOUND",
@@ -466,7 +528,7 @@ impl ResponseBuilder {
         let concat_headers = |headers: HashMap<String, String>| {
             headers
                 .into_iter()
-                .map(|(key, value)| format!("{}:{}\r\n", key, value))
+                .map(|(key, value)| format!("{}: {}\r\n", key, value))
                 .collect::<String>()
         };
 
@@ -491,7 +553,7 @@ impl ResponseBuilder {
 }
 
 #[derive(Debug)]
-enum HTTPMethod {
+pub enum HTTPMethod {
     GET,
     POST,
     OPTIONS,
@@ -510,7 +572,7 @@ impl Display for HTTPMethod {
 }
 
 #[derive(Debug)]
-enum HttpError {
+pub enum HttpError {
     NotFound,
     Unauthorized,
     InternalServerError,

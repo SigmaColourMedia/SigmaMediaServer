@@ -1,16 +1,23 @@
+use openssl::stack::Stackable;
+use std::collections::HashMap;
+use std::future::Future;
 use std::io::ErrorKind;
 use std::net::UdpSocket;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+use tokio::io::AsyncReadExt;
 
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
+use tokio::time::sleep;
 
 use crate::acceptor::SSLConfig;
-use crate::http::{HTTPServer, SessionCommand};
+use crate::http::{parse_http, HTTPServer, Request, RouterBuilder, SessionCommand};
 use crate::ice_registry::ConnectionType;
+use crate::routes::whip;
 use crate::server::Server;
 
 mod acceptor;
@@ -18,6 +25,7 @@ mod client;
 mod http;
 mod ice_registry;
 mod rnd;
+mod routes;
 mod sdp;
 mod server;
 mod stun;
@@ -103,16 +111,35 @@ async fn main() {
         .unwrap();
     println!("Running TCP server at {}:8080", HOST_ADDRESS);
 
-    let http_server = Arc::new(HTTPServer::new(config.fingerprint.clone(), tx.clone()));
+    let mut router_builder = RouterBuilder::new();
 
-    loop {
-        while let Ok((stream, remote)) = tcp_server.accept().await {
-            let http_server = http_server.clone();
-            tokio::spawn(async move {
-                http_server.handle_http_request(stream).await;
-            });
-        }
+    router_builder.add_handler("/whip", |req, fingerprint, sender| {
+        Box::pin(whip(req, fingerprint, sender))
+    });
+
+    router_builder.add_fingerprint(config.fingerprint.clone());
+    router_builder.add_sender(tx.clone());
+
+    let router = Arc::new(router_builder.build());
+
+    while let Ok((mut stream, _)) = tcp_server.accept().await {
+        let router = router.clone();
+
+        tokio::spawn(async move {
+            let mut buffer = [0u8; 3000];
+            stream
+                .read(&mut buffer)
+                .await
+                .expect("Failed reading from buffer");
+            if let Some(request) = parse_http(&buffer).await {
+                router.handle_request(request, &mut stream).await;
+            }
+        });
     }
+}
+
+async fn handle_usize(a: usize, aa: &str) -> String {
+    String::new()
 }
 
 pub const HOST_ADDRESS: &'static str = env!("HOST_ADDRESS");
