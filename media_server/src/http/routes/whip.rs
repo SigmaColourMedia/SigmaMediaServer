@@ -1,4 +1,6 @@
-use crate::http::{HTTPMethod, HttpError, Request, ResponseBuilder, SessionCommand};
+use crate::http::parsers::map_http_err_to_response;
+use crate::http::response_builder::ResponseBuilder;
+use crate::http::{HTTPMethod, HttpError, Request, SessionCommand};
 use crate::ice_registry::{Session, SessionCredentials};
 use crate::rnd::get_random_string;
 use crate::sdp::{create_sdp_receive_answer, parse_sdp};
@@ -52,16 +54,4 @@ async fn post_handle(
         .set_header("location", "http://localhost:8080/whip")
         .set_body(answer)
         .build())
-}
-
-pub fn map_http_err_to_response(err: HttpError) -> String {
-    let status = match err {
-        HttpError::NotFound => 404,
-        HttpError::Unauthorized => 401,
-        HttpError::InternalServerError => 500,
-        HttpError::BadRequest => 404,
-        HttpError::MethodNotAllowed => 405,
-    };
-
-    ResponseBuilder::new().set_status(status).build()
 }

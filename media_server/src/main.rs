@@ -1,31 +1,28 @@
+use crate::acceptor::SSLConfig;
+use crate::http::parsers::parse_http;
+use crate::http::router::RouterBuilder;
+use crate::http::routes::whip::whip;
+use crate::http::SessionCommand;
+use crate::ice_registry::ConnectionType;
+use crate::server::Server;
 use openssl::stack::Stackable;
-use std::collections::HashMap;
 use std::future::Future;
 use std::io::ErrorKind;
 use std::net::UdpSocket;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
-
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
-use tokio::time::sleep;
-
-use crate::acceptor::SSLConfig;
-use crate::http::{parse_http, HTTPServer, Request, RouterBuilder, SessionCommand};
-use crate::ice_registry::ConnectionType;
-use crate::routes::whip;
-use crate::server::Server;
 
 mod acceptor;
 mod client;
 mod http;
+mod http_legacy;
 mod ice_registry;
 mod rnd;
-mod routes;
 mod sdp;
 mod server;
 mod stun;
