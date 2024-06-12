@@ -1,6 +1,7 @@
 use crate::acceptor::SSLConfig;
 use crate::http::parsers::parse_http;
 use crate::http::router::RouterBuilder;
+use crate::http::routes::rooms::rooms;
 use crate::http::routes::whip::whip;
 use crate::http::SessionCommand;
 use crate::ice_registry::ConnectionType;
@@ -14,7 +15,6 @@ use std::thread;
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
-use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
 
 mod acceptor;
@@ -30,7 +30,7 @@ mod stun;
 #[tokio::main]
 async fn main() {
     let config = SSLConfig::new();
-    let (tx, mut rx) = mpsc::channel::<SessionCommand>(1000);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<SessionCommand>(1000);
 
     thread::spawn(move || {
         let socket = UdpSocket::bind(format!("{HOST_ADDRESS}:52000")).unwrap();
@@ -58,7 +58,7 @@ async fn main() {
                             }
                             SessionCommand::GetRooms(sender) => {
                                 let rooms = server.session_registry.get_rooms();
-                                sender.blocking_send(rooms).unwrap()
+                                sender.send(rooms).unwrap()
                             }
                             SessionCommand::GetStreamSDP((sender, stream_id)) => {
                                 let stream_sdp = server
@@ -112,6 +112,9 @@ async fn main() {
 
     router_builder.add_handler("/whip", |req, fingerprint, sender| {
         Box::pin(whip(req, fingerprint, sender))
+    });
+    router_builder.add_handler("/rooms", |req, fingerprint, sender| {
+        Box::pin(rooms(req, fingerprint, sender))
     });
 
     router_builder.add_fingerprint(config.fingerprint.clone());

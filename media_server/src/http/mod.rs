@@ -70,5 +70,5 @@ pub enum SessionCommand {
     AddStreamer(Session),
     AddViewer(Session),
     GetStreamSDP((tokio::sync::oneshot::Sender<Option<SDP>>, String)),
-    GetRooms(Sender<Vec<String>>),
+    GetRooms(tokio::sync::oneshot::Sender<Vec<String>>),
 }
