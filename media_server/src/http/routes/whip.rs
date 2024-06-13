@@ -1,13 +1,20 @@
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
+use crate::http::router::CallbackFn;
 use crate::http::{HTTPMethod, HttpError, Request, SessionCommand};
 use crate::ice_registry::{Session, SessionCredentials};
 use crate::rnd::get_random_string;
 use crate::sdp::{create_sdp_receive_answer, parse_sdp};
 use crate::WHIP_TOKEN;
+
 use tokio::sync::mpsc::Sender;
 
-pub async fn whip(request: Request, fingerprint: &str, sender: Sender<SessionCommand>) -> String {
+pub fn whip_factory(fingerprint: String, sender: Sender<SessionCommand>) -> CallbackFn {
+    let sender = sender.clone();
+    return Box::new(move |req| Box::pin(whip(req, fingerprint.clone(), sender.clone())));
+}
+
+pub async fn whip(request: Request, fingerprint: String, sender: Sender<SessionCommand>) -> String {
     match &request.method {
         HTTPMethod::POST => post_handle(request, &fingerprint, sender)
             .await

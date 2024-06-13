@@ -1,5 +1,6 @@
 use crate::http::response_builder::ResponseBuilder;
 use crate::http::{Request, SessionCommand};
+use futures::future::BoxFuture;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -8,7 +9,7 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc::Sender;
 
 type CallbackFuture<'a> = dyn Future<Output = String> + Send + 'a;
-type CallbackFn = fn(Request, &str, Sender<SessionCommand>) -> Pin<Box<CallbackFuture<'_>>>;
+pub type CallbackFn = Box<dyn Fn(Request) -> BoxFuture<'static, String> + Send + Sync>;
 pub struct RouterBuilder {
     fingerprint: Option<String>,
     sender: Option<Sender<SessionCommand>>,
@@ -52,7 +53,7 @@ pub struct Router {
 impl Router {
     pub async fn handle_request(&self, request: Request, stream: &mut TcpStream) {
         if let Some(handler) = self.route_handlers.get(&request.path) {
-            let response = handler(request, &self.fingerprint, self.sender.clone()).await;
+            let response = handler(request).await;
             println!("{}", response);
             if let Err(err) = stream.write_all(response.as_bytes()).await {
                 println!("Error writing to stream {}", err)

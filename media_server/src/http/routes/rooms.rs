@@ -1,11 +1,14 @@
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
+use crate::http::router::CallbackFn;
 use crate::http::{HTTPMethod, HttpError, Request, SessionCommand};
 use std::future::IntoFuture;
 use tokio::sync::mpsc::Sender;
 
-pub async fn rooms(request: Request, _fingerprint: &str, sender: Sender<SessionCommand>) -> String {
-    println!("{}", request);
+pub fn rooms_factory(sender: Sender<SessionCommand>) -> CallbackFn {
+    Box::new(move |req| Box::pin(rooms(req, sender.clone())))
+}
+pub async fn rooms(request: Request, sender: Sender<SessionCommand>) -> String {
     match &request.method {
         HTTPMethod::GET => get_handle(request, sender)
             .await

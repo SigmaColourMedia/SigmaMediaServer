@@ -1,7 +1,7 @@
 use crate::http::parsers::parse_http;
 use crate::http::router::{Router, RouterBuilder};
-use crate::http::routes::rooms::rooms;
-use crate::http::routes::whip::whip;
+use crate::http::routes::rooms::{rooms, rooms_factory};
+use crate::http::routes::whip::whip_factory;
 use crate::http::SessionCommand;
 use crate::HOST_ADDRESS;
 use std::sync::Arc;
@@ -18,12 +18,10 @@ impl HttpServer {
     pub async fn new(fingerprint: String, sender: Sender<SessionCommand>) -> Self {
         let mut router_builder = RouterBuilder::new();
 
-        router_builder.add_handler("/whip", |req, fingerprint, sender| {
-            Box::pin(whip(req, fingerprint, sender))
-        });
-        router_builder.add_handler("/rooms", |req, fingerprint, sender| {
-            Box::pin(rooms(req, fingerprint, sender))
-        });
+        let whip_handler = whip_factory(fingerprint.clone(), sender.clone());
+        let rooms_handler = rooms_factory(sender.clone());
+        router_builder.add_handler("/whip", whip_handler);
+        router_builder.add_handler("/rooms", rooms_handler);
 
         router_builder.add_fingerprint(fingerprint);
         router_builder.add_sender(sender);
