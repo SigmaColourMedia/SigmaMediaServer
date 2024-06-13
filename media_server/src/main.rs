@@ -4,6 +4,7 @@ use crate::http::router::RouterBuilder;
 use crate::http::routes::rooms::rooms;
 use crate::http::routes::whip::whip;
 use crate::http::SessionCommand;
+use crate::http_server::HttpServer;
 use crate::ice_registry::ConnectionType;
 use crate::server::Server;
 use openssl::stack::Stackable;
@@ -21,6 +22,7 @@ mod acceptor;
 mod client;
 mod http;
 mod http_legacy;
+mod http_server;
 mod ice_registry;
 mod rnd;
 mod sdp;
@@ -103,43 +105,16 @@ async fn main() {
         }
     });
 
-    let tcp_server = TcpListener::bind(format!("{HOST_ADDRESS}:8080"))
-        .await
-        .unwrap();
-    println!("Running TCP server at {}:8080", HOST_ADDRESS);
+    let server = Arc::new(HttpServer::new(config.fingerprint.clone(), tx).await);
 
-    let mut router_builder = RouterBuilder::new();
-
-    router_builder.add_handler("/whip", |req, fingerprint, sender| {
-        Box::pin(whip(req, fingerprint, sender))
-    });
-    router_builder.add_handler("/rooms", |req, fingerprint, sender| {
-        Box::pin(rooms(req, fingerprint, sender))
-    });
-
-    router_builder.add_fingerprint(config.fingerprint.clone());
-    router_builder.add_sender(tx.clone());
-
-    let router = Arc::new(router_builder.build());
-
-    while let Ok((mut stream, _)) = tcp_server.accept().await {
-        let router = router.clone();
-
-        tokio::spawn(async move {
-            let mut buffer = [0u8; 3000];
-            stream
-                .read(&mut buffer)
-                .await
-                .expect("Failed reading from buffer");
-            if let Some(request) = parse_http(&buffer).await {
-                router.handle_request(request, &mut stream).await;
-            }
-        });
+    loop {
+        let server = server.clone();
+        if let Ok(stream) = server.read_stream().await {
+            tokio::spawn(async move {
+                server.handle_stream(stream).await;
+            });
+        }
     }
-}
-
-async fn handle_usize(a: usize, aa: &str) -> String {
-    String::new()
 }
 
 pub const HOST_ADDRESS: &'static str = env!("HOST_ADDRESS");
