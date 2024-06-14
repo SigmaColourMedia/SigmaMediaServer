@@ -8,12 +8,12 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::Sender;
 
-type CallbackFuture<'a> = dyn Future<Output = String> + Send + 'a;
-pub type CallbackFn = Box<dyn Fn(Request) -> BoxFuture<'static, String> + Send + Sync>;
+type CallbackFuture<O> = Pin<Box<dyn Future<Output = O> + Send>>;
+pub type Callback<T> = dyn (Fn(T) -> CallbackFuture<String>) + Send + Sync;
 pub struct RouterBuilder {
     fingerprint: Option<String>,
     sender: Option<Sender<SessionCommand>>,
-    route_handlers: HashMap<String, CallbackFn>,
+    route_handlers: HashMap<String, Box<Callback<Request>>>,
 }
 
 impl RouterBuilder {
@@ -25,8 +25,13 @@ impl RouterBuilder {
         }
     }
 
-    pub fn add_handler(&mut self, route: &str, handler: CallbackFn) {
-        self.route_handlers.insert(route.to_string(), handler);
+    pub fn add_handler<F>(&mut self, route: &str, handler: F)
+    where
+        F: Fn(Request) -> CallbackFuture<String>,
+        F: Send + Sync + 'static,
+    {
+        self.route_handlers
+            .insert(route.to_string(), Box::new(handler));
     }
     pub fn add_sender(&mut self, sender: Sender<SessionCommand>) {
         self.sender = Some(sender)
@@ -47,7 +52,7 @@ impl RouterBuilder {
 pub struct Router {
     fingerprint: String,
     sender: Sender<SessionCommand>,
-    route_handlers: HashMap<String, CallbackFn>,
+    route_handlers: HashMap<String, Box<Callback<Request>>>,
 }
 
 impl Router {

@@ -1,7 +1,6 @@
 use crate::acceptor::SSLConfig;
 use crate::http::parsers::parse_http;
 use crate::http::router::RouterBuilder;
-use crate::http::routes::rooms::rooms;
 use crate::http::routes::whip::whip;
 use crate::http::SessionCommand;
 use crate::http_server::HttpServer;
