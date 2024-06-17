@@ -1,7 +1,6 @@
 use crate::acceptor::SSLConfig;
-use crate::http::parsers::parse_http;
-use crate::http::router::RouterBuilder;
 use crate::http::routes::whip::whip;
+use crate::http::server_builder::ServerBuilder;
 use crate::http::SessionCommand;
 use crate::http_server::HttpServer;
 use crate::ice_registry::ConnectionType;
@@ -14,7 +13,6 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use tokio::io::AsyncReadExt;
-use tokio::net::TcpListener;
 use tokio::sync::mpsc::error::TryRecvError;
 
 mod acceptor;
@@ -103,8 +101,12 @@ async fn main() {
             }
         }
     });
+    let mut server_builder = ServerBuilder::new();
+    server_builder.add_sender(tx.clone());
+    server_builder.add_fingerprint(config.fingerprint.clone());
+    server_builder.add_handler("/whip", |req, ctx| Box::pin(whip(req, ctx)));
 
-    let server = Arc::new(HttpServer::new(config.fingerprint.clone(), tx).await);
+    let server = Arc::new(server_builder.build().await);
 
     loop {
         let server = server.clone();

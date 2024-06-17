@@ -2,12 +2,11 @@ use crate::ice_registry::Session;
 use crate::sdp::SDP;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use tokio::sync::mpsc::Sender;
 
 pub mod parsers;
 pub mod response_builder;
-pub mod router;
 pub mod routes;
+pub mod server_builder;
 
 #[derive(Debug)]
 pub struct Request {

@@ -5,12 +5,14 @@ use crate::ice_registry::{Session, SessionCredentials};
 use crate::rnd::get_random_string;
 use crate::sdp::{create_sdp_receive_answer, parse_sdp};
 use crate::WHIP_TOKEN;
+use std::sync::Arc;
 
+use crate::http::server_builder::ServerContext;
 use tokio::sync::mpsc::Sender;
 
-pub async fn whip(request: Request, fingerprint: String, sender: Sender<SessionCommand>) -> String {
+pub async fn whip(request: Request, ctx: Arc<ServerContext>) -> String {
     match &request.method {
-        HTTPMethod::POST => post_handle(request, &fingerprint, sender)
+        HTTPMethod::POST => post_handle(request, &ctx.fingerprint, ctx.sender.clone())
             .await
             .unwrap_or_else(map_http_err_to_response),
         _ => map_http_err_to_response(HttpError::MethodNotAllowed),
