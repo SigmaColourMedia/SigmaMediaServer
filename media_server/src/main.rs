@@ -1,8 +1,8 @@
 use crate::acceptor::SSLConfig;
-use crate::http::routes::whip::whip;
+use crate::http::routes::rooms::rooms_route;
+use crate::http::routes::whip::whip_route;
 use crate::http::server_builder::ServerBuilder;
 use crate::http::SessionCommand;
-use crate::http_server::HttpServer;
 use crate::ice_registry::ConnectionType;
 use crate::server::Server;
 use openssl::stack::Stackable;
@@ -104,7 +104,8 @@ async fn main() {
     let mut server_builder = ServerBuilder::new();
     server_builder.add_sender(tx.clone());
     server_builder.add_fingerprint(config.fingerprint.clone());
-    server_builder.add_handler("/whip", |req, ctx| Box::pin(whip(req, ctx)));
+    server_builder.add_handler("/whip", |req, ctx| Box::pin(whip_route(req, ctx)));
+    server_builder.add_handler("/whip", |req, ctx| Box::pin(rooms_route(req, ctx)));
 
     let server = Arc::new(server_builder.build().await);
 

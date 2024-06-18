@@ -11,6 +11,7 @@ type CallbackFuture<O> = Pin<Box<dyn Future<Output = O> + Send>>;
 
 type Callback = dyn (Fn(Request, Arc<ServerContext>) -> CallbackFuture<String>) + Send + Sync;
 
+pub type Context = Arc<ServerContext>;
 pub struct ServerContext {
     pub fingerprint: String,
     pub sender: Sender<SessionCommand>,
@@ -34,7 +35,7 @@ impl ServerBuilder {
 
     pub fn add_handler<F>(&mut self, route: &str, handler: F)
     where
-        F: Fn(Request, Arc<ServerContext>) -> CallbackFuture<String>,
+        F: Fn(Request, Context) -> CallbackFuture<String>,
         F: Send + Sync + 'static,
     {
         self.route_handlers

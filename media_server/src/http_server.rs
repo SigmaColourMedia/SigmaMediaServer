@@ -1,6 +1,6 @@
 use crate::http::parsers::parse_http;
 use crate::http::response_builder::ResponseBuilder;
-use crate::http::server_builder::{RouteHandlers, ServerContext};
+use crate::http::server_builder::{Context, RouteHandlers, ServerContext};
 use crate::http::Request;
 use crate::HOST_ADDRESS;
 use std::sync::Arc;
@@ -9,12 +9,12 @@ use tokio::net::{TcpListener, TcpStream};
 
 pub struct HttpServer {
     route_handlers: RouteHandlers,
-    context: Arc<ServerContext>,
+    context: Context,
     tcp_listener: TcpListener,
 }
 
 impl HttpServer {
-    pub async fn new(context: Arc<ServerContext>, route_handlers: RouteHandlers) -> Self {
+    pub async fn new(context: Context, route_handlers: RouteHandlers) -> Self {
         let listener = TcpListener::bind(format!("{HOST_ADDRESS}:8080"))
             .await
             .unwrap();
