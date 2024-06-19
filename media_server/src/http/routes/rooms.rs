@@ -3,19 +3,18 @@ use crate::http::response_builder::ResponseBuilder;
 use crate::http::server_builder::Context;
 use crate::http::{HTTPMethod, HttpError, Request, SessionCommand};
 use std::future::IntoFuture;
-use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 
 pub async fn rooms_route(request: Request, context: Context) -> String {
     match &request.method {
-        HTTPMethod::GET => get_handle(request, context.sender.clone())
+        HTTPMethod::GET => get_handle(context.sender.clone())
             .await
             .unwrap_or_else(map_http_err_to_response),
         _ => map_http_err_to_response(HttpError::MethodNotAllowed),
     }
 }
 
-async fn get_handle(request: Request, sender: Sender<SessionCommand>) -> Result<String, HttpError> {
+async fn get_handle(sender: Sender<SessionCommand>) -> Result<String, HttpError> {
     let (tx, mut rx) = tokio::sync::oneshot::channel::<Vec<String>>();
     sender.send(SessionCommand::GetRooms(tx)).await.unwrap();
     let rooms = rx.into_future().await.unwrap();
