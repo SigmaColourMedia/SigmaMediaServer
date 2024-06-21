@@ -1,7 +1,8 @@
-use crate::ice_registry::Session;
-use crate::sdp::SDP;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+
+use crate::ice_registry::Session;
+use crate::sdp::SDP;
 
 pub mod parsers;
 pub mod response_builder;
@@ -14,7 +15,7 @@ pub struct Request {
     pub method: HTTPMethod,
     pub search: HashMap<String, String>,
     pub headers: HashMap<String, String>,
-    pub body: Option<String>,
+    pub body: Option<Vec<u8>>,
 }
 
 impl Display for Request {

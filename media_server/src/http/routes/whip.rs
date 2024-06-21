@@ -34,6 +34,7 @@ async fn post_handle(
 
     let sdp = request
         .body
+        .and_then(|body| String::from_utf8(body).ok())
         .and_then(parse_sdp)
         .ok_or(HttpError::BadRequest)?;
     let host_username = get_random_string(4);

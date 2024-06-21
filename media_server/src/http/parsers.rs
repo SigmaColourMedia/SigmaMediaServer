@@ -1,6 +1,7 @@
-use crate::http::response_builder::ResponseBuilder;
-use crate::http::{HTTPMethod, HttpError, Request};
 use std::collections::HashMap;
+
+use crate::http::{HttpError, HTTPMethod, Request};
+use crate::http::response_builder::ResponseBuilder;
 
 pub async fn parse_http(data: &[u8]) -> Option<Request> {
     let string_data = std::str::from_utf8(data).ok()?;
@@ -42,9 +43,9 @@ pub async fn parse_http(data: &[u8]) -> Option<Request> {
 
     let body = content_length.and_then(|length| {
         let length = length.parse::<usize>().ok()?;
-        let payload = lines.collect::<Vec<&str>>().join("\r\n").into_bytes();
-        let truncated_payload = std::str::from_utf8(&payload[..length]).ok()?.to_string();
-        Some(truncated_payload)
+        let mut payload = lines.collect::<Vec<&str>>().join("\r\n").into_bytes();
+        payload.resize(length, 0);
+        Some(payload)
     });
 
     Some(Request {
