@@ -1,13 +1,13 @@
 use futures::TryFutureExt;
 
-use crate::http::{HttpError, HTTPMethod, Request, SessionCommand};
+use crate::http::{HttpError, HTTPMethod, Request, Response, SessionCommand};
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
 use crate::http::server_builder::Context;
 use crate::ice_registry::Session;
 use crate::sdp::{create_streaming_sdp_answer, SDP};
 
-pub async fn whep_route(request: Request, context: Context) -> String {
+pub async fn whep_route(request: Request, context: Context) -> Response {
     match &request.method {
         HTTPMethod::GET => register_viewer(request, context)
             .await
@@ -16,7 +16,7 @@ pub async fn whep_route(request: Request, context: Context) -> String {
     }
 }
 
-async fn register_viewer(request: Request, context: Context) -> Result<String, HttpError> {
+async fn register_viewer(request: Request, context: Context) -> Result<Response, HttpError> {
     let target_id = request
         .search
         .get("target_id")
@@ -43,7 +43,7 @@ async fn register_viewer(request: Request, context: Context) -> Result<String, H
         .set_header("Access-Control-Allow-Methods", "GET")
         .set_header("Access-Control-Allow-Origin", "http://localhost:9000")
         .set_header("location", "http://localhost:8080/whep")
-        .set_body(sdp_answer)
+        .set_body(sdp_answer.as_bytes())
         .build();
 
     context

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::http::{HttpError, HTTPMethod, Request};
+use crate::http::{HttpError, HTTPMethod, Request, Response};
 use crate::http::response_builder::ResponseBuilder;
 
 pub async fn parse_http(data: &[u8]) -> Option<Request> {
@@ -67,7 +67,7 @@ fn parse_search(search: &str) -> Option<HashMap<String, String>> {
 
     Some(search_map)
 }
-pub fn map_http_err_to_response(err: HttpError) -> String {
+pub fn map_http_err_to_response(err: HttpError) -> Response {
     let status = match err {
         HttpError::NotFound => 404,
         HttpError::Unauthorized => 401,
