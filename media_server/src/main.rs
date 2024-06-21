@@ -1,19 +1,22 @@
-use crate::acceptor::SSLConfig;
-use crate::http::routes::rooms::rooms_route;
-use crate::http::routes::whip::whip_route;
-use crate::http::server_builder::ServerBuilder;
-use crate::http::SessionCommand;
-use crate::ice_registry::ConnectionType;
-use crate::server::Server;
-use openssl::stack::Stackable;
 use std::future::Future;
 use std::io::ErrorKind;
 use std::net::UdpSocket;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+
+use openssl::stack::Stackable;
 use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc::error::TryRecvError;
+
+use crate::acceptor::SSLConfig;
+use crate::http::routes::rooms::rooms_route;
+use crate::http::routes::whep::whep_route;
+use crate::http::routes::whip::whip_route;
+use crate::http::server_builder::ServerBuilder;
+use crate::http::SessionCommand;
+use crate::ice_registry::ConnectionType;
+use crate::server::Server;
 
 mod acceptor;
 mod client;
@@ -37,7 +40,7 @@ async fn main() {
         socket.set_nonblocking(true).unwrap();
 
         let socket = Arc::new(socket);
-        let mut server = Server::new(config.acceptor.clone(), socket.clone());
+        let mut server = Server::new(config.acceptor, socket.clone());
         loop {
             let mut buffer = [0; 3600];
             match socket.recv_from(&mut buffer) {
@@ -102,10 +105,11 @@ async fn main() {
         }
     });
     let mut server_builder = ServerBuilder::new();
-    server_builder.add_sender(tx.clone());
-    server_builder.add_fingerprint(config.fingerprint.clone());
+    server_builder.add_sender(tx);
+    server_builder.add_fingerprint(config.fingerprint);
     server_builder.add_handler("/whip", |req, ctx| Box::pin(whip_route(req, ctx)));
-    server_builder.add_handler("/whip", |req, ctx| Box::pin(rooms_route(req, ctx)));
+    server_builder.add_handler("/rooms", |req, ctx| Box::pin(rooms_route(req, ctx)));
+    server_builder.add_handler("/whep", |req, ctx| Box::pin(whep_route(req, ctx)));
 
     let server = Arc::new(server_builder.build().await);
 

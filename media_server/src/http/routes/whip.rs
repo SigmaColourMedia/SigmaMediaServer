@@ -1,17 +1,17 @@
+use tokio::sync::mpsc::Sender;
+
+use crate::http::{HttpError, HTTPMethod, Request, SessionCommand};
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
-use crate::http::{HTTPMethod, HttpError, Request, SessionCommand};
+use crate::http::server_builder::Context;
 use crate::ice_registry::{Session, SessionCredentials};
 use crate::rnd::get_random_string;
 use crate::sdp::{create_sdp_receive_answer, parse_sdp};
 use crate::WHIP_TOKEN;
 
-use crate::http::server_builder::{Context, ServerContext};
-use tokio::sync::mpsc::Sender;
-
 pub async fn whip_route(request: Request, ctx: Context) -> String {
     match &request.method {
-        HTTPMethod::POST => post_handle(request, &ctx.fingerprint, ctx.sender.clone())
+        HTTPMethod::POST => post_handle(request, &ctx.fingerprint, &ctx.sender)
             .await
             .unwrap_or_else(map_http_err_to_response),
         _ => map_http_err_to_response(HttpError::MethodNotAllowed),
@@ -21,7 +21,7 @@ pub async fn whip_route(request: Request, ctx: Context) -> String {
 async fn post_handle(
     request: Request,
     fingerprint: &str,
-    sender: Sender<SessionCommand>,
+    sender: &Sender<SessionCommand>,
 ) -> Result<String, HttpError> {
     let bearer_token = request
         .headers

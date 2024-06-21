@@ -1,11 +1,11 @@
-use crate::http::parsers::parse_http;
-use crate::http::response_builder::ResponseBuilder;
-use crate::http::server_builder::{Context, RouteHandlers, ServerContext};
-use crate::http::Request;
-use crate::HOST_ADDRESS;
-use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+
+use crate::HOST_ADDRESS;
+use crate::http::parsers::parse_http;
+use crate::http::Request;
+use crate::http::response_builder::ResponseBuilder;
+use crate::http::server_builder::{Context, RouteHandlers};
 
 pub struct HttpServer {
     route_handlers: RouteHandlers,
@@ -15,9 +15,7 @@ pub struct HttpServer {
 
 impl HttpServer {
     pub async fn new(context: Context, route_handlers: RouteHandlers) -> Self {
-        let listener = TcpListener::bind(format!("{HOST_ADDRESS}:8080"))
-            .await
-            .unwrap();
+        let listener = TcpListener::bind(format!("127.0.0.1:8080")).await.unwrap();
         println!("Running TCP server at {}:8080", HOST_ADDRESS);
 
         HttpServer {
