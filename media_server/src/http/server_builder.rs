@@ -1,15 +1,16 @@
-use crate::http::{Request, SessionCommand};
-use crate::http_server::HttpServer;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::rc::Rc;
 use std::sync::Arc;
+
 use tokio::sync::mpsc::Sender;
+
+use crate::http::{Request, Response, SessionCommand};
+use crate::http_server::HttpServer;
 
 type CallbackFuture<O> = Pin<Box<dyn Future<Output = O> + Send>>;
 
-type Callback = dyn (Fn(Request, Arc<ServerContext>) -> CallbackFuture<String>) + Send + Sync;
+type Callback = dyn (Fn(Request, Arc<ServerContext>) -> CallbackFuture<Response>) + Send + Sync;
 
 pub type Context = Arc<ServerContext>;
 pub struct ServerContext {
@@ -35,7 +36,7 @@ impl ServerBuilder {
 
     pub fn add_handler<F>(&mut self, route: &str, handler: F)
     where
-        F: Fn(Request, Context) -> CallbackFuture<String>,
+        F: Fn(Request, Context) -> CallbackFuture<Response>,
         F: Send + Sync + 'static,
     {
         self.route_handlers

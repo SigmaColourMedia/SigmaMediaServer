@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 
+use crate::http::Response;
+
 pub struct ResponseBuilder {
     status: Option<usize>,
     headers: HashMap<String, String>,
-    body: Option<String>,
+    body: Option<Vec<u8>>,
 }
 
 impl ResponseBuilder {
@@ -25,12 +27,12 @@ impl ResponseBuilder {
         self
     }
 
-    pub fn set_body(mut self, body: String) -> Self {
-        self.body = Some(body);
+    pub fn set_body(mut self, body: &[u8]) -> Self {
+        self.body = Some(Vec::from(body));
         self
     }
 
-    pub fn build(mut self) -> String {
+    pub fn build(mut self) -> Response {
         let status = self.status.expect("No status provided for response");
 
         let status_text = match status {
@@ -57,17 +59,27 @@ impl ResponseBuilder {
                 let headers = concat_headers(self.headers);
                 response.push_str(&headers);
                 response.push_str("\r\n");
+
+                Response {
+                    status,
+                    _inner: response.into_bytes(),
+                }
             }
-            Some(body) => {
+            Some(mut body) => {
                 self.headers
                     .insert("content-length".to_string(), body.len().to_string());
                 let headers = concat_headers(self.headers);
                 response.push_str(&headers);
                 response.push_str("\r\n");
-                response.push_str(&body)
-            }
-        };
 
-        response
+                let mut response_bytes = response.into_bytes();
+                response_bytes.append(&mut body);
+
+                Response {
+                    status,
+                    _inner: response_bytes,
+                }
+            }
+        }
     }
 }

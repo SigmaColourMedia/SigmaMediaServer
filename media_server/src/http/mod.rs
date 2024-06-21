@@ -53,7 +53,7 @@ pub enum HttpError {
     MethodNotAllowed,
 }
 
-impl std::fmt::Display for HttpError {
+impl Display for HttpError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             HttpError::NotFound => write!(f, "404 Not Found"),
@@ -71,4 +71,15 @@ pub enum SessionCommand {
     AddViewer(Session),
     GetStreamSDP((tokio::sync::oneshot::Sender<Option<SDP>>, String)),
     GetRooms(tokio::sync::oneshot::Sender<Vec<String>>),
+}
+
+pub struct Response {
+    _inner: Vec<u8>,
+    pub status: usize,
+}
+
+impl Response {
+    pub fn as_bytes(&self) -> &[u8] {
+        &self._inner
+    }
 }
