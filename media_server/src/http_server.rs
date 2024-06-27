@@ -1,25 +1,24 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::HOST_ADDRESS;
+use crate::GLOBAL_CONFIG;
 use crate::http::parsers::parse_http;
 use crate::http::Request;
 use crate::http::response_builder::ResponseBuilder;
-use crate::http::server_builder::{Context, RouteHandlers};
+use crate::http::server_builder::RouteHandlers;
 
 pub struct HttpServer {
     route_handlers: RouteHandlers,
-    context: Context,
     tcp_listener: TcpListener,
 }
 
 impl HttpServer {
-    pub async fn new(context: Context, route_handlers: RouteHandlers) -> Self {
-        let listener = TcpListener::bind(format!("127.0.0.1:8080")).await.unwrap();
-        println!("Running TCP server at {}:8080", HOST_ADDRESS);
+    pub async fn new(route_handlers: RouteHandlers) -> Self {
+        let address = GLOBAL_CONFIG.get().unwrap().tcp_server_config.address;
+        let listener = TcpListener::bind(address).await.unwrap();
+        println!("Running TCP server at {}", address);
 
         HttpServer {
-            context,
             route_handlers,
             tcp_listener: listener,
         }
@@ -31,7 +30,7 @@ impl HttpServer {
 
     async fn handle_request(&self, request: Request, mut stream: TcpStream) {
         if let Some(handler) = self.route_handlers.get(&request.path) {
-            let response = handler(request, self.context.clone()).await;
+            let response = handler(request).await;
             if let Err(err) = stream.write_all(response.as_bytes()).await {
                 println!("Error writing to stream {}", err)
             }

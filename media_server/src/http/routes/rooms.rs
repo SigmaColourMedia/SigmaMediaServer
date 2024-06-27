@@ -1,27 +1,28 @@
 use std::future::IntoFuture;
 
-use tokio::sync::mpsc::Sender;
-
+use crate::GLOBAL_CONFIG;
 use crate::http::{HttpError, HTTPMethod, Request, Response, SessionCommand};
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
-use crate::http::server_builder::Context;
 
-pub async fn rooms_route(request: Request, context: Context) -> Response {
+pub async fn rooms_route(request: Request) -> Response {
     match &request.method {
-        HTTPMethod::GET => get_handle(request, &context.sender)
+        HTTPMethod::GET => get_handle(request)
             .await
             .unwrap_or_else(map_http_err_to_response),
         _ => map_http_err_to_response(HttpError::MethodNotAllowed),
     }
 }
 
-async fn get_handle(
-    request: Request,
-    sender: &Sender<SessionCommand>,
-) -> Result<Response, HttpError> {
+async fn get_handle(request: Request) -> Result<Response, HttpError> {
     let (tx, mut rx) = tokio::sync::oneshot::channel::<Vec<String>>();
-    sender.send(SessionCommand::GetRooms(tx)).await.unwrap();
+    let config = GLOBAL_CONFIG.get().unwrap();
+
+    config
+        .session_command_sender
+        .send(SessionCommand::GetRooms(tx))
+        .await
+        .unwrap();
     let rooms = rx.into_future().await.unwrap();
 
     // todo add JSON parsers

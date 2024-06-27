@@ -2,7 +2,6 @@ use std::io::{ErrorKind, Write};
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
 
-use openssl::ssl::SslAcceptor;
 use tokio::time::Instant;
 
 use crate::client::{Client, ClientSslState};
@@ -14,16 +13,14 @@ pub struct Server {
     inbound_buffer: Vec<u8>,
     outbound_buffer: Vec<u8>,
     socket: Arc<UdpSocket>,
-    acceptor: Arc<SslAcceptor>,
 }
 
 impl Server {
-    pub fn new(acceptor: Arc<SslAcceptor>, socket: Arc<UdpSocket>) -> Self {
+    pub fn new(socket: Arc<UdpSocket>) -> Self {
         Server {
             inbound_buffer: Vec::with_capacity(2000),
             outbound_buffer: Vec::with_capacity(2000),
             socket,
-            acceptor,
             session_registry: SessionRegistry::new(),
         }
     }
@@ -57,7 +54,7 @@ impl Server {
                         &remote,
                         &mut buffer,
                     )
-                        .expect("Failed to create STUN success response");
+                    .expect("Failed to create STUN success response");
 
                     let output_buffer = &buffer[0..bytes_written];
                     if let Err(error) = self.socket.send_to(output_buffer, remote) {
@@ -81,9 +78,8 @@ impl Server {
                         .unwrap();
 
                     if is_new_client {
-                        let client =
-                            Client::new(remote.clone(), self.acceptor.clone(), self.socket.clone())
-                                .expect("Failed to create Client");
+                        let client = Client::new(remote.clone(), self.socket.clone())
+                            .expect("Failed to create Client");
 
                         self.session_registry.nominate_client(client, &resource_id);
                     }
@@ -103,7 +99,7 @@ impl Server {
                         &remote,
                         &mut buffer,
                     )
-                        .expect("Failed to create STUN success message");
+                    .expect("Failed to create STUN success message");
 
                     let output_buffer = &buffer[0..bytes_written];
                     if let Err(error) = self.socket.send_to(output_buffer, remote) {
