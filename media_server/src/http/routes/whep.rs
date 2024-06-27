@@ -34,8 +34,7 @@ async fn register_viewer(request: Request) -> Result<Response, HttpError> {
 
     let stream_sdp = rx.await.unwrap().ok_or(HttpError::NotFound)?;
     let (sdp_answer, credentials) =
-        create_streaming_sdp_answer(&stream_sdp, &config.ssl_config.fingerprint)
-            .ok_or(HttpError::BadRequest)?;
+        create_streaming_sdp_answer(&stream_sdp).ok_or(HttpError::BadRequest)?;
 
     let viewer_session = Session::new_viewer(target_id.to_owned(), credentials);
 

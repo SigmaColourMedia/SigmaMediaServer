@@ -1,7 +1,7 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::{GLOBAL_CONFIG, HOST_ADDRESS};
+use crate::GLOBAL_CONFIG;
 use crate::http::parsers::parse_http;
 use crate::http::Request;
 use crate::http::response_builder::ResponseBuilder;
@@ -14,10 +14,9 @@ pub struct HttpServer {
 
 impl HttpServer {
     pub async fn new(route_handlers: RouteHandlers) -> Self {
-        let listener = TcpListener::bind(GLOBAL_CONFIG.get().unwrap().tcp_server_config.address)
-            .await
-            .unwrap();
-        println!("Running TCP server at {}:8080", HOST_ADDRESS);
+        let address = GLOBAL_CONFIG.get().unwrap().tcp_server_config.address;
+        let listener = TcpListener::bind(address).await.unwrap();
+        println!("Running TCP server at {}", address);
 
         HttpServer {
             route_handlers,

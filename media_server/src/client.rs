@@ -5,10 +5,11 @@ use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
 
 use openssl::error::ErrorStack;
-use openssl::ssl::{HandshakeError, MidHandshakeSslStream, SslAcceptor, SslStream};
+use openssl::ssl::{HandshakeError, MidHandshakeSslStream, SslStream};
 use srtp::openssl::{InboundSession, OutboundSession};
 
 use crate::client::ClientError::{IncompletePacketRead, OpenSslError};
+use crate::GLOBAL_CONFIG;
 
 #[derive(Debug)]
 pub enum ClientSslState {
@@ -31,13 +32,10 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(
-        remote: SocketAddr,
-        acceptor: Arc<SslAcceptor>,
-        socket: Arc<UdpSocket>,
-    ) -> Result<Self, ErrorStack> {
+    pub fn new(remote: SocketAddr, socket: Arc<UdpSocket>) -> Result<Self, ErrorStack> {
         let udp_stream = UDPPeerStream::new(socket, remote.clone());
-        match acceptor.accept(udp_stream) {
+        let config = GLOBAL_CONFIG.get().unwrap();
+        match config.ssl_config.acceptor.accept(udp_stream) {
             Ok(_) => unreachable!("handshake cannot finish with no incoming packets"),
             Err(HandshakeError::SetupFailure(err)) => return Err(err),
             Err(HandshakeError::Failure(_)) => {
@@ -61,7 +59,7 @@ impl Client {
                 match mid_handshake.handshake() {
                     Ok(ssl_stream) => {
                         println!("DTLS handshake finished for remote {}", self.remote_address);
-                        let ( inbound, outbound) =
+                        let (inbound, outbound) =
                             srtp::openssl::session_pair(ssl_stream.ssl(), Default::default())
                                 .unwrap();
 
@@ -99,7 +97,6 @@ impl Client {
             }
             ClientSslState::Shutdown => ClientSslState::Shutdown,
         };
-
 
         Ok(())
     }

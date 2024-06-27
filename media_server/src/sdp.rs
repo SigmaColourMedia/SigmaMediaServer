@@ -1,4 +1,4 @@
-use crate::HOST_ADDRESS;
+use crate::GLOBAL_CONFIG;
 use crate::ice_registry::SessionCredentials;
 use crate::rnd::get_random_string;
 
@@ -59,7 +59,10 @@ pub fn parse_sdp(data: String) -> Option<SDP> {
                         .map(|line| line.to_string())
                         .collect(),
                     payload_number,
-                    profile_level_id: media.iter().find(|line| line.starts_with(&format!("a=fmtp:{}", payload_number))).map(|line| line.to_string())?,
+                    profile_level_id: media
+                        .iter()
+                        .find(|line| line.starts_with(&format!("a=fmtp:{}", payload_number)))
+                        .map(|line| line.to_string())?,
                 })
             }
             "video" => {
@@ -101,11 +104,7 @@ pub fn parse_sdp(data: String) -> Option<SDP> {
     })
 }
 
-pub fn create_sdp_receive_answer(
-    sdp: &SDP,
-    credentials: &SessionCredentials,
-    fingerprint: &str,
-) -> String {
+pub fn create_sdp_receive_answer(sdp: &SDP, credentials: &SessionCredentials) -> String {
     let SDP {
         group,
         audio_media,
@@ -118,9 +117,13 @@ pub fn create_sdp_receive_answer(
         ..
     } = &credentials;
 
+    let config = GLOBAL_CONFIG.get().unwrap();
+    let udp_address = config.udp_server_config.address.ip().to_string();
+    let udp_port = config.udp_server_config.address.port();
+
     let session_description = format!(
         "v=0\r\n\
-        o=sigma 2616320411 0 IN IP4 {HOST_ADDRESS}\r\n\
+        o=sigma 2616320411 0 IN IP4 {address}\r\n\
         s=-\r\n\
         t=0 0\r\n\
         a=group:{group}\r\n\
@@ -129,68 +132,76 @@ pub fn create_sdp_receive_answer(
         a=ice-pwd:{host_password}\r\n\
         a=ice-options:ice2\r\n\
         a=ice-lite\r\n\
-        a=fingerprint:sha-256 {fingerprint}\r\n"
+        a=fingerprint:sha-256 {fingerprint}\r\n",
+        address = udp_address,
+        fingerprint = config.ssl_config.fingerprint
     );
 
     let audio_media_description = format!(
-        "m=audio 52000 UDP/TLS/RTP/SAVPF {payload_number}\r\n\
-        c=IN IP4 {HOST_ADDRESS}\r\n\
+        "m=audio {port} UDP/TLS/RTP/SAVPF {payload_number}\r\n\
+        c=IN IP4 {address}\r\n\
         a=recvonly\r\n\
         a=rtcp-mux\r\n\
-        a=candidate:1 1 UDP 2122317823 {HOST_ADDRESS} 52000 typ host\r\n\
+        a=candidate:1 1 UDP 2122317823 {address} {port} typ host\r\n\
         a=end-of-candidates\r\n\
         a=mid=0\r\n\
         a=rtmpmap:{payload_number} opus/48000/2\r\n\
         {profile_id}",
         payload_number = audio_media.payload_number,
+        address = udp_address,
+        port = udp_port,
         profile_id = audio_media.profile_level_id
     );
 
     let video_media_description = format!(
-        "m=video 52000 UDP/TLS/RTP/SAVPF {payload_number}\r\n\
-        c=IN IP4 {HOST_ADDRESS}\r\n\
+        "m=video {port} UDP/TLS/RTP/SAVPF {payload_number}\r\n\
+        c=IN IP4 {address}\r\n\
         a=recvonly\r\n\
         a=rtcp-mux\r\n\
-        a=candidate:1 1 UDP 2122317823 {HOST_ADDRESS} 52000 typ host\r\n\
+        a=candidate:1 1 UDP 2122317823 {address} {port} typ host\r\n\
         a=end-of-candidates\r\n\
         a=mid:1\r\n\
         a=rtpmap:{payload_number} h264/90000\r\n",
         payload_number = video_media.payload_number,
-        HOST_ADDRESS = HOST_ADDRESS
+        port = udp_port,
+        address = udp_address
     );
 
     session_description + &audio_media_description + &video_media_description
 }
 
-pub fn create_streaming_sdp_answer(
-    streamer_sdp: &SDP,
-    fingerprint: &str,
-) -> Option<(String, SessionCredentials)> {
+pub fn create_streaming_sdp_answer(streamer_sdp: &SDP) -> Option<(String, SessionCredentials)> {
     let host_username = get_random_string(4);
     let host_password = get_random_string(24);
 
+    let config = GLOBAL_CONFIG.get().unwrap();
+    let udp_address = config.udp_server_config.address.ip().to_string();
+    let udp_port = config.udp_server_config.address.port();
+
     let session_description = format!(
         "v=0\r\n\
-        o=sigma 2616320411 0 IN IP4 {HOST_ADDRESS}\r\n\
+        o=sigma 2616320411 0 IN IP4 {address}\r\n\
         s=-\r\n\
         t=0 0\r\n\
         a=group:BUNDLE 0 1\r\n\
-a=group:LS 0 1\r\n\
+        a=group:LS 0 1\r\n\
         a=setup:passive\r\n\
         a=msid-semantic:WMS *\r\n\
         a=ice-ufrag:{host_username}\r\n\
         a=ice-pwd:{host_password}\r\n\
         a=ice-options:ice2\r\n\
         a=ice-lite\r\n\
-        a=fingerprint:sha-256 {fingerprint}\r\n"
+        a=fingerprint:sha-256 {fingerprint}\r\n",
+        address = udp_address,
+        fingerprint = config.ssl_config.fingerprint
     );
 
     let audio_media_description = format!(
-        "m=audio 52000 UDP/TLS/RTP/SAVPF {payload_number}\r\n\
-        c=IN IP4 {HOST_ADDRESS}\r\n\
+        "m=audio {port} UDP/TLS/RTP/SAVPF {payload_number}\r\n\
+        c=IN IP4 {address}\r\n\
         a=sendonly\r\n\
         a=rtcp-mux\r\n\
-        a=candidate:1 1 UDP 2122317823 {HOST_ADDRESS} 52000 typ host\r\n\
+        a=candidate:1 1 UDP 2122317823 {address} {port} typ host\r\n\
         a=end-of-candidates\r\n\
         a=mid:0\r\n\
         {ssrc}\r\n\
@@ -198,12 +209,14 @@ a=group:LS 0 1\r\n\
         a=rtpmap:{payload_number} opus/48000/2\r\n",
         payload_number = streamer_sdp.audio_media.payload_number,
         ssrc = streamer_sdp.audio_media.ssrc_attributes.join("\r\n"),
+        address = udp_address,
+        port = udp_port,
         profile_id = streamer_sdp.audio_media.profile_level_id
     );
 
     let video_media_description = format!(
-        "m=video 52000 UDP/TLS/RTP/SAVPF {payload_number}\r\n\
-        c=IN IP4 {HOST_ADDRESS}\r\n\
+        "m=video {port} UDP/TLS/RTP/SAVPF {payload_number}\r\n\
+        c=IN IP4 {address}\r\n\
         a=sendonly\r\n\
         a=rtcp-mux\r\n\
         a=mid:1\r\n\
@@ -211,6 +224,8 @@ a=group:LS 0 1\r\n\
         {ssrc}\r\n\
         {profile_level_id}\r\n",
         payload_number = streamer_sdp.video_media.payload_number,
+        address = udp_address,
+        port = udp_port,
         profile_level_id = streamer_sdp.video_media.profile_level_id,
         ssrc = streamer_sdp.video_media.ssrc_attributes.join("\r\n")
     );
@@ -240,14 +255,12 @@ pub struct VideoMedia {
     ssrc_attributes: Vec<String>,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct AudioMedia {
     profile_level_id: String,
     payload_number: usize,
     ssrc_attributes: Vec<String>,
 }
-
 
 const ICE_USERNAME_ATTRIBUTE_PREFIX: &str = "a=ice-ufrag:";
 const ICE_PASSWORD_ATTRIBUTE_PREFIX: &str = "a=ice-pwd:";

@@ -1,4 +1,4 @@
-use crate::{GLOBAL_CONFIG, WHIP_TOKEN};
+use crate::GLOBAL_CONFIG;
 use crate::http::{HttpError, HTTPMethod, Request, Response, SessionCommand};
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
@@ -23,7 +23,7 @@ async fn post_handle(request: Request) -> Result<Response, HttpError> {
         .get("authorization")
         .ok_or(HttpError::Unauthorized)?;
 
-    if !bearer_token.eq(&format!("Bearer {}", WHIP_TOKEN)) {
+    if !bearer_token.eq(&format!("Bearer {}", config.tcp_server_config.whip_token)) {
         return Err(HttpError::Unauthorized);
     }
 
@@ -38,8 +38,7 @@ async fn post_handle(request: Request) -> Result<Response, HttpError> {
         host_username,
         host_password,
     };
-    let answer =
-        create_sdp_receive_answer(&sdp, &session_credentials, &config.ssl_config.fingerprint);
+    let answer = create_sdp_receive_answer(&sdp, &session_credentials);
     let session = Session::new_streamer(session_credentials, sdp);
 
     config
