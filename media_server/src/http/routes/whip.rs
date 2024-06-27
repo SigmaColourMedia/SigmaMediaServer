@@ -42,7 +42,7 @@ async fn post_handle(request: Request) -> Result<Response, HttpError> {
     let session = Session::new_streamer(session_credentials, sdp);
 
     config
-        .session_command_channel
+        .session_command_sender
         .send(SessionCommand::AddStreamer(session))
         .await
         .or(Err(HttpError::InternalServerError))?;

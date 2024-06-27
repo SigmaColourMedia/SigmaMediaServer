@@ -27,7 +27,7 @@ async fn register_viewer(request: Request) -> Result<Response, HttpError> {
     let config = get_global_config();
 
     config
-        .session_command_channel
+        .session_command_sender
         .send(SessionCommand::GetStreamSDP((tx, target_id.clone())))
         .await
         .unwrap();
@@ -49,7 +49,7 @@ async fn register_viewer(request: Request) -> Result<Response, HttpError> {
         .build();
 
     config
-        .session_command_channel
+        .session_command_sender
         .send(SessionCommand::AddViewer(viewer_session))
         .await
         .unwrap();

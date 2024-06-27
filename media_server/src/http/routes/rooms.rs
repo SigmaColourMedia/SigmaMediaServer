@@ -19,7 +19,7 @@ async fn get_handle(request: Request) -> Result<Response, HttpError> {
     let config = get_global_config();
 
     config
-        .session_command_channel
+        .session_command_sender
         .send(SessionCommand::GetRooms(tx))
         .await
         .unwrap();

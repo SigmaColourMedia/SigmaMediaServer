@@ -1,13 +1,15 @@
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 
+use futures::channel::mpsc::Receiver;
 use tokio::sync::mpsc::Sender;
 
 use crate::acceptor::SSLConfig;
 use crate::http::SessionCommand;
 
 pub struct Config {
-    pub session_command_channel: Sender<SessionCommand>,
+    pub session_command_sender: Sender<SessionCommand>,
+    pub session_command_receiver: Receiver<SessionCommand>,
     pub ssl_config: SSLConfig,
     pub tcp_server_config: TCPServerConfig,
     pub udp_server_config: UDPServerConfig,
@@ -54,11 +56,13 @@ impl Config {
         let whip_token = std::env::var(WHIP_TOKEN_ENV)
             .expect(&format!("{WHIP_TOKEN_ENV} env variable should be present"));
 
-        let session_command_channel = tokio::sync::mpsc::channel::<SessionCommand>(1000);
+        let (session_command_sender, session_command_receiver) =
+            tokio::sync::mpsc::channel::<SessionCommand>(1000);
 
         Config {
             ssl_config,
-            session_command_channel,
+            session_command_sender,
+            session_command_receiver,
             udp_server_config: UDPServerConfig {
                 address: udp_address,
             },
