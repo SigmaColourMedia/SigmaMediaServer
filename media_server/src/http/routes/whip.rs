@@ -1,28 +1,23 @@
-use tokio::sync::mpsc::Sender;
-
+use crate::{GLOBAL_CONFIG, WHIP_TOKEN};
 use crate::http::{HttpError, HTTPMethod, Request, Response, SessionCommand};
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
-use crate::http::server_builder::Context;
 use crate::ice_registry::{Session, SessionCredentials};
 use crate::rnd::get_random_string;
 use crate::sdp::{create_sdp_receive_answer, parse_sdp};
-use crate::WHIP_TOKEN;
 
-pub async fn whip_route(request: Request, ctx: Context) -> Response {
+pub async fn whip_route(request: Request) -> Response {
     match &request.method {
-        HTTPMethod::POST => post_handle(request, &ctx.fingerprint, &ctx.sender)
+        HTTPMethod::POST => post_handle(request)
             .await
             .unwrap_or_else(map_http_err_to_response),
         _ => map_http_err_to_response(HttpError::MethodNotAllowed),
     }
 }
 
-async fn post_handle(
-    request: Request,
-    fingerprint: &str,
-    sender: &Sender<SessionCommand>,
-) -> Result<Response, HttpError> {
+async fn post_handle(request: Request) -> Result<Response, HttpError> {
+    let config = GLOBAL_CONFIG.get().unwrap();
+
     let bearer_token = request
         .headers
         .get("authorization")
@@ -43,10 +38,12 @@ async fn post_handle(
         host_username,
         host_password,
     };
-    let answer = create_sdp_receive_answer(&sdp, &session_credentials, fingerprint);
+    let answer =
+        create_sdp_receive_answer(&sdp, &session_credentials, &config.ssl_config.fingerprint);
     let session = Session::new_streamer(session_credentials, sdp);
 
-    sender
+    config
+        .session_command_sender
         .send(SessionCommand::AddStreamer(session))
         .await
         .or(Err(HttpError::InternalServerError))?;

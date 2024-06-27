@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::io::ErrorKind;
 use std::net::UdpSocket;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::thread;
 use std::time::Duration;
 
@@ -10,6 +10,7 @@ use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc::error::TryRecvError;
 
 use crate::acceptor::SSLConfig;
+use crate::config::Config;
 use crate::http::routes::rooms::rooms_route;
 use crate::http::routes::whep::whep_route;
 use crate::http::routes::whip::whip_route;
@@ -20,6 +21,7 @@ use crate::server::Server;
 
 mod acceptor;
 mod client;
+mod config;
 mod http;
 mod http_legacy;
 mod http_server;
@@ -29,10 +31,15 @@ mod sdp;
 mod server;
 mod stun;
 
+pub static GLOBAL_CONFIG: OnceLock<Config> = OnceLock::new();
+
 #[tokio::main]
 async fn main() {
     let config = SSLConfig::new();
     let (tx, mut rx) = tokio::sync::mpsc::channel::<SessionCommand>(1000);
+
+    let my_config = Config::initialize(tx.clone());
+    GLOBAL_CONFIG.set(my_config);
 
     thread::spawn(move || {
         let socket = UdpSocket::bind(format!("{HOST_ADDRESS}:52000")).unwrap();
@@ -105,11 +112,9 @@ async fn main() {
         }
     });
     let mut server_builder = ServerBuilder::new();
-    server_builder.add_sender(tx);
-    server_builder.add_fingerprint(config.fingerprint);
-    server_builder.add_handler("/whip", |req, ctx| Box::pin(whip_route(req, ctx)));
-    server_builder.add_handler("/rooms", |req, ctx| Box::pin(rooms_route(req, ctx)));
-    server_builder.add_handler("/whep", |req, ctx| Box::pin(whep_route(req, ctx)));
+    server_builder.add_handler("/whip", |req| Box::pin(whip_route(req)));
+    server_builder.add_handler("/rooms", |req| Box::pin(rooms_route(req)));
+    server_builder.add_handler("/whep", |req| Box::pin(whep_route(req)));
 
     let server = Arc::new(server_builder.build().await);
 
@@ -127,6 +132,5 @@ pub const HOST_ADDRESS: &'static str = env!("HOST_ADDRESS");
 pub const WHIP_TOKEN: &'static str = env!("WHIP_TOKEN");
 pub const CERT_PATH: &'static str = "../certs/cert.pem";
 pub const CERT_KEY_PATH: &'static str = "../certs/key.pem";
-pub const HTML_PATH: &'static str = "../public/index.html";
-pub const BUNDLE_PATH: &'static str = "../public/index.js";
+
 pub const DISCORD_API_URL: &'static str = env!("DISCORD_API_URL");
