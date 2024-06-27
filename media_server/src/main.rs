@@ -30,7 +30,7 @@ mod sdp;
 mod server;
 mod stun;
 
-pub static GLOBAL_CONFIG: OnceLock<Config> = OnceLock::new();
+static GLOBAL_CONFIG: OnceLock<Config> = OnceLock::new();
 
 pub fn get_global_config() -> &'static Config {
     GLOBAL_CONFIG.get_or_init(|| Config::initialize())
