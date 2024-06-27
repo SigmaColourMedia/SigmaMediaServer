@@ -1,9 +1,9 @@
 use std::future::IntoFuture;
 
-use crate::GLOBAL_CONFIG;
-use crate::http::{HttpError, HTTPMethod, Request, Response, SessionCommand};
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
+use crate::http::{HTTPMethod, HttpError, Request, Response, SessionCommand};
+use crate::{get_global_config, GLOBAL_CONFIG};
 
 pub async fn rooms_route(request: Request) -> Response {
     match &request.method {
@@ -16,10 +16,10 @@ pub async fn rooms_route(request: Request) -> Response {
 
 async fn get_handle(request: Request) -> Result<Response, HttpError> {
     let (tx, mut rx) = tokio::sync::oneshot::channel::<Vec<String>>();
-    let config = GLOBAL_CONFIG.get().unwrap();
+    let config = get_global_config();
 
     config
-        .session_command_sender
+        .session_command_channel
         .send(SessionCommand::GetRooms(tx))
         .await
         .unwrap();

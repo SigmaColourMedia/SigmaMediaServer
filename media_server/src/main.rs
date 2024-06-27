@@ -32,14 +32,13 @@ mod stun;
 
 pub static GLOBAL_CONFIG: OnceLock<Config> = OnceLock::new();
 
+pub fn get_global_config() -> &'static Config {
+    GLOBAL_CONFIG.get_or_init(|| Config::initialize())
+}
+
 #[tokio::main]
 async fn main() {
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<SessionCommand>(1000);
-
-    let my_config = Config::initialize(tx.clone());
-    GLOBAL_CONFIG.set(my_config);
-
-    let global_config = GLOBAL_CONFIG.get().unwrap();
+    let global_config = get_global_config();
 
     thread::spawn(move || {
         let socket = UdpSocket::bind(global_config.udp_server_config.address).unwrap();

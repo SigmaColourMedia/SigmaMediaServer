@@ -1,11 +1,11 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::GLOBAL_CONFIG;
 use crate::http::parsers::parse_http;
-use crate::http::Request;
 use crate::http::response_builder::ResponseBuilder;
 use crate::http::server_builder::RouteHandlers;
+use crate::http::Request;
+use crate::{get_global_config, GLOBAL_CONFIG};
 
 pub struct HttpServer {
     route_handlers: RouteHandlers,
@@ -14,7 +14,7 @@ pub struct HttpServer {
 
 impl HttpServer {
     pub async fn new(route_handlers: RouteHandlers) -> Self {
-        let address = GLOBAL_CONFIG.get().unwrap().tcp_server_config.address;
+        let address = get_global_config();
         let listener = TcpListener::bind(address).await.unwrap();
         println!("Running TCP server at {}", address);
 

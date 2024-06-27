@@ -1,11 +1,11 @@
 use futures::TryFutureExt;
 
-use crate::GLOBAL_CONFIG;
-use crate::http::{HttpError, HTTPMethod, Request, Response, SessionCommand};
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
+use crate::http::{HTTPMethod, HttpError, Request, Response, SessionCommand};
 use crate::ice_registry::Session;
 use crate::sdp::{create_streaming_sdp_answer, SDP};
+use crate::{get_global_config, GLOBAL_CONFIG};
 
 pub async fn whep_route(request: Request) -> Response {
     match &request.method {
@@ -24,10 +24,10 @@ async fn register_viewer(request: Request) -> Result<Response, HttpError> {
 
     let (tx, rx) = tokio::sync::oneshot::channel::<Option<SDP>>();
 
-    let config = GLOBAL_CONFIG.get().unwrap();
+    let config = get_global_config();
 
     config
-        .session_command_sender
+        .session_command_channel
         .send(SessionCommand::GetStreamSDP((tx, target_id.clone())))
         .await
         .unwrap();
@@ -49,7 +49,7 @@ async fn register_viewer(request: Request) -> Result<Response, HttpError> {
         .build();
 
     config
-        .session_command_sender
+        .session_command_channel
         .send(SessionCommand::AddViewer(viewer_session))
         .await
         .unwrap();

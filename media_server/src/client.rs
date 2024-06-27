@@ -1,15 +1,15 @@
-use std::{fmt, io, mem};
 use std::collections::VecDeque;
 use std::io::{Error, ErrorKind, Read, Write};
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
+use std::{fmt, io, mem};
 
 use openssl::error::ErrorStack;
 use openssl::ssl::{HandshakeError, MidHandshakeSslStream, SslStream};
 use srtp::openssl::{InboundSession, OutboundSession};
 
 use crate::client::ClientError::{IncompletePacketRead, OpenSslError};
-use crate::GLOBAL_CONFIG;
+use crate::{get_global_config, GLOBAL_CONFIG};
 
 #[derive(Debug)]
 pub enum ClientSslState {
@@ -34,7 +34,7 @@ pub struct Client {
 impl Client {
     pub fn new(remote: SocketAddr, socket: Arc<UdpSocket>) -> Result<Self, ErrorStack> {
         let udp_stream = UDPPeerStream::new(socket, remote.clone());
-        let config = GLOBAL_CONFIG.get().unwrap();
+        let config = get_global_config();
         match config.ssl_config.acceptor.accept(udp_stream) {
             Ok(_) => unreachable!("handshake cannot finish with no incoming packets"),
             Err(HandshakeError::SetupFailure(err)) => return Err(err),

@@ -1,10 +1,10 @@
-use crate::GLOBAL_CONFIG;
-use crate::http::{HttpError, HTTPMethod, Request, Response, SessionCommand};
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
+use crate::http::{HTTPMethod, HttpError, Request, Response, SessionCommand};
 use crate::ice_registry::{Session, SessionCredentials};
 use crate::rnd::get_random_string;
 use crate::sdp::{create_sdp_receive_answer, parse_sdp};
+use crate::{get_global_config, GLOBAL_CONFIG};
 
 pub async fn whip_route(request: Request) -> Response {
     match &request.method {
@@ -16,7 +16,7 @@ pub async fn whip_route(request: Request) -> Response {
 }
 
 async fn post_handle(request: Request) -> Result<Response, HttpError> {
-    let config = GLOBAL_CONFIG.get().unwrap();
+    let config = get_global_config();
 
     let bearer_token = request
         .headers
@@ -42,7 +42,7 @@ async fn post_handle(request: Request) -> Result<Response, HttpError> {
     let session = Session::new_streamer(session_credentials, sdp);
 
     config
-        .session_command_sender
+        .session_command_channel
         .send(SessionCommand::AddStreamer(session))
         .await
         .or(Err(HttpError::InternalServerError))?;
