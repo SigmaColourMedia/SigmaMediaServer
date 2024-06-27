@@ -1,6 +1,6 @@
+use crate::get_global_config;
 use crate::ice_registry::SessionCredentials;
 use crate::rnd::get_random_string;
-use crate::{get_global_config, GLOBAL_CONFIG};
 
 pub fn parse_sdp(data: String) -> Option<SDP> {
     let lines = data.lines();

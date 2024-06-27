@@ -9,7 +9,7 @@ use openssl::ssl::{HandshakeError, MidHandshakeSslStream, SslStream};
 use srtp::openssl::{InboundSession, OutboundSession};
 
 use crate::client::ClientError::{IncompletePacketRead, OpenSslError};
-use crate::{get_global_config, GLOBAL_CONFIG};
+use crate::get_global_config;
 
 #[derive(Debug)]
 pub enum ClientSslState {

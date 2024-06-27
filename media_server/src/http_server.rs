@@ -1,11 +1,11 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
+use crate::get_global_config;
 use crate::http::parsers::parse_http;
 use crate::http::response_builder::ResponseBuilder;
 use crate::http::server_builder::RouteHandlers;
 use crate::http::Request;
-use crate::{get_global_config, GLOBAL_CONFIG};
 
 pub struct HttpServer {
     route_handlers: RouteHandlers,

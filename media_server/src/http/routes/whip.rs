@@ -1,10 +1,10 @@
+use crate::get_global_config;
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
 use crate::http::{HTTPMethod, HttpError, Request, Response, SessionCommand};
 use crate::ice_registry::{Session, SessionCredentials};
 use crate::rnd::get_random_string;
 use crate::sdp::{create_sdp_receive_answer, parse_sdp};
-use crate::{get_global_config, GLOBAL_CONFIG};
 
 pub async fn whip_route(request: Request) -> Response {
     match &request.method {

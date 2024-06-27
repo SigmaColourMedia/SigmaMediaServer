@@ -59,53 +59,55 @@ async fn main() {
                 }
                 Err(err) => match err.kind() {
                     // Check for commands
-                    ErrorKind::WouldBlock => match rx.try_recv() {
-                        Ok(command) => match command {
-                            SessionCommand::AddStreamer(session) => {
-                                server.session_registry.add_streamer(session);
-                            }
-                            SessionCommand::AddViewer(session) => {
-                                server.session_registry.add_viewer(session).unwrap();
-                            }
-                            SessionCommand::GetRooms(sender) => {
-                                let rooms = server.session_registry.get_rooms();
-                                sender.send(rooms).unwrap()
-                            }
-                            SessionCommand::GetStreamSDP((sender, stream_id)) => {
-                                let stream_sdp = server
-                                    .session_registry
-                                    .get_session(&stream_id)
-                                    .and_then(|session| match &session.connection_type {
-                                        ConnectionType::Viewer(_) => None,
-                                        ConnectionType::Streamer(streamer) => {
-                                            Some(streamer.sdp.clone())
-                                        }
-                                    });
-                                sender.send(stream_sdp).unwrap()
-                            }
-                        },
-                        Err(channel_err) => match channel_err {
-                            // Check for session timeouts
-                            TryRecvError::Empty => {
-                                let sessions: Vec<_> = server
-                                    .session_registry
-                                    .get_all_sessions()
-                                    .iter()
-                                    .map(|&session| (session.id.clone(), session.ttl))
-                                    .collect();
+                    ErrorKind::WouldBlock => {
+                        match global_config.session_command_receiver.try_recv() {
+                            Ok(command) => match command {
+                                SessionCommand::AddStreamer(session) => {
+                                    server.session_registry.add_streamer(session);
+                                }
+                                SessionCommand::AddViewer(session) => {
+                                    server.session_registry.add_viewer(session).unwrap();
+                                }
+                                SessionCommand::GetRooms(sender) => {
+                                    let rooms = server.session_registry.get_rooms();
+                                    sender.send(rooms).unwrap()
+                                }
+                                SessionCommand::GetStreamSDP((sender, stream_id)) => {
+                                    let stream_sdp = server
+                                        .session_registry
+                                        .get_session(&stream_id)
+                                        .and_then(|session| match &session.connection_type {
+                                            ConnectionType::Viewer(_) => None,
+                                            ConnectionType::Streamer(streamer) => {
+                                                Some(streamer.sdp.clone())
+                                            }
+                                        });
+                                    sender.send(stream_sdp).unwrap()
+                                }
+                            },
+                            Err(channel_err) => match channel_err {
+                                // Check for session timeouts
+                                TryRecvError::Empty => {
+                                    let sessions: Vec<_> = server
+                                        .session_registry
+                                        .get_all_sessions()
+                                        .iter()
+                                        .map(|&session| (session.id.clone(), session.ttl))
+                                        .collect();
 
-                                // println!("sessions count {}", sessions.len());
-                                for (id, ttl) in sessions {
-                                    if ttl.elapsed() > Duration::from_secs(5) {
-                                        server.session_registry.remove_session(&id);
+                                    // println!("sessions count {}", sessions.len());
+                                    for (id, ttl) in sessions {
+                                        if ttl.elapsed() > Duration::from_secs(5) {
+                                            server.session_registry.remove_session(&id);
+                                        }
                                     }
                                 }
-                            }
-                            TryRecvError::Disconnected => {
-                                panic!("Command channel unexpectedly closed.")
-                            }
-                        },
-                    },
+                                TryRecvError::Disconnected => {
+                                    panic!("Command channel unexpectedly closed.")
+                                }
+                            },
+                        }
+                    }
                     _ => {
                         eprintln!("Encountered socket IO error {}", err)
                     }

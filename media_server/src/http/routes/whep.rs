@@ -1,11 +1,11 @@
 use futures::TryFutureExt;
 
+use crate::get_global_config;
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
 use crate::http::{HTTPMethod, HttpError, Request, Response, SessionCommand};
 use crate::ice_registry::Session;
 use crate::sdp::{create_streaming_sdp_answer, SDP};
-use crate::{get_global_config, GLOBAL_CONFIG};
 
 pub async fn whep_route(request: Request) -> Response {
     match &request.method {
