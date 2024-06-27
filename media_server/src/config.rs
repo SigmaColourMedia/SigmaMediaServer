@@ -1,8 +1,8 @@
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
+use std::sync::OnceLock;
 
-use futures::channel::mpsc::Receiver;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::acceptor::SSLConfig;
 use crate::http::SessionCommand;
@@ -72,6 +72,12 @@ impl Config {
             },
         }
     }
+}
+
+static GLOBAL_CONFIG: OnceLock<Config> = OnceLock::new();
+
+pub fn get_global_config() -> &'static Config {
+    GLOBAL_CONFIG.get_or_init(|| Config::initialize())
 }
 
 pub struct TCPServerConfig {

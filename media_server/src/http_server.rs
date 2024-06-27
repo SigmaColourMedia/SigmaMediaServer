@@ -14,9 +14,11 @@ pub struct HttpServer {
 
 impl HttpServer {
     pub async fn new(route_handlers: RouteHandlers) -> Self {
-        let address = get_global_config();
-        let listener = TcpListener::bind(address).await.unwrap();
-        println!("Running TCP server at {}", address);
+        let config = get_global_config();
+        let listener = TcpListener::bind(config.tcp_server_config.address)
+            .await
+            .unwrap();
+        println!("Running TCP server at {}", config.tcp_server_config.address);
 
         HttpServer {
             route_handlers,

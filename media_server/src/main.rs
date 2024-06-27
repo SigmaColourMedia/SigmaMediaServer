@@ -5,6 +5,7 @@ use std::sync::{Arc, OnceLock};
 use std::thread;
 use std::time::Duration;
 
+use config::get_global_config;
 use openssl::stack::Stackable;
 use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc::error::TryRecvError;
@@ -29,12 +30,6 @@ mod rnd;
 mod sdp;
 mod server;
 mod stun;
-
-static GLOBAL_CONFIG: OnceLock<Config> = OnceLock::new();
-
-pub fn get_global_config() -> &'static Config {
-    GLOBAL_CONFIG.get_or_init(|| Config::initialize())
-}
 
 #[tokio::main]
 async fn main() {
