@@ -69,8 +69,8 @@ impl Display for HttpError {
 pub enum SessionCommand {
     AddStreamer(Session),
     AddViewer(Session),
-    GetStreamSDP((tokio::sync::oneshot::Sender<Option<SDP>>, String)),
-    GetRooms(tokio::sync::oneshot::Sender<Vec<String>>),
+    GetStreamSDP((std::sync::mpsc::Sender<Option<SDP>>, String)),
+    GetRooms(std::sync::mpsc::Sender<Vec<String>>),
 }
 
 pub struct Response {

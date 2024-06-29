@@ -1,7 +1,6 @@
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
-
-use tokio::sync::mpsc::Sender;
+use std::sync::mpsc::Sender;
 
 use crate::acceptor::SSLConfig;
 use crate::GLOBAL_CONFIG;

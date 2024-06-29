@@ -1,8 +1,7 @@
 use std::io::{ErrorKind, Write};
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
-
-use tokio::time::Instant;
+use std::time::Instant;
 
 use crate::client::{Client, ClientSslState};
 use crate::ice_registry::{ConnectionType, SessionRegistry};

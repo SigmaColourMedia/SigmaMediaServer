@@ -6,16 +6,13 @@ use crate::ice_registry::{Session, SessionCredentials};
 use crate::rnd::get_random_string;
 use crate::sdp::{create_sdp_receive_answer, parse_sdp};
 
-pub async fn whip_route(request: Request) -> Response {
+pub fn whip_route(request: Request) -> Response {
     match &request.method {
-        HTTPMethod::POST => post_handle(request)
-            .await
-            .unwrap_or_else(map_http_err_to_response),
+        HTTPMethod::POST => post_handle(request).unwrap_or_else(map_http_err_to_response),
         _ => map_http_err_to_response(HttpError::MethodNotAllowed),
     }
 }
-
-async fn post_handle(request: Request) -> Result<Response, HttpError> {
+fn post_handle(request: Request) -> Result<Response, HttpError> {
     let config = get_global_config();
 
     let bearer_token = request
@@ -44,7 +41,6 @@ async fn post_handle(request: Request) -> Result<Response, HttpError> {
     config
         .session_command_sender
         .send(SessionCommand::AddStreamer(session))
-        .await
         .or(Err(HttpError::InternalServerError))?;
 
     Ok(ResponseBuilder::new()

@@ -2,12 +2,11 @@ use std::future::Future;
 use std::io::ErrorKind;
 use std::net::UdpSocket;
 use std::sync::{Arc, OnceLock};
+use std::sync::mpsc::TryRecvError;
 use std::thread;
 use std::time::Duration;
 
 use openssl::stack::Stackable;
-use tokio::io::AsyncReadExt;
-use tokio::sync::mpsc::error::TryRecvError;
 
 use crate::config::{Config, get_global_config};
 use crate::http::routes::rooms::rooms_route;
@@ -32,9 +31,8 @@ mod stun;
 
 pub static GLOBAL_CONFIG: OnceLock<Config> = OnceLock::new();
 
-#[tokio::main]
-async fn main() {
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<SessionCommand>(1000);
+fn main() {
+    let (tx, mut rx) = std::sync::mpsc::channel::<SessionCommand>();
 
     let config = Config::initialize(tx.clone());
     GLOBAL_CONFIG.set(config);
@@ -114,17 +112,17 @@ async fn main() {
         }
     });
     let mut server_builder = ServerBuilder::new();
-    server_builder.add_handler("/whip", |req| Box::pin(whip_route(req)));
-    server_builder.add_handler("/rooms", |req| Box::pin(rooms_route(req)));
-    server_builder.add_handler("/whep", |req| Box::pin(whep_route(req)));
+    server_builder.add_handler("/whip", |req| whip_route(req));
+    server_builder.add_handler("/rooms", |req| rooms_route(req));
+    server_builder.add_handler("/whep", |req| whep_route(req));
 
-    let server = Arc::new(server_builder.build().await);
+    let server = Arc::new(server_builder.build());
 
     loop {
         let server = server.clone();
-        if let Ok(stream) = server.read_stream().await {
-            tokio::spawn(async move {
-                server.handle_stream(stream).await;
+        if let Ok(stream) = server.read_stream() {
+            std::thread::spawn(move || {
+                server.handle_stream(stream);
             });
         }
     }
