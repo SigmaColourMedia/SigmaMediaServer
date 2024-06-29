@@ -9,7 +9,7 @@ use openssl::ssl::{HandshakeError, MidHandshakeSslStream, SslStream};
 use srtp::openssl::{InboundSession, OutboundSession};
 
 use crate::client::ClientError::{IncompletePacketRead, OpenSslError};
-use crate::GLOBAL_CONFIG;
+use crate::config::get_global_config;
 
 #[derive(Debug)]
 pub enum ClientSslState {
@@ -34,7 +34,7 @@ pub struct Client {
 impl Client {
     pub fn new(remote: SocketAddr, socket: Arc<UdpSocket>) -> Result<Self, ErrorStack> {
         let udp_stream = UDPPeerStream::new(socket, remote.clone());
-        let config = GLOBAL_CONFIG.get().unwrap();
+        let config = get_global_config();
         match config.ssl_config.acceptor.accept(udp_stream) {
             Ok(_) => unreachable!("handshake cannot finish with no incoming packets"),
             Err(HandshakeError::SetupFailure(err)) => return Err(err),

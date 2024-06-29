@@ -1,6 +1,6 @@
 use futures::TryFutureExt;
 
-use crate::GLOBAL_CONFIG;
+use crate::config::get_global_config;
 use crate::http::{HttpError, HTTPMethod, Request, Response, SessionCommand};
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
@@ -24,7 +24,7 @@ async fn register_viewer(request: Request) -> Result<Response, HttpError> {
 
     let (tx, rx) = tokio::sync::oneshot::channel::<Option<SDP>>();
 
-    let config = GLOBAL_CONFIG.get().unwrap();
+    let config = get_global_config();
 
     config
         .session_command_sender

@@ -1,4 +1,4 @@
-use crate::GLOBAL_CONFIG;
+use crate::config::get_global_config;
 use crate::http::{HttpError, HTTPMethod, Request, Response, SessionCommand};
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
@@ -16,7 +16,7 @@ pub async fn whip_route(request: Request) -> Response {
 }
 
 async fn post_handle(request: Request) -> Result<Response, HttpError> {
-    let config = GLOBAL_CONFIG.get().unwrap();
+    let config = get_global_config();
 
     let bearer_token = request
         .headers

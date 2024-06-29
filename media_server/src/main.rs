@@ -9,7 +9,7 @@ use openssl::stack::Stackable;
 use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc::error::TryRecvError;
 
-use crate::config::Config;
+use crate::config::{Config, get_global_config};
 use crate::http::routes::rooms::rooms_route;
 use crate::http::routes::whep::whep_route;
 use crate::http::routes::whip::whip_route;
@@ -36,10 +36,9 @@ pub static GLOBAL_CONFIG: OnceLock<Config> = OnceLock::new();
 async fn main() {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<SessionCommand>(1000);
 
-    let my_config = Config::initialize(tx.clone());
-    GLOBAL_CONFIG.set(my_config);
-
-    let global_config = GLOBAL_CONFIG.get().unwrap();
+    let config = Config::initialize(tx.clone());
+    GLOBAL_CONFIG.set(config);
+    let global_config = get_global_config();
 
     thread::spawn(move || {
         let socket = UdpSocket::bind(global_config.udp_server_config.address).unwrap();

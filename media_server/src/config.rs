@@ -4,6 +4,7 @@ use std::str::FromStr;
 use tokio::sync::mpsc::Sender;
 
 use crate::acceptor::SSLConfig;
+use crate::GLOBAL_CONFIG;
 use crate::http::SessionCommand;
 
 pub struct Config {
@@ -66,6 +67,10 @@ impl Config {
             },
         }
     }
+}
+
+pub fn get_global_config() -> &'static Config {
+    GLOBAL_CONFIG.get().unwrap()
 }
 
 pub struct TCPServerConfig {

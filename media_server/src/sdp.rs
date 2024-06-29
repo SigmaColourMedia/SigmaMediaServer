@@ -1,4 +1,4 @@
-use crate::GLOBAL_CONFIG;
+use crate::config::get_global_config;
 use crate::ice_registry::SessionCredentials;
 use crate::rnd::get_random_string;
 
@@ -117,7 +117,7 @@ pub fn create_sdp_receive_answer(sdp: &SDP, credentials: &SessionCredentials) ->
         ..
     } = &credentials;
 
-    let config = GLOBAL_CONFIG.get().unwrap();
+    let config = get_global_config();
     let udp_address = config.udp_server_config.address.ip().to_string();
     let udp_port = config.udp_server_config.address.port();
 
@@ -174,7 +174,7 @@ pub fn create_streaming_sdp_answer(streamer_sdp: &SDP) -> Option<(String, Sessio
     let host_username = get_random_string(4);
     let host_password = get_random_string(24);
 
-    let config = GLOBAL_CONFIG.get().unwrap();
+    let config = get_global_config();
     let udp_address = config.udp_server_config.address.ip().to_string();
     let udp_port = config.udp_server_config.address.port();
 
