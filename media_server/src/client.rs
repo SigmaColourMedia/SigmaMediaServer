@@ -2,7 +2,6 @@ use std::{fmt, io, mem};
 use std::collections::VecDeque;
 use std::io::{Error, ErrorKind, Read, Write};
 use std::net::{SocketAddr, UdpSocket};
-use std::sync::Arc;
 
 use openssl::error::ErrorStack;
 use openssl::ssl::{HandshakeError, MidHandshakeSslStream, SslStream};
@@ -32,7 +31,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(remote: SocketAddr, socket: Arc<UdpSocket>) -> Result<Self, ErrorStack> {
+    pub fn new(remote: SocketAddr, socket: UdpSocket) -> Result<Self, ErrorStack> {
         let udp_stream = UDPPeerStream::new(socket, remote.clone());
         let config = get_global_config();
         match config.ssl_config.acceptor.accept(udp_stream) {
@@ -125,13 +124,13 @@ impl std::error::Error for ClientError {}
 
 #[derive(Debug)]
 pub struct UDPPeerStream {
-    socket: Arc<UdpSocket>,
+    socket: UdpSocket,
     remote: SocketAddr,
     incoming_packets: VecDeque<Vec<u8>>,
 }
 
 impl UDPPeerStream {
-    pub fn new(socket: Arc<UdpSocket>, remote: SocketAddr) -> Self {
+    pub fn new(socket: UdpSocket, remote: SocketAddr) -> Self {
         UDPPeerStream {
             incoming_packets: VecDeque::new(),
             socket,
