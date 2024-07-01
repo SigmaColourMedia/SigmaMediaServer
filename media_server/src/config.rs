@@ -4,10 +4,10 @@ use std::sync::mpsc::Sender;
 
 use crate::acceptor::SSLConfig;
 use crate::GLOBAL_CONFIG;
-use crate::http::SessionCommand;
+use crate::http::ServerCommand;
 
 pub struct Config {
-    pub session_command_sender: Sender<SessionCommand>,
+    pub session_command_sender: Sender<ServerCommand>,
     pub ssl_config: SSLConfig,
     pub tcp_server_config: TCPServerConfig,
     pub udp_server_config: UDPServerConfig,
@@ -20,7 +20,7 @@ const UDP_PORT_ENV: &'static str = "UDP_PORT";
 const WHIP_TOKEN_ENV: &'static str = "WHIP_TOKEN";
 
 impl Config {
-    pub fn initialize(sender: Sender<SessionCommand>) -> Self {
+    pub fn initialize(sender: Sender<ServerCommand>) -> Self {
         let ssl_config = SSLConfig::new();
 
         let tcp_ip = IpAddr::from_str(

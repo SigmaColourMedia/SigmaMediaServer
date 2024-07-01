@@ -1,7 +1,7 @@
 use std::future::IntoFuture;
 
 use crate::config::get_global_config;
-use crate::http::{HttpError, HTTPMethod, Request, Response, SessionCommand};
+use crate::http::{HttpError, HTTPMethod, Request, Response, ServerCommand};
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
 
@@ -17,7 +17,7 @@ fn get_handle(request: Request) -> Result<Response, HttpError> {
     let config = get_global_config();
     config
         .session_command_sender
-        .send(SessionCommand::GetRooms(tx))
+        .send(ServerCommand::GetRooms(tx))
         .unwrap();
     let rooms = rx.recv().unwrap();
 

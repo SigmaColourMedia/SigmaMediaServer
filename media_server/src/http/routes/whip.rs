@@ -1,5 +1,5 @@
 use crate::config::get_global_config;
-use crate::http::{HttpError, HTTPMethod, Request, Response, SessionCommand};
+use crate::http::{HttpError, HTTPMethod, Request, Response, ServerCommand};
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
 use crate::ice_registry::{Session, SessionCredentials};
@@ -40,7 +40,7 @@ fn post_handle(request: Request) -> Result<Response, HttpError> {
 
     config
         .session_command_sender
-        .send(SessionCommand::AddStreamer(session))
+        .send(ServerCommand::AddStreamer(session))
         .or(Err(HttpError::InternalServerError))?;
 
     Ok(ResponseBuilder::new()

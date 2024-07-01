@@ -1,5 +1,5 @@
 use crate::config::get_global_config;
-use crate::http::{HttpError, HTTPMethod, Request, Response, SessionCommand};
+use crate::http::{HttpError, HTTPMethod, Request, Response, ServerCommand};
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
 use crate::ice_registry::Session;
@@ -24,7 +24,7 @@ fn register_viewer(request: Request) -> Result<Response, HttpError> {
 
     config
         .session_command_sender
-        .send(SessionCommand::GetStreamSDP((tx, target_id.clone())))
+        .send(ServerCommand::GetStreamSDP((tx, target_id.clone())))
         .unwrap();
 
     let stream_sdp = rx.recv().unwrap().ok_or(HttpError::NotFound)?;
@@ -45,7 +45,7 @@ fn register_viewer(request: Request) -> Result<Response, HttpError> {
 
     config
         .session_command_sender
-        .send(SessionCommand::AddViewer(viewer_session))
+        .send(ServerCommand::AddViewer(viewer_session))
         .unwrap();
 
     Ok(response)

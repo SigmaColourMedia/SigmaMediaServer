@@ -1,9 +1,8 @@
 use std::future::Future;
 use std::net::UdpSocket;
 use std::sync::{Arc, OnceLock};
-use std::sync::mpsc::TryRecvError;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use openssl::stack::Stackable;
 use threadpool::ThreadPool;
@@ -13,7 +12,7 @@ use crate::http::routes::rooms::rooms_route;
 use crate::http::routes::whep::whep_route;
 use crate::http::routes::whip::whip_route;
 use crate::http::server_builder::ServerBuilder;
-use crate::http::SessionCommand;
+use crate::http::ServerCommand;
 use crate::http_server::HttpServer;
 use crate::ice_registry::ConnectionType;
 use crate::server::UDPServer;
@@ -33,80 +32,88 @@ mod stun;
 pub static GLOBAL_CONFIG: OnceLock<Config> = OnceLock::new();
 
 fn main() {
-    let (tx, mut rx) = std::sync::mpsc::channel::<SessionCommand>();
+    let (tx, mut rx) = std::sync::mpsc::channel::<ServerCommand>();
 
     let config = Config::initialize(tx.clone());
     GLOBAL_CONFIG.set(config);
 
     thread::spawn(start_http_server);
     let socket = build_udp_socket();
+
+    let socket_clone = socket.try_clone().unwrap();
+    thread::spawn(move || start_udp_listener(socket_clone));
+
+    thread::spawn(start_session_timeout_counter);
+
     let mut server = UDPServer::new(socket.try_clone().unwrap());
 
-    thread::spawn(move || {
-        let socket = socket.try_clone().unwrap();
-        let sender = &get_global_config().session_command_sender;
-        loop {
-            let mut buffer = [0; 3600];
-
-            if let Ok((bytes_read, remote)) = socket.recv_from(&mut buffer) {
-                sender
-                    .send(SessionCommand::HandlePacket(
-                        Vec::from(&buffer[..bytes_read]),
-                        remote,
-                    ))
-                    .expect("Command channel should be open")
-            }
-        }
-    });
-
     loop {
-        match rx.try_recv() {
-            Ok(command) => match command {
-                SessionCommand::HandlePacket(packet, remote) => {
-                    server.process_packet(&packet, remote)
-                }
-                SessionCommand::AddStreamer(session) => {
-                    server.session_registry.add_streamer(session);
-                }
-                SessionCommand::AddViewer(session) => {
-                    server.session_registry.add_viewer(session).unwrap();
-                }
-                SessionCommand::GetRooms(sender) => {
-                    let rooms = server.session_registry.get_rooms();
-                    sender.send(rooms).unwrap()
-                }
-                SessionCommand::GetStreamSDP((sender, stream_id)) => {
-                    let stream_sdp =
-                        server
-                            .session_registry
-                            .get_session(&stream_id)
-                            .and_then(|session| match &session.connection_type {
-                                ConnectionType::Viewer(_) => None,
-                                ConnectionType::Streamer(streamer) => Some(streamer.sdp.clone()),
-                            });
-                    sender.send(stream_sdp).unwrap()
-                }
-            },
-            Err(channel_err) => match channel_err {
-                // Check for session timeouts
-                TryRecvError::Empty => {
-                    let sessions: Vec<_> = server
+        match rx.recv().expect("Server channel should be open") {
+            ServerCommand::HandlePacket(packet, remote) => server.process_packet(&packet, remote),
+            ServerCommand::AddStreamer(session) => {
+                server.session_registry.add_streamer(session);
+            }
+            ServerCommand::AddViewer(session) => {
+                server.session_registry.add_viewer(session).unwrap();
+            }
+            ServerCommand::GetRooms(sender) => {
+                let rooms = server.session_registry.get_rooms();
+                sender.send(rooms).unwrap()
+            }
+            ServerCommand::GetStreamSDP((sender, stream_id)) => {
+                let stream_sdp =
+                    server
                         .session_registry
-                        .get_all_sessions()
-                        .iter()
-                        .map(|&session| (session.id.clone(), session.ttl))
-                        .collect();
+                        .get_session(&stream_id)
+                        .and_then(|session| match &session.connection_type {
+                            ConnectionType::Viewer(_) => None,
+                            ConnectionType::Streamer(streamer) => Some(streamer.sdp.clone()),
+                        });
+                sender.send(stream_sdp).unwrap()
+            }
+            ServerCommand::CheckForTimeout => {
+                let sessions: Vec<_> = server
+                    .session_registry
+                    .get_all_sessions()
+                    .iter()
+                    .map(|&session| (session.id.clone(), session.ttl))
+                    .collect();
 
-                    for (id, ttl) in sessions {
-                        if ttl.elapsed() > Duration::from_secs(5) {
-                            server.session_registry.remove_session(&id);
-                        }
+                for (id, ttl) in sessions {
+                    if ttl.elapsed() > Duration::from_secs(5) {
+                        server.session_registry.remove_session(&id);
                     }
                 }
-                TryRecvError::Disconnected => {
-                    panic!("Command channel unexpectedly closed.")
-                }
-            },
+            }
+        }
+    }
+}
+
+fn start_session_timeout_counter() {
+    let mut time_reference = Instant::now();
+    let sender = &get_global_config().session_command_sender;
+    loop {
+        if time_reference.elapsed().gt(&Duration::from_secs(3)) {
+            sender
+                .send(ServerCommand::CheckForTimeout)
+                .expect("Server channel should be open");
+            time_reference = Instant::now()
+        }
+    }
+}
+
+fn start_udp_listener(socket: UdpSocket) {
+    let sender = &get_global_config().session_command_sender;
+    loop {
+        let mut buffer = [0; 3600];
+
+        if let Ok((bytes_read, remote)) = socket.recv_from(&mut buffer) {
+            sender
+                .send(ServerCommand::HandlePacket(
+                    Vec::from(&buffer[..bytes_read]),
+                    remote,
+                ))
+                .expect("Command channel should be open")
         }
     }
 }

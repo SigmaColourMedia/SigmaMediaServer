@@ -67,12 +67,13 @@ impl Display for HttpError {
 }
 
 #[derive(Debug)]
-pub enum SessionCommand {
+pub enum ServerCommand {
     AddStreamer(Session),
     AddViewer(Session),
     GetStreamSDP((std::sync::mpsc::Sender<Option<SDP>>, String)),
     GetRooms(std::sync::mpsc::Sender<Vec<String>>),
     HandlePacket(Vec<u8>, SocketAddr),
+    CheckForTimeout,
 }
 
 pub struct Response {
