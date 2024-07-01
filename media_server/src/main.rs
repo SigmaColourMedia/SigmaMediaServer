@@ -7,6 +7,7 @@ use std::thread;
 use std::time::Duration;
 
 use openssl::stack::Stackable;
+use threadpool::ThreadPool;
 
 use crate::config::{Config, get_global_config};
 use crate::http::routes::rooms::rooms_route;
@@ -14,6 +15,7 @@ use crate::http::routes::whep::whep_route;
 use crate::http::routes::whip::whip_route;
 use crate::http::server_builder::ServerBuilder;
 use crate::http::SessionCommand;
+use crate::http_server::HttpServer;
 use crate::ice_registry::ConnectionType;
 use crate::server::Server;
 
@@ -38,94 +40,100 @@ fn main() {
     GLOBAL_CONFIG.set(config);
     let global_config = get_global_config();
 
-    thread::spawn(move || {
-        let socket = UdpSocket::bind(global_config.udp_server_config.address).unwrap();
-        println!(
-            "Running UDP server at {}",
-            global_config.udp_server_config.address
-        );
-        socket.set_nonblocking(true).unwrap();
+    thread::spawn(|| {
+        let pool = ThreadPool::new(4);
 
-        let socket = Arc::new(socket);
-        let mut server = Server::new(socket.clone());
+        let server = Arc::new(build_server());
+
         loop {
-            let mut buffer = [0; 3600];
-            match socket.recv_from(&mut buffer) {
-                // Check for packets
-                Ok((bytes_read, remote_addr)) => {
-                    server.listen(&buffer[..bytes_read], remote_addr);
-                }
-                Err(err) => match err.kind() {
-                    // Check for commands
-                    ErrorKind::WouldBlock => match rx.try_recv() {
-                        Ok(command) => match command {
-                            SessionCommand::AddStreamer(session) => {
-                                server.session_registry.add_streamer(session);
-                            }
-                            SessionCommand::AddViewer(session) => {
-                                server.session_registry.add_viewer(session).unwrap();
-                            }
-                            SessionCommand::GetRooms(sender) => {
-                                let rooms = server.session_registry.get_rooms();
-                                sender.send(rooms).unwrap()
-                            }
-                            SessionCommand::GetStreamSDP((sender, stream_id)) => {
-                                let stream_sdp = server
-                                    .session_registry
-                                    .get_session(&stream_id)
-                                    .and_then(|session| match &session.connection_type {
-                                        ConnectionType::Viewer(_) => None,
-                                        ConnectionType::Streamer(streamer) => {
-                                            Some(streamer.sdp.clone())
-                                        }
-                                    });
-                                sender.send(stream_sdp).unwrap()
-                            }
-                        },
-                        Err(channel_err) => match channel_err {
-                            // Check for session timeouts
-                            TryRecvError::Empty => {
-                                let sessions: Vec<_> = server
-                                    .session_registry
-                                    .get_all_sessions()
-                                    .iter()
-                                    .map(|&session| (session.id.clone(), session.ttl))
-                                    .collect();
-
-                                // println!("sessions count {}", sessions.len());
-                                for (id, ttl) in sessions {
-                                    if ttl.elapsed() > Duration::from_secs(5) {
-                                        server.session_registry.remove_session(&id);
-                                    }
-                                }
-                            }
-                            TryRecvError::Disconnected => {
-                                panic!("Command channel unexpectedly closed.")
-                            }
-                        },
-                    },
-                    _ => {
-                        eprintln!("Encountered socket IO error {}", err)
-                    }
-                },
+            let server = server.clone();
+            if let Ok(stream) = server.read_stream() {
+                pool.execute(move || {
+                    server.handle_stream(stream);
+                });
             }
         }
     });
+    let socket = UdpSocket::bind(global_config.udp_server_config.address).unwrap();
+    println!(
+        "Running UDP server at {}",
+        global_config.udp_server_config.address
+    );
+    socket.set_nonblocking(true).unwrap();
+
+    let socket = Arc::new(socket);
+    let mut server = Server::new(socket.clone());
+    loop {
+        let mut buffer = [0; 3600];
+        match socket.recv_from(&mut buffer) {
+            // Check for packets
+            Ok((bytes_read, remote_addr)) => {
+                server.listen(&buffer[..bytes_read], remote_addr);
+            }
+            Err(err) => match err.kind() {
+                // Check for commands
+                ErrorKind::WouldBlock => match rx.try_recv() {
+                    Ok(command) => match command {
+                        SessionCommand::AddStreamer(session) => {
+                            server.session_registry.add_streamer(session);
+                        }
+                        SessionCommand::AddViewer(session) => {
+                            server.session_registry.add_viewer(session).unwrap();
+                        }
+                        SessionCommand::GetRooms(sender) => {
+                            let rooms = server.session_registry.get_rooms();
+                            sender.send(rooms).unwrap()
+                        }
+                        SessionCommand::GetStreamSDP((sender, stream_id)) => {
+                            let stream_sdp = server
+                                .session_registry
+                                .get_session(&stream_id)
+                                .and_then(|session| match &session.connection_type {
+                                    ConnectionType::Viewer(_) => None,
+                                    ConnectionType::Streamer(streamer) => {
+                                        Some(streamer.sdp.clone())
+                                    }
+                                });
+                            sender.send(stream_sdp).unwrap()
+                        }
+                    },
+                    Err(channel_err) => match channel_err {
+                        // Check for session timeouts
+                        TryRecvError::Empty => {
+                            let sessions: Vec<_> = server
+                                .session_registry
+                                .get_all_sessions()
+                                .iter()
+                                .map(|&session| (session.id.clone(), session.ttl))
+                                .collect();
+
+                            // println!("sessions count {}", sessions.len());
+                            for (id, ttl) in sessions {
+                                if ttl.elapsed() > Duration::from_secs(5) {
+                                    server.session_registry.remove_session(&id);
+                                }
+                            }
+                        }
+                        TryRecvError::Disconnected => {
+                            panic!("Command channel unexpectedly closed.")
+                        }
+                    },
+                },
+                _ => {
+                    eprintln!("Encountered socket IO error {}", err)
+                }
+            },
+        }
+    }
+}
+
+fn build_server() -> HttpServer {
     let mut server_builder = ServerBuilder::new();
     server_builder.add_handler("/whip", |req| whip_route(req));
     server_builder.add_handler("/rooms", |req| rooms_route(req));
     server_builder.add_handler("/whep", |req| whep_route(req));
 
-    let server = Arc::new(server_builder.build());
-
-    loop {
-        let server = server.clone();
-        if let Ok(stream) = server.read_stream() {
-            std::thread::spawn(move || {
-                server.handle_stream(stream);
-            });
-        }
-    }
+    server_builder.build()
 }
 
 pub const CERT_PATH: &'static str = "../certs/cert.pem";
