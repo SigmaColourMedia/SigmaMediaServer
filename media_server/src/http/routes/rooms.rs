@@ -1,24 +1,25 @@
 use std::future::IntoFuture;
+use std::sync::mpsc::Sender;
 
-use crate::config::get_global_config;
 use crate::http::{HttpError, HTTPMethod, Request, Response, ServerCommand};
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
 
-pub fn rooms_route(request: Request) -> Response {
+pub fn rooms_route(request: Request, command_sender: Sender<ServerCommand>) -> Response {
     match &request.method {
-        HTTPMethod::GET => get_handle(request).unwrap_or_else(map_http_err_to_response),
+        HTTPMethod::GET => {
+            get_handle(request, command_sender).unwrap_or_else(map_http_err_to_response)
+        }
         _ => map_http_err_to_response(HttpError::MethodNotAllowed),
     }
 }
 
-fn get_handle(request: Request) -> Result<Response, HttpError> {
+fn get_handle(
+    request: Request,
+    command_sender: Sender<ServerCommand>,
+) -> Result<Response, HttpError> {
     let (tx, mut rx) = std::sync::mpsc::channel::<Vec<String>>();
-    let config = get_global_config();
-    config
-        .session_command_sender
-        .send(ServerCommand::GetRooms(tx))
-        .unwrap();
+    command_sender.send(ServerCommand::GetRooms(tx)).unwrap();
     let rooms = rx.recv().unwrap();
 
     // todo add JSON parsers

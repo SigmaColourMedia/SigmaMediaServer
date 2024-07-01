@@ -1,3 +1,5 @@
+use std::sync::mpsc::Sender;
+
 use crate::config::get_global_config;
 use crate::http::{HttpError, HTTPMethod, Request, Response, ServerCommand};
 use crate::http::parsers::map_http_err_to_response;
@@ -6,13 +8,18 @@ use crate::ice_registry::{Session, SessionCredentials};
 use crate::rnd::get_random_string;
 use crate::sdp::{create_sdp_receive_answer, parse_sdp};
 
-pub fn whip_route(request: Request) -> Response {
+pub fn whip_route(request: Request, command_sender: Sender<ServerCommand>) -> Response {
     match &request.method {
-        HTTPMethod::POST => post_handle(request).unwrap_or_else(map_http_err_to_response),
+        HTTPMethod::POST => {
+            post_handle(request, command_sender).unwrap_or_else(map_http_err_to_response)
+        }
         _ => map_http_err_to_response(HttpError::MethodNotAllowed),
     }
 }
-fn post_handle(request: Request) -> Result<Response, HttpError> {
+fn post_handle(
+    request: Request,
+    command_sender: Sender<ServerCommand>,
+) -> Result<Response, HttpError> {
     let config = get_global_config();
 
     let bearer_token = request
@@ -38,8 +45,7 @@ fn post_handle(request: Request) -> Result<Response, HttpError> {
     let answer = create_sdp_receive_answer(&sdp, &session_credentials);
     let session = Session::new_streamer(session_credentials, sdp);
 
-    config
-        .session_command_sender
+    command_sender
         .send(ServerCommand::AddStreamer(session))
         .or(Err(HttpError::InternalServerError))?;
 

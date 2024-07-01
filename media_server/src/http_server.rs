@@ -1,24 +1,27 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::mpsc::Sender;
 
 use crate::config::get_global_config;
+use crate::http::{Request, ServerCommand};
 use crate::http::parsers::parse_http;
-use crate::http::Request;
 use crate::http::response_builder::ResponseBuilder;
 use crate::http::server_builder::RouteHandlers;
 
 pub struct HttpServer {
     route_handlers: RouteHandlers,
+    command_sender: Sender<ServerCommand>,
     tcp_listener: TcpListener,
 }
 
 impl HttpServer {
-    pub fn new(route_handlers: RouteHandlers) -> Self {
+    pub fn new(route_handlers: RouteHandlers, sender: Sender<ServerCommand>) -> Self {
         let address = get_global_config().tcp_server_config.address;
         let listener = TcpListener::bind(address).unwrap();
         println!("Running TCP server at {}", address);
 
         HttpServer {
+            command_sender: sender,
             route_handlers,
             tcp_listener: listener,
         }
@@ -30,7 +33,7 @@ impl HttpServer {
 
     fn handle_request(&self, request: Request, mut stream: TcpStream) {
         if let Some(handler) = self.route_handlers.get(&request.path) {
-            let response = handler(request);
+            let response = handler(request, self.command_sender.clone());
             if let Err(err) = stream.write_all(response.as_bytes()) {
                 println!("Error writing to stream {}", err)
             }

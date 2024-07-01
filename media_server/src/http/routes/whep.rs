@@ -1,18 +1,24 @@
-use crate::config::get_global_config;
+use std::sync::mpsc::Sender;
+
 use crate::http::{HttpError, HTTPMethod, Request, Response, ServerCommand};
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
 use crate::ice_registry::Session;
 use crate::sdp::{create_streaming_sdp_answer, SDP};
 
-pub fn whep_route(request: Request) -> Response {
+pub fn whep_route(request: Request, command_sender: Sender<ServerCommand>) -> Response {
     match &request.method {
-        HTTPMethod::GET => register_viewer(request).unwrap_or_else(map_http_err_to_response),
+        HTTPMethod::GET => {
+            register_viewer(request, command_sender).unwrap_or_else(map_http_err_to_response)
+        }
         _ => map_http_err_to_response(HttpError::MethodNotAllowed),
     }
 }
 
-fn register_viewer(request: Request) -> Result<Response, HttpError> {
+fn register_viewer(
+    request: Request,
+    command_sender: Sender<ServerCommand>,
+) -> Result<Response, HttpError> {
     let target_id = request
         .search
         .get("target_id")
@@ -20,10 +26,7 @@ fn register_viewer(request: Request) -> Result<Response, HttpError> {
 
     let (tx, rx) = std::sync::mpsc::channel::<Option<SDP>>();
 
-    let config = get_global_config();
-
-    config
-        .session_command_sender
+    command_sender
         .send(ServerCommand::GetStreamSDP((tx, target_id.clone())))
         .unwrap();
 
@@ -43,8 +46,7 @@ fn register_viewer(request: Request) -> Result<Response, HttpError> {
         .set_body(sdp_answer.as_bytes())
         .build();
 
-    config
-        .session_command_sender
+    command_sender
         .send(ServerCommand::AddViewer(viewer_session))
         .unwrap();
 

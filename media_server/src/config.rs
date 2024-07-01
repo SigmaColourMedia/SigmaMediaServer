@@ -1,13 +1,10 @@
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
-use std::sync::mpsc::Sender;
 
 use crate::acceptor::SSLConfig;
 use crate::GLOBAL_CONFIG;
-use crate::http::ServerCommand;
 
 pub struct Config {
-    pub session_command_sender: Sender<ServerCommand>,
     pub ssl_config: SSLConfig,
     pub tcp_server_config: TCPServerConfig,
     pub udp_server_config: UDPServerConfig,
@@ -20,7 +17,7 @@ const UDP_PORT_ENV: &'static str = "UDP_PORT";
 const WHIP_TOKEN_ENV: &'static str = "WHIP_TOKEN";
 
 impl Config {
-    pub fn initialize(sender: Sender<ServerCommand>) -> Self {
+    pub fn initialize() -> Self {
         let ssl_config = SSLConfig::new();
 
         let tcp_ip = IpAddr::from_str(
@@ -56,7 +53,6 @@ impl Config {
 
         Config {
             ssl_config,
-            session_command_sender: sender,
             udp_server_config: UDPServerConfig {
                 address: udp_address,
             },
@@ -69,7 +65,7 @@ impl Config {
 }
 
 pub fn get_global_config() -> &'static Config {
-    GLOBAL_CONFIG.get().unwrap()
+    GLOBAL_CONFIG.get_or_init(Config::initialize)
 }
 
 pub struct TCPServerConfig {

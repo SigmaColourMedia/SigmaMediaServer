@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::net::UdpSocket;
 use std::sync::{Arc, OnceLock};
+use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -13,7 +14,6 @@ use crate::http::routes::whep::whep_route;
 use crate::http::routes::whip::whip_route;
 use crate::http::server_builder::ServerBuilder;
 use crate::http::ServerCommand;
-use crate::http_server::HttpServer;
 use crate::ice_registry::ConnectionType;
 use crate::server::UDPServer;
 
@@ -33,19 +33,22 @@ pub static GLOBAL_CONFIG: OnceLock<Config> = OnceLock::new();
 
 fn main() {
     let (tx, mut rx) = std::sync::mpsc::channel::<ServerCommand>();
-
-    let config = Config::initialize(tx.clone());
-    GLOBAL_CONFIG.set(config);
-
-    thread::spawn(start_http_server);
     let socket = build_udp_socket();
-
-    let socket_clone = socket.try_clone().unwrap();
-    thread::spawn(move || start_udp_listener(socket_clone));
-
-    thread::spawn(start_session_timeout_counter);
-
     let mut server = UDPServer::new(socket.try_clone().unwrap());
+
+    thread::spawn({
+        let sender = tx.clone();
+        move || start_http_server(sender)
+    });
+    thread::spawn({
+        let sender = tx.clone();
+        let socket = socket.try_clone().unwrap();
+        move || listen_on_udp_socket(socket, sender)
+    });
+    thread::spawn({
+        let sender = tx.clone();
+        move || start_session_timeout_counter(sender)
+    });
 
     loop {
         match rx.recv().expect("Server channel should be open") {
@@ -89,9 +92,8 @@ fn main() {
     }
 }
 
-fn start_session_timeout_counter() {
+fn start_session_timeout_counter(sender: Sender<ServerCommand>) {
     let mut time_reference = Instant::now();
-    let sender = &get_global_config().session_command_sender;
     loop {
         if time_reference.elapsed().gt(&Duration::from_secs(3)) {
             sender
@@ -102,8 +104,7 @@ fn start_session_timeout_counter() {
     }
 }
 
-fn start_udp_listener(socket: UdpSocket) {
-    let sender = &get_global_config().session_command_sender;
+fn listen_on_udp_socket(socket: UdpSocket, sender: Sender<ServerCommand>) {
     loop {
         let mut buffer = [0; 3600];
 
@@ -118,10 +119,16 @@ fn start_udp_listener(socket: UdpSocket) {
     }
 }
 
-fn start_http_server() {
+fn start_http_server(command_sender: Sender<ServerCommand>) {
+    let mut server_builder = ServerBuilder::new();
+    server_builder.add_handler("/whip", |req, sender| whip_route(req, sender));
+    server_builder.add_handler("/rooms", |req, sender| rooms_route(req, sender));
+    server_builder.add_handler("/whep", |req, sender| whep_route(req, sender));
+    server_builder.add_sender(command_sender);
+
     let pool = ThreadPool::new(4);
 
-    let server = Arc::new(build_http_server());
+    let server = Arc::new(server_builder.build());
 
     loop {
         let server = server.clone();
@@ -131,15 +138,6 @@ fn start_http_server() {
             });
         }
     }
-}
-
-fn build_http_server() -> HttpServer {
-    let mut server_builder = ServerBuilder::new();
-    server_builder.add_handler("/whip", |req| whip_route(req));
-    server_builder.add_handler("/rooms", |req| rooms_route(req));
-    server_builder.add_handler("/whep", |req| whep_route(req));
-
-    server_builder.build()
 }
 
 fn build_udp_socket() -> UdpSocket {
