@@ -78,7 +78,8 @@ pub enum ServerCommand {
 
 pub struct Response {
     _inner: Vec<u8>,
-    pub status: usize,
+    #[allow(dead_code)]
+    status: usize,
 }
 
 impl Response {

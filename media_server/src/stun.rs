@@ -312,6 +312,7 @@ pub enum ICEStunMessageType {
 #[derive(Debug)]
 pub struct ICEStunPacket {
     pub username_attribute: SessionUsername,
+    #[allow(dead_code)]
     pub message_integrity: [u8; STUN_MESSAGE_INTEGRITY_LEN],
     pub transaction_id: [u8; STUN_TRANSACTION_ID_LEN],
 }

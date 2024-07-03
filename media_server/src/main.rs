@@ -1,14 +1,12 @@
-use std::future::Future;
 use std::net::UdpSocket;
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use openssl::stack::Stackable;
 use threadpool::ThreadPool;
 
-use crate::config::{get_global_config, Config};
+use crate::config::get_global_config;
 use crate::http::routes::rooms::rooms_route;
 use crate::http::routes::whep::whep_route;
 use crate::http::routes::whip::whip_route;
@@ -30,7 +28,7 @@ mod server;
 mod stun;
 
 fn main() {
-    let (tx, mut rx) = std::sync::mpsc::channel::<ServerCommand>();
+    let (tx, rx) = std::sync::mpsc::channel::<ServerCommand>();
     let socket = build_udp_socket();
     let mut server = UDPServer::new(socket.try_clone().unwrap());
 

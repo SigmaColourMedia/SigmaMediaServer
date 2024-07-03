@@ -241,7 +241,9 @@ pub fn create_streaming_sdp_answer(streamer_sdp: &SDP) -> Option<(String, Sessio
 
 #[derive(Debug, Clone)]
 pub struct SDP {
+    #[allow(dead_code)]
     pub ice_username: String,
+    #[allow(dead_code)]
     pub ice_pwd: String,
     pub group: String,
     pub video_media: VideoMedia,

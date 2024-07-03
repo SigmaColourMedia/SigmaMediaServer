@@ -1,9 +1,8 @@
-use std::future::IntoFuture;
 use std::sync::mpsc::Sender;
 
-use crate::http::{HttpError, HTTPMethod, Request, Response, ServerCommand};
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
+use crate::http::{HTTPMethod, HttpError, Request, Response, ServerCommand};
 
 pub fn rooms_route(request: Request, command_sender: Sender<ServerCommand>) -> Response {
     match &request.method {
@@ -15,10 +14,10 @@ pub fn rooms_route(request: Request, command_sender: Sender<ServerCommand>) -> R
 }
 
 fn get_handle(
-    request: Request,
+    _request: Request,
     command_sender: Sender<ServerCommand>,
 ) -> Result<Response, HttpError> {
-    let (tx, mut rx) = std::sync::mpsc::channel::<Vec<String>>();
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<String>>();
     command_sender.send(ServerCommand::GetRooms(tx)).unwrap();
     let rooms = rx.recv().unwrap();
 
