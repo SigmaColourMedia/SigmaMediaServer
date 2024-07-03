@@ -1,14 +1,14 @@
 use std::future::Future;
 use std::net::UdpSocket;
-use std::sync::{Arc, OnceLock};
 use std::sync::mpsc::Sender;
+use std::sync::{Arc, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use openssl::stack::Stackable;
 use threadpool::ThreadPool;
 
-use crate::config::{Config, get_global_config};
+use crate::config::{get_global_config, Config};
 use crate::http::routes::rooms::rooms_route;
 use crate::http::routes::whep::whep_route;
 use crate::http::routes::whip::whip_route;
@@ -149,6 +149,3 @@ fn build_udp_socket() -> UdpSocket {
     );
     socket
 }
-
-pub const CERT_PATH: &'static str = "../certs/cert.pem";
-pub const CERT_KEY_PATH: &'static str = "../certs/key.pem";

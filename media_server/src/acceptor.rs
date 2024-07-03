@@ -1,11 +1,12 @@
-use std::{fmt::Write as _, sync::Arc};
 use std::fs::read;
+use std::{fmt::Write, sync::Arc};
 
 use openssl::hash::MessageDigest;
 use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod, SslVerifyMode};
 use openssl::x509::X509;
 
-use crate::{CERT_KEY_PATH, CERT_PATH};
+const CERT_PATH: &'static str = "../certs/cert.pem";
+const CERT_KEY_PATH: &'static str = "../certs/key.pem";
 
 pub struct SSLConfig {
     pub acceptor: Arc<SslAcceptor>,
