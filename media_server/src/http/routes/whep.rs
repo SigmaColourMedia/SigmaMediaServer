@@ -1,38 +1,36 @@
-use futures::TryFutureExt;
+use std::sync::mpsc::Sender;
 
-use crate::GLOBAL_CONFIG;
-use crate::http::{HttpError, HTTPMethod, Request, Response, SessionCommand};
+use crate::http::{HttpError, HTTPMethod, Request, Response, ServerCommand};
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
 use crate::ice_registry::Session;
 use crate::sdp::{create_streaming_sdp_answer, SDP};
 
-pub async fn whep_route(request: Request) -> Response {
+pub fn whep_route(request: Request, command_sender: Sender<ServerCommand>) -> Response {
     match &request.method {
-        HTTPMethod::GET => register_viewer(request)
-            .await
-            .unwrap_or_else(map_http_err_to_response),
+        HTTPMethod::GET => {
+            register_viewer(request, command_sender).unwrap_or_else(map_http_err_to_response)
+        }
         _ => map_http_err_to_response(HttpError::MethodNotAllowed),
     }
 }
 
-async fn register_viewer(request: Request) -> Result<Response, HttpError> {
+fn register_viewer(
+    request: Request,
+    command_sender: Sender<ServerCommand>,
+) -> Result<Response, HttpError> {
     let target_id = request
         .search
         .get("target_id")
         .ok_or(HttpError::BadRequest)?;
 
-    let (tx, rx) = tokio::sync::oneshot::channel::<Option<SDP>>();
+    let (tx, rx) = std::sync::mpsc::channel::<Option<SDP>>();
 
-    let config = GLOBAL_CONFIG.get().unwrap();
-
-    config
-        .session_command_sender
-        .send(SessionCommand::GetStreamSDP((tx, target_id.clone())))
-        .await
+    command_sender
+        .send(ServerCommand::GetStreamSDP((tx, target_id.clone())))
         .unwrap();
 
-    let stream_sdp = rx.await.unwrap().ok_or(HttpError::NotFound)?;
+    let stream_sdp = rx.recv().unwrap().ok_or(HttpError::NotFound)?;
     let (sdp_answer, credentials) =
         create_streaming_sdp_answer(&stream_sdp).ok_or(HttpError::BadRequest)?;
 
@@ -48,10 +46,8 @@ async fn register_viewer(request: Request) -> Result<Response, HttpError> {
         .set_body(sdp_answer.as_bytes())
         .build();
 
-    config
-        .session_command_sender
-        .send(SessionCommand::AddViewer(viewer_session))
-        .await
+    command_sender
+        .send(ServerCommand::AddViewer(viewer_session))
         .unwrap();
 
     Ok(response)

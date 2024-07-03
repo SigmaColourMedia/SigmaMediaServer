@@ -1,16 +1,14 @@
 use std::collections::HashMap;
-use std::future::Future;
-use std::pin::Pin;
+use std::sync::mpsc::Sender;
 
-use crate::http::{Request, Response};
+use crate::http::{Request, Response, ServerCommand};
 use crate::http_server::HttpServer;
 
-type CallbackFuture<O> = Pin<Box<dyn Future<Output = O> + Send>>;
-
-type Callback = dyn (Fn(Request) -> CallbackFuture<Response>) + Send + Sync;
+type Callback = dyn (Fn(Request, Sender<ServerCommand>) -> Response) + Send + Sync;
 
 pub struct ServerBuilder {
     route_handlers: RouteHandlers,
+    command_sender: Option<Sender<ServerCommand>>,
 }
 
 pub type RouteHandlers = HashMap<String, Box<Callback>>;
@@ -18,20 +16,28 @@ pub type RouteHandlers = HashMap<String, Box<Callback>>;
 impl ServerBuilder {
     pub fn new() -> Self {
         ServerBuilder {
+            command_sender: None,
             route_handlers: HashMap::new(),
         }
     }
 
     pub fn add_handler<F>(&mut self, route: &str, handler: F)
     where
-        F: Fn(Request) -> CallbackFuture<Response>,
+        F: Fn(Request, Sender<ServerCommand>) -> Response,
         F: Send + Sync + 'static,
     {
         self.route_handlers
             .insert(route.to_string(), Box::new(handler));
     }
 
-    pub async fn build(self) -> HttpServer {
-        HttpServer::new(self.route_handlers).await
+    pub fn add_sender(&mut self, sender: Sender<ServerCommand>) {
+        self.command_sender = Some(sender)
+    }
+    pub fn build(self) -> HttpServer {
+        HttpServer::new(
+            self.route_handlers,
+            self.command_sender
+                .expect("Command sender should be present"),
+        )
     }
 }

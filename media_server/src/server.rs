@@ -1,23 +1,21 @@
 use std::io::{ErrorKind, Write};
 use std::net::{SocketAddr, UdpSocket};
-use std::sync::Arc;
-
-use tokio::time::Instant;
+use std::time::Instant;
 
 use crate::client::{Client, ClientSslState};
 use crate::ice_registry::{ConnectionType, SessionRegistry};
 use crate::stun::{create_stun_success, get_stun_packet, ICEStunMessageType};
 
-pub struct Server {
+pub struct UDPServer {
     pub session_registry: SessionRegistry,
     inbound_buffer: Vec<u8>,
     outbound_buffer: Vec<u8>,
-    socket: Arc<UdpSocket>,
+    socket: UdpSocket,
 }
 
-impl Server {
-    pub fn new(socket: Arc<UdpSocket>) -> Self {
-        Server {
+impl UDPServer {
+    pub fn new(socket: UdpSocket) -> Self {
+        UDPServer {
             inbound_buffer: Vec::with_capacity(2000),
             outbound_buffer: Vec::with_capacity(2000),
             socket,
@@ -25,7 +23,7 @@ impl Server {
         }
     }
 
-    pub fn listen(&mut self, data: &[u8], remote: SocketAddr) {
+    pub fn process_packet(&mut self, data: &[u8], remote: SocketAddr) {
         self.inbound_buffer.clear();
         self.inbound_buffer
             .write_all(data)
@@ -78,7 +76,7 @@ impl Server {
                         .unwrap();
 
                     if is_new_client {
-                        let client = Client::new(remote.clone(), self.socket.clone())
+                        let client = Client::new(remote.clone(), self.socket.try_clone().unwrap())
                             .expect("Failed to create Client");
 
                         self.session_registry.nominate_client(client, &resource_id);

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::net::SocketAddr;
 
 use crate::ice_registry::Session;
 use crate::sdp::SDP;
@@ -66,11 +67,13 @@ impl Display for HttpError {
 }
 
 #[derive(Debug)]
-pub enum SessionCommand {
+pub enum ServerCommand {
     AddStreamer(Session),
     AddViewer(Session),
-    GetStreamSDP((tokio::sync::oneshot::Sender<Option<SDP>>, String)),
-    GetRooms(tokio::sync::oneshot::Sender<Vec<String>>),
+    GetStreamSDP((std::sync::mpsc::Sender<Option<SDP>>, String)),
+    GetRooms(std::sync::mpsc::Sender<Vec<String>>),
+    HandlePacket(Vec<u8>, SocketAddr),
+    CheckForTimeout,
 }
 
 pub struct Response {

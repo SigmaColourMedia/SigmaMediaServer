@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::http::{HttpError, HTTPMethod, Request, Response};
 use crate::http::response_builder::ResponseBuilder;
 
-pub async fn parse_http(data: &[u8]) -> Option<Request> {
+pub fn parse_http(data: &[u8]) -> Option<Request> {
     let string_data = std::str::from_utf8(data).ok()?;
     let mut lines = string_data.lines();
 

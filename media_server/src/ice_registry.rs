@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-
-use tokio::time::Instant;
+use std::time::Instant;
 
 use crate::client::Client;
 use crate::rnd::get_random_string;
