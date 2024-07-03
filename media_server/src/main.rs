@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::net::UdpSocket;
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -28,8 +28,6 @@ mod rnd;
 mod sdp;
 mod server;
 mod stun;
-
-pub static GLOBAL_CONFIG: OnceLock<Config> = OnceLock::new();
 
 fn main() {
     let (tx, mut rx) = std::sync::mpsc::channel::<ServerCommand>();

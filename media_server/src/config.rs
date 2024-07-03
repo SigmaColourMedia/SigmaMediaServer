@@ -1,8 +1,8 @@
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
+use std::sync::OnceLock;
 
 use crate::acceptor::SSLConfig;
-use crate::GLOBAL_CONFIG;
 
 pub struct Config {
     pub ssl_config: SSLConfig,
@@ -65,6 +65,8 @@ impl Config {
         }
     }
 }
+
+static GLOBAL_CONFIG: OnceLock<Config> = OnceLock::new();
 
 pub fn get_global_config() -> &'static Config {
     GLOBAL_CONFIG.get_or_init(Config::initialize)
