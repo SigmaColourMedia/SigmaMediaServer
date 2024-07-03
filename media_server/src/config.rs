@@ -1,8 +1,8 @@
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
+use std::sync::OnceLock;
 
 use crate::acceptor::SSLConfig;
-use crate::GLOBAL_CONFIG;
 
 pub struct Config {
     pub ssl_config: SSLConfig,
@@ -25,6 +25,7 @@ impl Config {
                 .expect(&format!("{TCP_ADDRESS_ENV} env variable should be present")),
         )
         .expect(&format!("${TCP_ADDRESS_ENV} should be valid IPAddr"));
+
         let tcp_port = std::env::var(TCP_PORT_ENV)
             .map(|port| {
                 port.parse::<u16>()
@@ -39,6 +40,7 @@ impl Config {
                 .expect(&format!("{UDP_ADDRESS_ENV} env variable should be present")),
         )
         .expect(&format!("${UDP_ADDRESS_ENV} should be valid IPAddr"));
+
         let udp_port = std::env::var(UDP_PORT_ENV)
             .map(|port| {
                 port.parse::<u16>()
@@ -63,6 +65,8 @@ impl Config {
         }
     }
 }
+
+static GLOBAL_CONFIG: OnceLock<Config> = OnceLock::new();
 
 pub fn get_global_config() -> &'static Config {
     GLOBAL_CONFIG.get_or_init(Config::initialize)
