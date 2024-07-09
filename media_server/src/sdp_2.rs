@@ -1,49 +1,125 @@
 use core::str;
 use std::io::BufRead;
 
-fn parse_raw_sdp_to_sdp_lines(data: &str) -> Option<Vec<SDPLine>> {
+fn parse_raw_sdp_to_sdp_lines(data: &str) -> Result<Vec<SDPLine>, SDPParseErrorStackTrace> {
     let mut sdp_lines: Vec<SDPLine> = vec![];
 
+    let mut line_index = 0;
+
     for line in data.lines() {
-        let (sdp_type, value) = line.split_once("=")?;
+        line_index += 1;
+
+        let (sdp_type, value) = line.split_once("=").ok_or(SDPParseErrorStackTrace {
+            error: SDPParseError::MalformedSDPLine,
+            line: line_index,
+        })?;
         match sdp_type {
             "v" => sdp_lines.push(SDPLine::ProtocolVersion(value.to_string())),
             "o" => sdp_lines.push(SDPLine::Originator(value.to_string())),
             "s" => sdp_lines.push(SDPLine::SessionName(value.to_string())),
             "t" => sdp_lines.push(SDPLine::SessionTime(value.to_string())),
             "m" => {
-                let media_descriptor = parse_media_descriptor(value)?;
+                let media_descriptor = parse_media_descriptor(value).or_else(|err| {
+                    Err(SDPParseErrorStackTrace {
+                        error: err,
+                        line: line_index,
+                    })
+                })?;
                 sdp_lines.push(SDPLine::MediaDescription(media_descriptor))
+            }
+            "a" => {
+                let attribute = parse_attribute(value).or_else(|err| {
+                    Err(SDPParseErrorStackTrace {
+                        error: err,
+                        line: line_index,
+                    })
+                })?;
+
+                sdp_lines.push(SDPLine::Attribute(attribute))
             }
             _ => sdp_lines.push(SDPLine::Unrecognized),
         }
     }
 
-    Some(sdp_lines)
+    Ok(sdp_lines)
 }
 
-fn parse_media_descriptor(descriptor: &str) -> Option<MediaDescription> {
+fn parse_attribute(attribute: &str) -> Result<Attribute, SDPParseError> {
+    let (key, value) = attribute
+        .split_once(":")
+        .map(|(key, value)| (key, Some(value.to_string())))
+        .unwrap_or((attribute, None));
+
+    match key {
+        "ice-ufrag" => {
+            let value = value.ok_or(SDPParseError::MalformedAttribute)?;
+            Ok(Attribute::ICEUsername(value))
+        }
+        "ice-pwd" => {
+            let value = value.ok_or(SDPParseError::MalformedAttribute)?;
+            Ok(Attribute::ICEPassword(value))
+        }
+        "ice-options" => {
+            let value = value.ok_or(SDPParseError::MalformedAttribute)?;
+            Ok(Attribute::ICEOptions(value))
+        }
+        "fingerprint" => {
+            let value = value
+                .ok_or(SDPParseError::MalformedAttribute)
+                .and_then(|value| parse_fingerprint(&value))?;
+            Ok(Attribute::Fingerprint(value))
+        }
+        "ssrc" => {
+            let value = value.ok_or(SDPParseError::MalformedAttribute)?;
+            Ok(Attribute::MediaSSRC(parse_ssrc_attribute(&value)?))
+        }
+        "sendonly" => Ok(Attribute::SendOnly),
+        "recvonly" => Ok(Attribute::ReceiveOnly),
+        "mid" => {
+            let value = value.ok_or(SDPParseError::MalformedAttribute)?;
+            Ok(Attribute::MediaID(value))
+        }
+        "group" => {
+            let value = value.ok_or(SDPParseError::MalformedAttribute)?;
+            Ok(Attribute::MediaGroup(value))
+        }
+        "rtcp-mux" => Ok(Attribute::RTCPMux),
+        _ => Ok(Attribute::Unrecognized),
+    }
+}
+
+fn parse_media_descriptor(descriptor: &str) -> Result<MediaDescription, SDPParseError> {
     let mut split = descriptor.split(" ");
 
-    let media_type = match split.next()? {
-        "audio" => Some(MediaType::Audio),
-        "video" => Some(MediaType::Video),
-        _ => None,
+    let media_type = match split
+        .next()
+        .ok_or(SDPParseError::MalformedMediaDescriptor)?
+    {
+        "audio" => Ok(MediaType::Audio),
+        "video" => Ok(MediaType::Video),
+        _ => Err(SDPParseError::UnsupportedMediaType),
     }?;
 
-    let transport_port = split.next().and_then(|port| port.parse::<usize>().ok())?;
+    let transport_port = split
+        .next()
+        .and_then(|port| port.parse::<usize>().ok())
+        .ok_or(SDPParseError::MalformedMediaDescriptor)?;
 
-    let transport_protocol = match split.next()? {
-        "UDP/TLS/RTP/SAVPF" => Some(TransportProtocol::DTLS_SRTP),
-        _ => None,
+    let transport_protocol = match split
+        .next()
+        .ok_or(SDPParseError::MalformedMediaDescriptor)?
+    {
+        "UDP/TLS/RTP/SAVPF" => Ok(TransportProtocol::DTLS_SRTP),
+        _ => Err(SDPParseError::UnsupportedMediaProtocol),
     }?;
 
     let media_format_description = split
         .take_while(|line| !line.is_empty())
         .map(|line| line.parse::<usize>().ok())
-        .collect::<Option<Vec<usize>>>()?;
+        .collect::<Option<Vec<usize>>>()
+        .ok_or(SDPParseError::MalformedAttribute)?;
 
-    Some(MediaDescription {
+    Ok(MediaDescription {
         transport_port,
         media_type,
         media_format_description,
@@ -51,6 +127,48 @@ fn parse_media_descriptor(descriptor: &str) -> Option<MediaDescription> {
     })
 }
 
+fn parse_ssrc_attribute(input: &str) -> Result<MediaSSRC, SDPParseError> {
+    let ssrc = input
+        .split(" ")
+        .next()
+        .ok_or(SDPParseError::MalformedSDPLine)?;
+
+    Ok(MediaSSRC {
+        ssrc: ssrc.to_string(),
+    })
+}
+
+fn parse_fingerprint(input: &str) -> Result<Fingerprint, SDPParseError> {
+    let (hash_function, hash) = input
+        .split_once(" ")
+        .ok_or(SDPParseError::MalformedAttribute)?;
+
+    let hash_function = match hash_function {
+        "sha-256" => HashFunction::SHA256,
+        _ => return Err(SDPParseError::UnsupportedHashFunction),
+    };
+
+    Ok(Fingerprint {
+        hash_function,
+        hash: hash.to_string(),
+    })
+}
+
+#[derive(Debug)]
+struct SDPParseErrorStackTrace {
+    error: SDPParseError,
+    line: usize,
+}
+
+#[derive(Debug)]
+enum SDPParseError {
+    MalformedAttribute,
+    UnsupportedMediaProtocol,
+    UnsupportedMediaType,
+    MalformedMediaDescriptor,
+    MalformedSDPLine,
+    UnsupportedHashFunction,
+}
 #[derive(Debug)]
 enum SDPLine {
     ProtocolVersion(String),
@@ -65,17 +183,17 @@ enum SDPLine {
 
 #[derive(Debug)]
 enum Attribute {
-    Unrecognized(KeyValue),
-    SendOnly(KeyValue),
-    ReceiveOnly(KeyValue),
-    MediaID(KeyValue),
-    ICEUsername(KeyValue),
-    ICEPassword(KeyValue),
-    ICEOptions(KeyValue),
-    Fingerprint(KeyValue),
-    MediaGroup(KeyValue),
+    Unrecognized,
+    SendOnly,
+    ReceiveOnly,
+    MediaID(String),
+    ICEUsername(String),
+    ICEPassword(String),
+    ICEOptions(String),
+    Fingerprint(Fingerprint),
+    MediaGroup(String),
     MediaSSRC(MediaSSRC),
-    RTCPMux(KeyValue),
+    RTCPMux,
     RTPMap(RTPMap),
     FMTP(FMTP),
     Candidate(Candidate),
@@ -99,26 +217,25 @@ enum MediaType {
     Audio,
     Video,
 }
+
 #[derive(Debug)]
-struct KeyValue {
-    key: String,
-    value: String,
+struct Fingerprint {
+    hash_function: HashFunction,
+    hash: String,
 }
 
-impl KeyValue {
-    pub fn new(key: &str, value: &str) -> Self {
-        KeyValue {
-            key: key.to_string(),
-            value: value.to_string(),
-        }
-    }
+#[derive(Debug)]
+enum HashFunction {
+    SHA256,
 }
 
 #[derive(Debug)]
 struct RTPMap {}
 
 #[derive(Debug)]
-struct MediaSSRC {}
+struct MediaSSRC {
+    ssrc: String,
+}
 
 #[derive(Debug)]
 struct FMTP {}
@@ -136,6 +253,7 @@ mod tests {
 
     #[test]
     fn parses_all_attributes() {
+        println!("{EXAMPLE_SDP}");
         let sdp_parse = parse_raw_sdp_to_sdp_lines(EXAMPLE_SDP);
         println!("res {:?}", sdp_parse.unwrap())
     }
