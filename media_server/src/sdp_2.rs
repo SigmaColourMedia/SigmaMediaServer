@@ -1,5 +1,6 @@
 use core::str;
 use std::io::BufRead;
+use std::net::IpAddr;
 
 fn parse_raw_sdp_to_sdp_lines(data: &str) -> Result<Vec<SDPLine>, SDPParseErrorStackTrace> {
     let mut sdp_lines: Vec<SDPLine> = vec![];
@@ -64,9 +65,7 @@ fn parse_attribute(attribute: &str) -> Result<Attribute, SDPParseError> {
             Ok(Attribute::ICEOptions(value))
         }
         "fingerprint" => {
-            let value = value
-                .ok_or(SDPParseError::MalformedAttribute)
-                .and_then(|value| parse_fingerprint(&value))?;
+            let value = value.ok_or(SDPParseError::MalformedAttribute)?;
             Ok(Attribute::Fingerprint(value))
         }
         "ssrc" => {
@@ -103,27 +102,19 @@ fn parse_attribute(attribute: &str) -> Result<Attribute, SDPParseError> {
 fn parse_media_descriptor(descriptor: &str) -> Result<MediaDescription, SDPParseError> {
     let mut split = descriptor.split(" ");
 
-    let media_type = match split
+    let media_type = split
         .next()
         .ok_or(SDPParseError::MalformedMediaDescriptor)?
-    {
-        "audio" => Ok(MediaType::Audio),
-        "video" => Ok(MediaType::Video),
-        _ => Err(SDPParseError::UnsupportedMediaType),
-    }?;
-
+        .to_string();
     let transport_port = split
         .next()
         .and_then(|port| port.parse::<usize>().ok())
         .ok_or(SDPParseError::MalformedMediaDescriptor)?;
 
-    let transport_protocol = match split
+    let transport_protocol = split
         .next()
         .ok_or(SDPParseError::MalformedMediaDescriptor)?
-    {
-        "UDP/TLS/RTP/SAVPF" => Ok(TransportProtocol::DTLS_SRTP),
-        _ => Err(SDPParseError::UnsupportedMediaProtocol),
-    }?;
+        .to_string();
 
     let media_format_description = split
         .take_while(|line| !line.is_empty())
@@ -171,18 +162,12 @@ fn parse_rtpmap(input: &str) -> Result<RTPMap, SDPParseError> {
         .split_once(" ")
         .ok_or(SDPParseError::MalformedAttribute)?;
 
-    let media_codec = match codec.to_ascii_lowercase().as_str() {
-        "h264/90000" => MediaCodec::Video(VideoCodec::H264),
-        "opus/48000/2" => MediaCodec::Audio(AudioCodec::OPUS),
-        _ => return Err(SDPParseError::UnsupportedCodec),
-    };
-
     let payload_number = payload_number
         .parse::<usize>()
         .map_err(|_| SDPParseError::MalformedAttribute)?;
 
     Ok(RTPMap {
-        codec: media_codec,
+        codec: codec.to_string(),
         payload_number,
     })
 }
@@ -200,6 +185,19 @@ fn parse_fmtp(input: &str) -> Result<FMTP, SDPParseError> {
         format_capability: capabilities.to_string(),
         payload_number,
     })
+}
+
+fn parse_candidate(input: &str) -> Result<Candidate, SDPParseError> {
+    let mut split = input.split(" ");
+    let foundation = split
+        .next()
+        .ok_or(SDPParseError::MalformedAttribute)?
+        .to_string();
+    let component_id = split
+        .next()
+        .ok_or(SDPParseError::MalformedAttribute)
+        .map(|id| id.parse::<usize>())?
+        .map_err(|_| SDPParseError::MalformedAttribute)?;
 }
 
 #[derive(Debug)]
@@ -239,7 +237,7 @@ enum Attribute {
     ICEUsername(String),
     ICEPassword(String),
     ICEOptions(String),
-    Fingerprint(Fingerprint),
+    Fingerprint(String),
     MediaGroup(String),
     MediaSSRC(MediaSSRC),
     RTCPMux,
@@ -249,21 +247,15 @@ enum Attribute {
 }
 #[derive(Debug)]
 struct MediaDescription {
-    media_type: MediaType,
+    media_type: String,
     transport_port: usize,
-    transport_protocol: TransportProtocol,
+    transport_protocol: String,
     media_format_description: Vec<usize>,
 }
 
 #[derive(Debug)]
 enum TransportProtocol {
     DTLS_SRTP,
-}
-
-#[derive(Debug)]
-enum MediaType {
-    Audio,
-    Video,
 }
 
 #[derive(Debug)]
@@ -279,23 +271,8 @@ enum HashFunction {
 
 #[derive(Debug)]
 struct RTPMap {
-    codec: MediaCodec,
+    codec: String,
     payload_number: usize,
-}
-
-#[derive(Debug)]
-enum MediaCodec {
-    Video(VideoCodec),
-    Audio(AudioCodec),
-}
-#[derive(Debug)]
-enum VideoCodec {
-    H264,
-}
-
-#[derive(Debug)]
-enum AudioCodec {
-    OPUS,
 }
 
 #[derive(Debug)]
@@ -310,7 +287,13 @@ struct FMTP {
 }
 
 #[derive(Debug)]
-struct Candidate {}
+struct Candidate {
+    foundation: String,
+    component_id: usize,
+    priority: usize,
+    connection_address: IpAddr,
+    port: usize,
+}
 
 const EXAMPLE_SDP: &str = "v=0\r\no=rtc 3767197920 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=group:LS 0 1\r\na=msid-semantic:WMS *\r\na=setup:actpass\r\na=ice-ufrag:E2Fr\r\na=ice-pwd:OpQzg1PAwUdeOB244chlgd\r\na=ice-options:trickle\r\na=fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B\r\nm=audio 4557 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 192.168.0.198\r\na=mid:0\r\na=sendonly\r\na=ssrc:1349455989 cname:0X2NGAsK9XcmnsuZ\r\na=ssrc:1349455989 msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-audio\r\na=msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-audio\r\na=rtcp-mux\r\na=rtpmap:111 opus/48000/2\r\na=fmtp:111 minptime=10;maxaveragebitrate=96000;stereo=1;sprop-stereo=1;useinbandfec=1\r\na=candidate:1 1 UDP 2015363327 192.168.0.198 4557 typ host\r\na=candidate:2 1 UDP 2015363583 fe80::6c3d:5b42:1532:2f9a 10007 typ host\r\na=end-of-candidates\r\nm=video 4557 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 192.168.0.198\r\na=mid:1\r\na=sendonly\r\na=ssrc:1349455990 cname:0X2NGAsK9XcmnsuZ\r\na=ssrc:1349455990 msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-video\r\na=msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-video\r\na=rtcp-mux\r\na=rtpmap:96 H264/90000\r\na=rtcp-fb:96 nack\r\na=rtcp-fb:96 nack pli\r\na=rtcp-fb:96 goog-remb\r\na=fmtp:96 profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1\r\n";
 
