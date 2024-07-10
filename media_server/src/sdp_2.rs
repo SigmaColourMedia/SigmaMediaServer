@@ -2,7 +2,7 @@ use core::str;
 use std::io::BufRead;
 use std::net::IpAddr;
 
-fn parse_raw_sdp_to_sdp_lines(data: &str) -> Result<Vec<SDPLine>, SDPParseErrorStackTrace> {
+fn parse_raw_sdp_to_sdp_lines(data: &str) -> Result<Vec<SDPLine>, SDPParseError> {
     let mut sdp_lines: Vec<SDPLine> = vec![];
 
     let mut line_index = 0;
@@ -10,31 +10,20 @@ fn parse_raw_sdp_to_sdp_lines(data: &str) -> Result<Vec<SDPLine>, SDPParseErrorS
     for line in data.lines() {
         line_index += 1;
 
-        let (sdp_type, value) = line.split_once("=").ok_or(SDPParseErrorStackTrace {
-            error: SDPParseError::MalformedSDPLine,
-            line: line_index,
-        })?;
+        let (sdp_type, value) = line
+            .split_once("=")
+            .ok_or(SDPParseError::MalformedSDPLine)?;
         match sdp_type {
             "v" => sdp_lines.push(SDPLine::ProtocolVersion(value.to_string())),
             "o" => sdp_lines.push(SDPLine::Originator(value.to_string())),
             "s" => sdp_lines.push(SDPLine::SessionName(value.to_string())),
             "t" => sdp_lines.push(SDPLine::SessionTime(value.to_string())),
             "m" => {
-                let media_descriptor = parse_media_descriptor(value).or_else(|err| {
-                    Err(SDPParseErrorStackTrace {
-                        error: err,
-                        line: line_index,
-                    })
-                })?;
+                let media_descriptor = parse_media_descriptor(value)?;
                 sdp_lines.push(SDPLine::MediaDescription(media_descriptor))
             }
             "a" => {
-                let attribute = parse_attribute(value).or_else(|err| {
-                    Err(SDPParseErrorStackTrace {
-                        error: err,
-                        line: line_index,
-                    })
-                })?;
+                let attribute = parse_attribute(value)?;
 
                 sdp_lines.push(SDPLine::Attribute(attribute))
             }
@@ -187,18 +176,18 @@ fn parse_fmtp(input: &str) -> Result<FMTP, SDPParseError> {
     })
 }
 
-fn parse_candidate(input: &str) -> Result<Candidate, SDPParseError> {
-    let mut split = input.split(" ");
-    let foundation = split
-        .next()
-        .ok_or(SDPParseError::MalformedAttribute)?
-        .to_string();
-    let component_id = split
-        .next()
-        .ok_or(SDPParseError::MalformedAttribute)
-        .map(|id| id.parse::<usize>())?
-        .map_err(|_| SDPParseError::MalformedAttribute)?;
-}
+// fn parse_candidate(input: &str) -> Result<Candidate, SDPParseError> {
+//     let mut split = input.split(" ");
+//     let foundation = split
+//         .next()
+//         .ok_or(SDPParseError::MalformedAttribute)?
+//         .to_string();
+//     let component_id = split
+//         .next()
+//         .ok_or(SDPParseError::MalformedAttribute)
+//         .map(|id| id.parse::<usize>())?
+//         .map_err(|_| SDPParseError::MalformedAttribute)?;
+// }
 
 #[derive(Debug)]
 struct SDPParseErrorStackTrace {
