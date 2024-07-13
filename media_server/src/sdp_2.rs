@@ -3,7 +3,7 @@ use std::io::BufRead;
 use std::net::IpAddr;
 use std::str::FromStr;
 
-fn parse_raw_sdp(data: &str) -> Result<SDP, SDPParseError> {
+fn parse_raw_sdp_offer(data: &str) -> Result<SDPOffer, SDPParseError> {
     let sdp_lines = data
         .lines()
         .map(parse_sdp_line)
@@ -11,6 +11,7 @@ fn parse_raw_sdp(data: &str) -> Result<SDP, SDPParseError> {
 
     let mut iter = sdp_lines.iter();
 
+    // Check if session description segment is properly formatted.
     let protocol_version = iter.next().ok_or(SDPParseError::MalformedSDPLine)?;
     if !matches!(protocol_version, SDPLine::ProtocolVersion(_)) {
         return Err(SDPParseError::SequenceError);
@@ -31,6 +32,8 @@ fn parse_raw_sdp(data: &str) -> Result<SDP, SDPParseError> {
         return Err(SDPParseError::SequenceError);
     }
 
+    // Check for ICE credentials. If multiple credentials are provided, only the first occurrence will be used.
+    // todo Reject SDP with multiple different ICE credential attributes
     let ice_username = sdp_lines
         .iter()
         .find_map(|line| {
@@ -39,7 +42,7 @@ fn parse_raw_sdp(data: &str) -> Result<SDP, SDPParseError> {
             }
             None
         })
-        .ok_or(SDPParseError::MalformedSDPLine)?
+        .ok_or(SDPParseError::MissingICECredentials)?
         .to_string();
     let ice_password = sdp_lines
         .iter()
@@ -49,9 +52,10 @@ fn parse_raw_sdp(data: &str) -> Result<SDP, SDPParseError> {
             }
             None
         })
-        .ok_or(SDPParseError::MalformedSDPLine)?
+        .ok_or(SDPParseError::MissingICECredentials)?
         .to_string();
 
+    // Validate media descriptor segments
     let mut media_descriptors_iter = sdp_lines
         .iter()
         .skip_while(|line| !matches!(line, SDPLine::MediaDescription(_)));
@@ -61,8 +65,9 @@ fn parse_raw_sdp(data: &str) -> Result<SDP, SDPParseError> {
         .filter(|line| matches!(line, SDPLine::MediaDescription(_)))
         .count();
 
+    // Assert that we're dealing with 2 media descriptors to avoid redundant checks later (Audio and Video)
     if media_descriptor_count != 2 {
-        return Err(SDPParseError::UnsupportedMedia);
+        return Err(SDPParseError::UnsupportedMediaCount);
     }
 
     let first_media_line = media_descriptors_iter
@@ -75,6 +80,7 @@ fn parse_raw_sdp(data: &str) -> Result<SDP, SDPParseError> {
         })
         .ok_or(SDPParseError::MalformedMediaDescriptor)?;
 
+    // First media descriptor must be Audio. This is an arbitrary decision to ease implementation.
     if !matches!(first_media_line.media_type, MediaType::Audio) {
         return Err(SDPParseError::SequenceError);
     }
@@ -99,7 +105,7 @@ fn parse_raw_sdp(data: &str) -> Result<SDP, SDPParseError> {
                 "The first item after session description end should always be media description"
             ),
         })
-        .ok_or(SDPParseError::MalformedMediaDescriptor)?;
+        .expect("Second media descriptor should be present");
 
     if !matches!(second_media_line.media_type, MediaType::Video) {
         return Err(SDPParseError::SequenceError);
@@ -112,7 +118,7 @@ fn parse_raw_sdp(data: &str) -> Result<SDP, SDPParseError> {
         })
         .collect::<Vec<_>>();
 
-    Ok(SDP {
+    Ok(SDPOffer {
         ice_username,
         ice_password,
         audio_media_description: audio_media_attributes,
@@ -206,10 +212,10 @@ fn parse_media_descriptor(descriptor: &str) -> Result<MediaDescription, SDPParse
     let media_type = split
         .next()
         .ok_or(SDPParseError::MalformedMediaDescriptor)
-        .map(|media_type| match media_type {
-            "video" => MediaType::Video,
-            "audio" => MediaType::Audio,
-            _ => MediaType::Unsupported,
+        .and_then(|media_type| match media_type {
+            "video" => Ok(MediaType::Video),
+            "audio" => Ok(MediaType::Audio),
+            _ => Err(SDPParseError::UnsupportedMediaType),
         })?;
 
     let transport_port = split
@@ -220,9 +226,9 @@ fn parse_media_descriptor(descriptor: &str) -> Result<MediaDescription, SDPParse
     let transport_protocol = split
         .next()
         .ok_or(SDPParseError::MalformedMediaDescriptor)
-        .map(|transport_protocol| match transport_protocol {
-            "UDP/TLS/RTP/SAVPF" => MediaTransportProtocol::DTLS_SRTP,
-            _ => MediaTransportProtocol::Unsupported,
+        .and_then(|transport_protocol| match transport_protocol {
+            "UDP/TLS/RTP/SAVPF" => Ok(MediaTransportProtocol::DTLS_SRTP),
+            _ => Err(SDPParseError::UnsupportedMediaProtocol),
         })?;
 
     let media_format_description = split
@@ -347,7 +353,7 @@ fn parse_candidate(input: &str) -> Result<Candidate, SDPParseError> {
 }
 
 #[derive(Debug)]
-struct SDP {
+struct SDPOffer {
     ice_username: String,
     ice_password: String,
     audio_media_description: Vec<Attribute>,
@@ -375,7 +381,10 @@ struct ViewerSDP {
 #[derive(Debug)]
 enum SDPParseError {
     SequenceError,
-    UnsupportedMedia,
+    MissingICECredentials,
+    UnsupportedMediaCount,
+    UnsupportedMediaType,
+    UnsupportedMediaProtocol,
     MalformedAttribute,
     MalformedMediaDescriptor,
     MalformedSDPLine,
@@ -421,13 +430,11 @@ struct MediaDescription {
 enum MediaType {
     Video,
     Audio,
-    Unsupported,
 }
 
 #[derive(Debug)]
 enum MediaTransportProtocol {
     DTLS_SRTP,
-    Unsupported,
 }
 
 #[derive(Debug, Clone)]
@@ -455,7 +462,6 @@ enum MediaCodec {
     Unsupported,
 }
 #[derive(Debug, Clone)]
-
 enum VideoCodec {
     H264,
 }
@@ -488,11 +494,177 @@ const EXAMPLE_SDP: &str = "v=0\r\no=rtc 3767197920 0 IN IP4 127.0.0.1\r\ns=-\r\n
 
 #[cfg(test)]
 mod tests {
-    use crate::sdp_2::{EXAMPLE_SDP, parse_raw_sdp};
 
-    #[test]
-    fn parses_all_attributes() {
-        let sdp_parse = parse_raw_sdp(EXAMPLE_SDP);
-        assert!(sdp_parse.is_ok())
+    mod parse_media_descriptor {
+        use crate::sdp_2::{
+            MediaTransportProtocol, MediaType, parse_media_descriptor, SDPParseError,
+        };
+
+        #[test]
+        fn rejects_unsupported_media_type() {
+            let media_descriptor = "text 52000 UDP 96";
+
+            let parse_error =
+                parse_media_descriptor(media_descriptor).expect_err("Should fail to parse");
+            assert!(
+                matches!(parse_error, SDPParseError::UnsupportedMediaType),
+                "Should reject with UnsupportedMediaType error"
+            )
+        }
+
+        #[test]
+        fn rejects_unsupported_media_transport_protocol() {
+            let media_descriptor = "video 52000 UDP 96";
+
+            let parse_error =
+                parse_media_descriptor(media_descriptor).expect_err("Should fail to parse");
+            assert!(
+                matches!(parse_error, SDPParseError::UnsupportedMediaProtocol),
+                "Should reject with UnsupportedMediaType error"
+            )
+        }
+
+        #[test]
+        fn resolves_supported_media_with_single_payload_number() {
+            let media_descriptor = "video 52000 UDP/TLS/RTP/SAVPF 96";
+
+            let media =
+                parse_media_descriptor(media_descriptor).expect("Should parse to MediaDescription");
+            assert!(
+                matches!(media.media_type, MediaType::Video),
+                "Should resolve media_type to Video"
+            );
+
+            assert!(
+                matches!(media.transport_protocol, MediaTransportProtocol::DTLS_SRTP),
+                "Should resolve transport_protocol to DTLS_RTP"
+            );
+
+            assert_eq!(
+                media.transport_port, 52000,
+                "Should resolve transport port to 52000"
+            );
+            assert_eq!(
+                media.media_format_description,
+                vec![96],
+                "Should resolve to single payload number: 96"
+            )
+        }
+
+        #[test]
+        fn resolves_supported_media_with_multiple_payload_numbers() {
+            let media_descriptor = "video 52000 UDP/TLS/RTP/SAVPF 96 102 112";
+
+            let media =
+                parse_media_descriptor(media_descriptor).expect("Should parse to MediaDescription");
+            assert!(
+                matches!(media.media_type, MediaType::Video),
+                "Should resolve media_type to Video"
+            );
+
+            assert!(
+                matches!(media.transport_protocol, MediaTransportProtocol::DTLS_SRTP),
+                "Should resolve transport_protocol to DTLS_RTP"
+            );
+
+            assert_eq!(
+                media.transport_port, 52000,
+                "Should resolve transport port to 52000"
+            );
+            assert_eq!(
+                media.media_format_description,
+                vec![96, 102, 112],
+                "Should resolve to multiple payload numbers: 96, 102, 112"
+            )
+        }
+    }
+    mod parse_rtpmap {
+        use crate::sdp_2::{MediaCodec, parse_rtpmap, VideoCodec};
+
+        #[test]
+        fn recognizes_unsupported_codec() {
+            let rtp_attr = "96 myCodec";
+
+            let rtp_map = parse_rtpmap(rtp_attr).expect("Should parse to RTPMap");
+
+            assert_eq!(rtp_map.payload_number, 96, "Payload number should match");
+            assert!(
+                matches!(rtp_map.codec, MediaCodec::Unsupported),
+                "Codec should be unsupported"
+            )
+        }
+
+        #[test]
+        fn rejects_malformed_attribute() {
+            let rtp_attr = "96-myCodec";
+
+            let rtp_map = parse_rtpmap(rtp_attr);
+
+            assert!(rtp_map.is_err(), "Should reject attribute parse")
+        }
+
+        #[test]
+        fn accepts_lowercase_video_codec() {
+            let rtp_attr = "96 h264/90000";
+
+            let rtp_map = parse_rtpmap(rtp_attr).expect("Should parse to RTPMap");
+
+            assert_eq!(rtp_map.payload_number, 96, "Payload number should match");
+            assert!(
+                matches!(rtp_map.codec, MediaCodec::Video(VideoCodec::H264)),
+                "Codec should be H264"
+            )
+        }
+
+        #[test]
+        fn accepts_uppercase_video_codec() {
+            let rtp_attr = "96 H264/90000";
+
+            let rtp_map = parse_rtpmap(rtp_attr).expect("Should parse to RTPMap");
+
+            assert_eq!(rtp_map.payload_number, 96, "Payload number should match");
+            assert!(
+                matches!(rtp_map.codec, MediaCodec::Video(VideoCodec::H264)),
+                "Codec should be H264"
+            )
+        }
+    }
+
+    mod parse_fingerprint {
+        use crate::sdp_2::{HashFunction, parse_fingerprint};
+
+        #[test]
+        fn recognizes_unsupported_fingerprint() {
+            let unsupported_fingerprint = "sha-test EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B";
+            let sdp_parse = parse_fingerprint(unsupported_fingerprint);
+            let fingerprint = sdp_parse.expect("Fingerprint parse result should be OK");
+
+            assert_eq!(fingerprint.hash, "EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B", "Hash should match");
+            assert!(
+                matches!(fingerprint.hash_function, HashFunction::Unsupported),
+                "HashFunction should be Unsupported"
+            )
+        }
+
+        #[test]
+        fn fails_on_malformed_attribute() {
+            let unsupported_fingerprint = "sha-1,EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B";
+            let sdp_parse = parse_fingerprint(unsupported_fingerprint);
+            assert!(sdp_parse.is_err(), "Should return Err");
+        }
+
+        #[test]
+        fn recognizes_sha_256() {
+            let unsupported_fingerprint = "sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B";
+            let sdp_parse = parse_fingerprint(unsupported_fingerprint);
+
+            let fingerprint = sdp_parse.expect("Fingerprint parse result should be OK");
+
+            assert_eq!(fingerprint.hash, "EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B", "Hash should match");
+            assert!(
+                matches!(fingerprint.hash_function, HashFunction::SHA256),
+                "HashFunction should be SHA256"
+            )
+        }
     }
 }
