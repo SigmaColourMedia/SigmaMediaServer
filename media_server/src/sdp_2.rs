@@ -302,8 +302,13 @@ fn parse_fmtp(input: &str) -> Result<FMTP, SDPParseError> {
         .parse::<usize>()
         .map_err(|_| SDPParseError::MalformedAttribute)?;
 
+    let format_capability = capabilities
+        .split(";")
+        .map(ToString::to_string)
+        .collect::<Vec<String>>();
+
     Ok(FMTP {
-        format_capability: capabilities.to_string(),
+        format_capability,
         payload_number,
     })
 }
@@ -478,7 +483,7 @@ struct MediaSSRC {
 #[derive(Debug, Clone)]
 struct FMTP {
     payload_number: usize,
-    format_capability: String,
+    format_capability: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -495,14 +500,45 @@ const EXAMPLE_SDP: &str = "v=0\r\no=rtc 3767197920 0 IN IP4 127.0.0.1\r\ns=-\r\n
 #[cfg(test)]
 mod tests {
 
+    mod parse_fmtp {
+        use crate::sdp_2::parse_fmtp;
+
+        #[test]
+        fn rejects_malformed_line() {
+            let attr = "96-profile-level-id other-attributes:1";
+            let parse_result = parse_fmtp(attr);
+            assert!(parse_result.is_err(), "Should reject FMTP attribute")
+        }
+
+        #[test]
+        fn resolves_all_capabilities() {
+            let attr = "96 profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1";
+            let fmtp = parse_fmtp(attr).expect("FMTP should be OK");
+            assert_eq!(
+                fmtp.payload_number, 96,
+                "Should resolve correct payload number"
+            );
+
+            assert_eq!(
+                fmtp.format_capability,
+                vec![
+                    "profile-level-id=42e01f",
+                    "packetization-mode=1",
+                    "level-asymmetry-allowed=1"
+                ]
+            )
+        }
+    }
+
     mod parse_media_descriptor {
         use crate::sdp_2::{
-            MediaTransportProtocol, MediaType, parse_media_descriptor, SDPParseError,
+            EXAMPLE_SDP, MediaTransportProtocol, MediaType, parse_media_descriptor, SDPParseError,
         };
 
         #[test]
         fn rejects_unsupported_media_type() {
             let media_descriptor = "text 52000 UDP 96";
+            println!("{}", EXAMPLE_SDP);
 
             let parse_error =
                 parse_media_descriptor(media_descriptor).expect_err("Should fail to parse");
