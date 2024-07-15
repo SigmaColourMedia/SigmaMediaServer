@@ -12,3 +12,9 @@ byteorder = "1.5.0"
 crc32fast = "1.4.0"
 srtp = "0.7.0"
 threadpool = "1.8.1"
+
+[workspace]
+members = ["crates/sdp"]
+
+[workspace.dependencies]
+sdp = { path = "crates/sdp" }
