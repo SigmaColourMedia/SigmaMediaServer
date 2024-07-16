@@ -92,24 +92,24 @@ pub(crate) enum MediaCodec {
     Video(VideoCodec),
     Unsupported,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum VideoCodec {
     H264,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum AudioCodec {
     Opus,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MediaSSRC {
-    ssrc: String,
+    pub(crate) ssrc: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct FMTP {
     pub(crate) payload_number: usize,
-    format_capability: Vec<String>,
+    pub(crate) format_capability: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

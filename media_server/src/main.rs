@@ -21,7 +21,6 @@ mod acceptor;
 mod client;
 mod config;
 mod http;
-mod http_legacy;
 mod http_server;
 mod ice_registry;
 mod rnd;
