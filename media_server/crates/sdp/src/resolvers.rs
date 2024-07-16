@@ -142,6 +142,7 @@ mod tests {
             assert!(result.is_err())
         }
 
+        #[test]
         fn resolves_valid_offer() {
             let valid_video_media_attributes: Vec<Attribute> = vec![
                 Attribute::SendOnly,
@@ -218,7 +219,7 @@ mod tests {
                 "Audio payload number should be 111"
             );
             assert_eq!(
-                result.remote_video_ssrc,
+                result.remote_audio_ssrc,
                 MediaSSRC {
                     ssrc: "audio-ssrc".to_string()
                 },
