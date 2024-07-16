@@ -14,10 +14,10 @@ pub struct ResolvedSDP {
     remote_audio_ssrc: MediaSSRC,
     video_capability: FMTP,
 }
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum StreamerOfferSDPParseError {
     UnsupportedMediaCodecs,
-    UnsupportedProfileSettings,
+    DemuxRequired,
     MissingVideoProfileSettings,
     MissingRemoteSSRC,
     UnsupportedMediaDirection,
@@ -30,7 +30,7 @@ pub fn accept_streamer_sdp(offer: SDPOffer) -> Result<ResolvedSDP, StreamerOffer
                 .iter()
                 .find_map(|attr| match attr {
                     Attribute::RTPMap(rtpmap) => {
-                        if matches!(&rtpmap.codec, media_codec) {
+                        if rtpmap.codec.eq(&media_codec) {
                             return Some(rtpmap.payload_number);
                         }
                         return None;
@@ -39,6 +39,31 @@ pub fn accept_streamer_sdp(offer: SDPOffer) -> Result<ResolvedSDP, StreamerOffer
                 })
                 .ok_or(StreamerOfferSDPParseError::UnsupportedMediaCodecs)
         };
+
+    // Check if video and audio is demuxed
+    let is_video_demuxed = offer
+        .video_media_description
+        .iter()
+        .find(|attr| match attr {
+            Attribute::RTCPMux => true,
+            _ => false,
+        })
+        .is_some();
+
+    if !is_video_demuxed {
+        return Err(StreamerOfferSDPParseError::DemuxRequired);
+    }
+    let is_audio_demuxed = offer
+        .audio_media_description
+        .iter()
+        .find(|attr| match attr {
+            Attribute::RTCPMux => true,
+            _ => false,
+        })
+        .is_some();
+    if !is_audio_demuxed {
+        return Err(StreamerOfferSDPParseError::DemuxRequired);
+    }
 
     // Check if media direction is set to sendonly
     let is_video_sendonly = offer
@@ -126,7 +151,7 @@ mod tests {
         use crate::line_parsers::{
             Attribute, AudioCodec, FMTP, MediaCodec, MediaSSRC, RTPMap, SDPOffer, VideoCodec,
         };
-        use crate::resolvers::accept_streamer_sdp;
+        use crate::resolvers::{accept_streamer_sdp, StreamerOfferSDPParseError};
 
         #[test]
         fn rejects_empty_media_attributes() {
@@ -140,6 +165,435 @@ mod tests {
             let result = accept_streamer_sdp(offer);
 
             assert!(result.is_err())
+        }
+
+        #[test]
+        fn rejects_recvonly_offer() {
+            let video_attributes: Vec<Attribute> = vec![
+                Attribute::ReceiveOnly,
+                Attribute::RTCPMux,
+                Attribute::MediaSSRC(MediaSSRC {
+                    ssrc: "video-ssrc".to_string(),
+                }),
+                Attribute::FMTP(FMTP {
+                    payload_number: 96,
+                    format_capability: vec!["fake-profile-level".to_string()],
+                }),
+                Attribute::RTPMap(RTPMap {
+                    codec: MediaCodec::Video(VideoCodec::H264),
+                    payload_number: 96,
+                }),
+            ];
+
+            let audio_attributes: Vec<Attribute> = vec![
+                Attribute::ReceiveOnly,
+                Attribute::RTCPMux,
+                Attribute::MediaSSRC(MediaSSRC {
+                    ssrc: "audio-ssrc".to_string(),
+                }),
+                Attribute::RTPMap(RTPMap {
+                    codec: MediaCodec::Audio(AudioCodec::Opus),
+                    payload_number: 111,
+                }),
+            ];
+
+            let offer_username = "username";
+            let offer_password = "password";
+
+            let offer = SDPOffer {
+                ice_username: offer_username.to_string(),
+                ice_password: offer_password.to_string(),
+                audio_media_description: audio_attributes,
+                video_media_description: video_attributes,
+            };
+
+            let result = accept_streamer_sdp(offer).expect_err("Should reject offer");
+
+            assert_eq!(
+                result,
+                StreamerOfferSDPParseError::UnsupportedMediaDirection,
+                "Should fail with UnsupportedMediaDirection error"
+            )
+        }
+
+        #[test]
+        fn rejects_video_recvonly_offer() {
+            let video_attributes: Vec<Attribute> = vec![
+                Attribute::ReceiveOnly,
+                Attribute::RTCPMux,
+                Attribute::MediaSSRC(MediaSSRC {
+                    ssrc: "video-ssrc".to_string(),
+                }),
+                Attribute::FMTP(FMTP {
+                    payload_number: 96,
+                    format_capability: vec!["fake-profile-level".to_string()],
+                }),
+                Attribute::RTPMap(RTPMap {
+                    codec: MediaCodec::Video(VideoCodec::H264),
+                    payload_number: 96,
+                }),
+            ];
+
+            let audio_attributes: Vec<Attribute> = vec![
+                Attribute::SendOnly,
+                Attribute::RTCPMux,
+                Attribute::MediaSSRC(MediaSSRC {
+                    ssrc: "audio-ssrc".to_string(),
+                }),
+                Attribute::RTPMap(RTPMap {
+                    codec: MediaCodec::Audio(AudioCodec::Opus),
+                    payload_number: 111,
+                }),
+            ];
+
+            let offer_username = "username";
+            let offer_password = "password";
+
+            let offer = SDPOffer {
+                ice_username: offer_username.to_string(),
+                ice_password: offer_password.to_string(),
+                audio_media_description: audio_attributes,
+                video_media_description: video_attributes,
+            };
+
+            let result = accept_streamer_sdp(offer).expect_err("Should reject offer");
+
+            assert_eq!(
+                result,
+                StreamerOfferSDPParseError::UnsupportedMediaDirection,
+                "Should fail with UnsupportedMediaDirection error"
+            )
+        }
+
+        #[test]
+        fn rejects_audio_recvonly_offer() {
+            let video_attributes: Vec<Attribute> = vec![
+                Attribute::SendOnly,
+                Attribute::RTCPMux,
+                Attribute::MediaSSRC(MediaSSRC {
+                    ssrc: "video-ssrc".to_string(),
+                }),
+                Attribute::FMTP(FMTP {
+                    payload_number: 96,
+                    format_capability: vec!["fake-profile-level".to_string()],
+                }),
+                Attribute::RTPMap(RTPMap {
+                    codec: MediaCodec::Video(VideoCodec::H264),
+                    payload_number: 96,
+                }),
+            ];
+
+            let audio_attributes: Vec<Attribute> = vec![
+                Attribute::ReceiveOnly,
+                Attribute::RTCPMux,
+                Attribute::MediaSSRC(MediaSSRC {
+                    ssrc: "audio-ssrc".to_string(),
+                }),
+                Attribute::RTPMap(RTPMap {
+                    codec: MediaCodec::Audio(AudioCodec::Opus),
+                    payload_number: 111,
+                }),
+            ];
+
+            let offer_username = "username";
+            let offer_password = "password";
+
+            let offer = SDPOffer {
+                ice_username: offer_username.to_string(),
+                ice_password: offer_password.to_string(),
+                audio_media_description: audio_attributes,
+                video_media_description: video_attributes,
+            };
+
+            let result = accept_streamer_sdp(offer).expect_err("Should reject offer");
+
+            assert_eq!(
+                result,
+                StreamerOfferSDPParseError::UnsupportedMediaDirection,
+                "Should fail with UnsupportedMediaDirection error"
+            )
+        }
+
+        #[test]
+        fn rejects_non_muxed_offer() {
+            let video_attributes: Vec<Attribute> = vec![
+                Attribute::SendOnly,
+                Attribute::MediaSSRC(MediaSSRC {
+                    ssrc: "video-ssrc".to_string(),
+                }),
+                Attribute::FMTP(FMTP {
+                    payload_number: 96,
+                    format_capability: vec!["fake-profile-level".to_string()],
+                }),
+                Attribute::RTPMap(RTPMap {
+                    codec: MediaCodec::Video(VideoCodec::H264),
+                    payload_number: 96,
+                }),
+            ];
+
+            let audio_attributes: Vec<Attribute> = vec![
+                Attribute::SendOnly,
+                Attribute::MediaSSRC(MediaSSRC {
+                    ssrc: "audio-ssrc".to_string(),
+                }),
+                Attribute::RTPMap(RTPMap {
+                    codec: MediaCodec::Audio(AudioCodec::Opus),
+                    payload_number: 111,
+                }),
+            ];
+
+            let offer_username = "username";
+            let offer_password = "password";
+
+            let offer = SDPOffer {
+                ice_username: offer_username.to_string(),
+                ice_password: offer_password.to_string(),
+                audio_media_description: audio_attributes,
+                video_media_description: video_attributes,
+            };
+
+            let result = accept_streamer_sdp(offer).expect_err("Should reject offer");
+
+            assert_eq!(
+                result,
+                StreamerOfferSDPParseError::DemuxRequired,
+                "Should fail with DemuxRequired error"
+            )
+        }
+
+        #[test]
+        fn rejects_offer_with_unsupported_video_codecs() {
+            let video_attributes: Vec<Attribute> = vec![
+                Attribute::SendOnly,
+                Attribute::RTCPMux,
+                Attribute::MediaSSRC(MediaSSRC {
+                    ssrc: "video-ssrc".to_string(),
+                }),
+                Attribute::FMTP(FMTP {
+                    payload_number: 96,
+                    format_capability: vec!["fake-profile-level".to_string()],
+                }),
+                Attribute::RTPMap(RTPMap {
+                    codec: MediaCodec::Unsupported,
+                    payload_number: 96,
+                }),
+            ];
+
+            let audio_attributes: Vec<Attribute> = vec![
+                Attribute::SendOnly,
+                Attribute::RTCPMux,
+                Attribute::MediaSSRC(MediaSSRC {
+                    ssrc: "audio-ssrc".to_string(),
+                }),
+                Attribute::RTPMap(RTPMap {
+                    codec: MediaCodec::Audio(AudioCodec::Opus),
+                    payload_number: 111,
+                }),
+            ];
+
+            let offer_username = "username";
+            let offer_password = "password";
+
+            let offer = SDPOffer {
+                ice_username: offer_username.to_string(),
+                ice_password: offer_password.to_string(),
+                audio_media_description: audio_attributes,
+                video_media_description: video_attributes,
+            };
+
+            let result = accept_streamer_sdp(offer).expect_err("Should reject offer");
+
+            assert_eq!(
+                result,
+                StreamerOfferSDPParseError::UnsupportedMediaCodecs,
+                "Should fail with UnsupportedMediaCodecs error"
+            )
+        }
+
+        #[test]
+        fn rejects_offer_with_unsupported_audio_codecs() {
+            let video_attributes: Vec<Attribute> = vec![
+                Attribute::SendOnly,
+                Attribute::RTCPMux,
+                Attribute::MediaSSRC(MediaSSRC {
+                    ssrc: "video-ssrc".to_string(),
+                }),
+                Attribute::FMTP(FMTP {
+                    payload_number: 96,
+                    format_capability: vec!["fake-profile-level".to_string()],
+                }),
+                Attribute::RTPMap(RTPMap {
+                    codec: MediaCodec::Video(VideoCodec::H264),
+                    payload_number: 96,
+                }),
+            ];
+
+            let audio_attributes: Vec<Attribute> = vec![
+                Attribute::SendOnly,
+                Attribute::RTCPMux,
+                Attribute::MediaSSRC(MediaSSRC {
+                    ssrc: "audio-ssrc".to_string(),
+                }),
+                Attribute::RTPMap(RTPMap {
+                    codec: MediaCodec::Unsupported,
+                    payload_number: 111,
+                }),
+            ];
+
+            let offer_username = "username";
+            let offer_password = "password";
+
+            let offer = SDPOffer {
+                ice_username: offer_username.to_string(),
+                ice_password: offer_password.to_string(),
+                audio_media_description: audio_attributes,
+                video_media_description: video_attributes,
+            };
+
+            let result = accept_streamer_sdp(offer).expect_err("Should reject offer");
+
+            assert_eq!(
+                result,
+                StreamerOfferSDPParseError::UnsupportedMediaCodecs,
+                "Should fail with UnsupportedMediaCodecs error"
+            )
+        }
+
+        #[test]
+        fn rejects_offer_with_missing_video_ssrc() {
+            let video_attributes: Vec<Attribute> = vec![
+                Attribute::SendOnly,
+                Attribute::RTCPMux,
+                Attribute::FMTP(FMTP {
+                    payload_number: 96,
+                    format_capability: vec!["fake-profile-level".to_string()],
+                }),
+                Attribute::RTPMap(RTPMap {
+                    codec: MediaCodec::Video(VideoCodec::H264),
+                    payload_number: 96,
+                }),
+            ];
+
+            let audio_attributes: Vec<Attribute> = vec![
+                Attribute::SendOnly,
+                Attribute::RTCPMux,
+                Attribute::MediaSSRC(MediaSSRC {
+                    ssrc: "audio-ssrc".to_string(),
+                }),
+                Attribute::RTPMap(RTPMap {
+                    codec: MediaCodec::Audio(AudioCodec::Opus),
+                    payload_number: 111,
+                }),
+            ];
+
+            let offer_username = "username";
+            let offer_password = "password";
+
+            let offer = SDPOffer {
+                ice_username: offer_username.to_string(),
+                ice_password: offer_password.to_string(),
+                audio_media_description: audio_attributes,
+                video_media_description: video_attributes,
+            };
+
+            let result = accept_streamer_sdp(offer).expect_err("Should reject offer");
+
+            assert_eq!(
+                result,
+                StreamerOfferSDPParseError::MissingRemoteSSRC,
+                "Should fail with MissingRemoteSSRC error"
+            )
+        }
+
+        #[test]
+        fn rejects_offer_with_missing_audio_ssrc() {
+            let video_attributes: Vec<Attribute> = vec![
+                Attribute::SendOnly,
+                Attribute::RTCPMux,
+                Attribute::MediaSSRC(MediaSSRC {
+                    ssrc: "video-ssrc".to_string(),
+                }),
+                Attribute::FMTP(FMTP {
+                    payload_number: 96,
+                    format_capability: vec!["fake-profile-level".to_string()],
+                }),
+                Attribute::RTPMap(RTPMap {
+                    codec: MediaCodec::Video(VideoCodec::H264),
+                    payload_number: 96,
+                }),
+            ];
+
+            let audio_attributes: Vec<Attribute> = vec![
+                Attribute::SendOnly,
+                Attribute::RTCPMux,
+                Attribute::RTPMap(RTPMap {
+                    codec: MediaCodec::Audio(AudioCodec::Opus),
+                    payload_number: 111,
+                }),
+            ];
+
+            let offer_username = "username";
+            let offer_password = "password";
+
+            let offer = SDPOffer {
+                ice_username: offer_username.to_string(),
+                ice_password: offer_password.to_string(),
+                audio_media_description: audio_attributes,
+                video_media_description: video_attributes,
+            };
+
+            let result = accept_streamer_sdp(offer).expect_err("Should reject offer");
+
+            assert_eq!(
+                result,
+                StreamerOfferSDPParseError::MissingRemoteSSRC,
+                "Should fail with MissingRemoteSSRC error"
+            )
+        }
+
+        #[test]
+        fn rejects_offer_with_missing_video_fmtp() {
+            let video_attributes: Vec<Attribute> = vec![
+                Attribute::SendOnly,
+                Attribute::RTCPMux,
+                Attribute::MediaSSRC(MediaSSRC {
+                    ssrc: "video-ssrc".to_string(),
+                }),
+                Attribute::RTPMap(RTPMap {
+                    codec: MediaCodec::Video(VideoCodec::H264),
+                    payload_number: 96,
+                }),
+            ];
+
+            let audio_attributes: Vec<Attribute> = vec![
+                Attribute::SendOnly,
+                Attribute::RTCPMux,
+                Attribute::MediaSSRC(MediaSSRC {
+                    ssrc: "audio-ssrc".to_string(),
+                }),
+                Attribute::RTPMap(RTPMap {
+                    codec: MediaCodec::Audio(AudioCodec::Opus),
+                    payload_number: 111,
+                }),
+            ];
+
+            let offer_username = "username";
+            let offer_password = "password";
+
+            let offer = SDPOffer {
+                ice_username: offer_username.to_string(),
+                ice_password: offer_password.to_string(),
+                audio_media_description: audio_attributes,
+                video_media_description: video_attributes,
+            };
+
+            let result = accept_streamer_sdp(offer).expect_err("Should reject offer");
+
+            assert_eq!(
+                result,
+                StreamerOfferSDPParseError::MissingVideoProfileSettings,
+                "Should fail with MissingVideoProfileSettings error"
+            )
         }
 
         #[test]

@@ -86,7 +86,7 @@ pub(crate) struct RTPMap {
     pub(crate) payload_number: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum MediaCodec {
     Audio(AudioCodec),
     Video(VideoCodec),
