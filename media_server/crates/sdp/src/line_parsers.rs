@@ -49,32 +49,262 @@ pub(crate) enum Attribute {
     Candidate(Candidate),
 }
 
-impl Into<String> for Attribute {
-    fn into(self) -> String {
-        let attribute_name = match self {
-            Attribute::Unrecognized => "undefined",
-            Attribute::SendOnly => "sendonly",
-            Attribute::ReceiveOnly => "recvonly",
-            Attribute::RTCPMux => "rtcp-mux",
-            Attribute::MediaID(attr) => attr.into(),
-            Attribute::ICEUsername(attr) => attr.into(),
-            Attribute::ICEPassword(attr) => attr.into(),
-            Attribute::Fingerprint(attr) => attr.into(),
-            Attribute::MediaGroup(attr) => attr.into(),
-            Attribute::MediaSSRC(attr) => attr.into(),
-            Attribute::RTPMap(attr) => attr.into(),
-            Attribute::FMTP(attr) => attr.into(),
-            Attribute::Candidate(attr) => attr.into(),
-        };
-        format!("a={attribute_name}")
-    }
-}
 #[derive(Debug)]
 pub(crate) struct MediaDescription {
     media_type: MediaType,
     transport_port: usize,
     transport_protocol: MediaTransportProtocol,
     media_format_description: Vec<usize>,
+}
+
+#[derive(Debug)]
+pub(crate) enum MediaType {
+    Video,
+    Audio,
+}
+
+#[derive(Debug)]
+enum MediaTransportProtocol {
+    DtlsSrtp,
+}
+
+#[derive(Clone, Debug)]
+struct MediaID {
+    id: String,
+}
+
+#[derive(Clone, Debug)]
+struct MediaGroup {
+    group: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Fingerprint {
+    hash_function: HashFunction,
+    hash: String,
+}
+
+#[derive(Debug, Clone)]
+enum HashFunction {
+    SHA256,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum MediaCodec {
+    Audio(AudioCodec),
+    Video(VideoCodec),
+    Unsupported,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum VideoCodec {
+    H264,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum AudioCodec {
+    Opus,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct MediaSSRC {
+    pub(crate) ssrc: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct RTPMap {
+    pub(crate) codec: MediaCodec,
+    pub(crate) payload_number: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct FMTP {
+    pub(crate) payload_number: usize,
+    pub(crate) format_capability: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct Candidate {
+    foundation: String,
+    component_id: usize,
+    priority: usize,
+    connection_address: IpAddr,
+    port: usize,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ICEUsername {
+    username: String,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ICEPassword {
+    password: String,
+}
+
+impl From<Attribute> for String {
+    fn from(value: Attribute) -> Self {
+        let attribute_name = match value {
+            Attribute::Unrecognized => "undefined".to_string(),
+            Attribute::SendOnly => "sendonly".to_string(),
+            Attribute::ReceiveOnly => "recvonly".to_string(),
+            Attribute::RTCPMux => "rtcp-mux".to_string(),
+            Attribute::MediaID(attr) => String::from(attr),
+            Attribute::ICEUsername(attr) => String::from(attr),
+            Attribute::ICEPassword(attr) => String::from(attr),
+            Attribute::Fingerprint(attr) => String::from(attr),
+            Attribute::MediaGroup(attr) => String::from(attr),
+            Attribute::MediaSSRC(attr) => String::from(attr),
+            Attribute::RTPMap(attr) => String::from(attr),
+            Attribute::FMTP(attr) => String::from(attr),
+            Attribute::Candidate(attr) => String::from(attr),
+        };
+        format!("a={attribute_name}")
+    }
+}
+
+impl From<ICEUsername> for String {
+    fn from(value: ICEUsername) -> Self {
+        format!("ice-ufrag:{}", value.username)
+    }
+}
+
+impl From<ICEPassword> for String {
+    fn from(value: ICEPassword) -> Self {
+        format!("ice-pwd:{}", value.password)
+    }
+}
+
+impl From<MediaType> for String {
+    fn from(value: MediaType) -> Self {
+        match value {
+            MediaType::Video => "video".to_string(),
+
+            MediaType::Audio => "audio".to_string(),
+        }
+    }
+}
+
+impl From<MediaTransportProtocol> for String {
+    fn from(value: MediaTransportProtocol) -> Self {
+        match value {
+            MediaTransportProtocol::DtlsSrtp => "UDP/TLS/RTP/SAVPF".to_string(),
+        }
+    }
+}
+
+impl From<MediaDescription> for String {
+    fn from(value: MediaDescription) -> Self {
+        let media_payloads = value
+            .media_format_description
+            .into_iter()
+            .map(|item| item.to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!(
+            "{} {} {} {}",
+            String::from(value.media_type),
+            value.transport_port,
+            String::from(value.transport_protocol),
+            media_payloads
+        )
+    }
+}
+
+impl From<MediaID> for String {
+    fn from(value: MediaID) -> Self {
+        format!("mid:{}", value.id)
+    }
+}
+
+impl From<MediaGroup> for String {
+    fn from(value: MediaGroup) -> Self {
+        format!("group:{}", value.group)
+    }
+}
+
+impl From<Fingerprint> for String {
+    fn from(value: Fingerprint) -> Self {
+        format!(
+            "fingerprint:{} {}",
+            String::from(value.hash_function),
+            value.hash
+        )
+    }
+}
+
+impl From<HashFunction> for String {
+    fn from(value: HashFunction) -> Self {
+        match value {
+            HashFunction::SHA256 => "sha-256".to_string(),
+            HashFunction::Unsupported => "unsupported".to_string(),
+        }
+    }
+}
+
+impl From<RTPMap> for String {
+    fn from(value: RTPMap) -> Self {
+        format!(
+            "rtpmap:{} {}",
+            value.payload_number,
+            String::from(value.codec)
+        )
+    }
+}
+
+impl From<MediaCodec> for String {
+    fn from(value: MediaCodec) -> Self {
+        match value {
+            MediaCodec::Audio(audio_codec) => String::from(audio_codec),
+            MediaCodec::Video(video_codec) => String::from(video_codec),
+            MediaCodec::Unsupported => {
+                panic!("Unsupported MediaCodec should not be converted to String")
+            }
+        }
+    }
+}
+
+impl From<VideoCodec> for String {
+    fn from(value: VideoCodec) -> Self {
+        match value {
+            VideoCodec::H264 => "h264/90000".to_string(),
+        }
+    }
+}
+
+impl From<AudioCodec> for String {
+    fn from(value: AudioCodec) -> Self {
+        match value {
+            AudioCodec::Opus => "opus/48000/2".to_string(),
+        }
+    }
+}
+
+impl From<MediaSSRC> for String {
+    fn from(value: MediaSSRC) -> Self {
+        format!("ssrc:{}", value.ssrc)
+    }
+}
+
+impl From<FMTP> for String {
+    fn from(value: FMTP) -> Self {
+        let format_capabilities = value.format_capability.join(";");
+        format!("fmtp:{} {}", value.payload_number, format_capabilities)
+    }
+}
+
+impl From<Candidate> for String {
+    fn from(value: Candidate) -> Self {
+        format!(
+            "cadidate:{} {} UDP {} {} {}",
+            value.foundation,
+            value.component_id,
+            value.priority,
+            value.connection_address.to_string(),
+            value.port
+        )
+    }
 }
 
 impl TryFrom<&str> for MediaDescription {
@@ -113,29 +343,6 @@ impl TryFrom<&str> for MediaDescription {
     }
 }
 
-impl Into<String> for MediaDescription {
-    fn into(self) -> String {
-        let media_payloads = self
-            .media_format_description
-            .into_iter()
-            .map(|item| item.to_string())
-            .join(" ");
-        format!(
-            "{} {} {} {}",
-            self.media_type.into(),
-            self.transport_port,
-            self.transport_protocol.into(),
-            media_payloads
-        )
-    }
-}
-
-#[derive(Debug)]
-pub(crate) enum MediaType {
-    Video,
-    Audio,
-}
-
 impl TryFrom<&str> for MediaType {
     type Error = LineParseError;
 
@@ -148,20 +355,6 @@ impl TryFrom<&str> for MediaType {
     }
 }
 
-impl Into<String> for MediaType {
-    fn into(self) -> String {
-        match self {
-            MediaType::Video => "video".to_string(),
-            MediaType::Audio => "audio".to_string(),
-        }
-    }
-}
-
-#[derive(Debug)]
-enum MediaTransportProtocol {
-    DtlsSrtp,
-}
-
 impl TryFrom<&str> for MediaTransportProtocol {
     type Error = LineParseError;
 
@@ -171,19 +364,6 @@ impl TryFrom<&str> for MediaTransportProtocol {
             _ => Err(Self::Error::UnsupportedMediaProtocol),
         }
     }
-}
-
-impl Into<String> for MediaTransportProtocol {
-    fn into(self) -> String {
-        match self {
-            MediaTransportProtocol::DtlsSrtp => "UDP/TLS/RTP/SAVPF".to_string(),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-struct MediaID {
-    id: String,
 }
 
 impl TryFrom<&str> for MediaID {
@@ -199,17 +379,6 @@ impl TryFrom<&str> for MediaID {
     }
 }
 
-impl Into<String> for MediaID {
-    fn into(self) -> String {
-        format!("mid:{}", self.id)
-    }
-}
-
-#[derive(Clone, Debug)]
-struct MediaGroup {
-    group: String,
-}
-
 impl TryFrom<&str> for MediaGroup {
     type Error = LineParseError;
 
@@ -221,18 +390,6 @@ impl TryFrom<&str> for MediaGroup {
             group: value.to_string(),
         })
     }
-}
-
-impl Into<String> for MediaGroup {
-    fn into(self) -> String {
-        format!("group:{}", self.group)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct Fingerprint {
-    hash_function: HashFunction,
-    hash: String,
 }
 
 impl TryFrom<&str> for Fingerprint {
@@ -255,18 +412,6 @@ impl TryFrom<&str> for Fingerprint {
     }
 }
 
-impl Into<String> for Fingerprint {
-    fn into(self) -> String {
-        format!("fingerprint:{} {}", self.hash_function.into(), self.hash)
-    }
-}
-
-#[derive(Debug, Clone)]
-enum HashFunction {
-    SHA256,
-    Unsupported,
-}
-
 impl From<&str> for HashFunction {
     fn from(value: &str) -> Self {
         match value {
@@ -274,21 +419,6 @@ impl From<&str> for HashFunction {
             _ => HashFunction::Unsupported,
         }
     }
-}
-
-impl Into<String> for HashFunction {
-    fn into(self) -> String {
-        match self {
-            HashFunction::SHA256 => "sha-256".to_string(),
-            HashFunction::Unsupported => "unsupported".to_string(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct RTPMap {
-    pub(crate) codec: MediaCodec,
-    pub(crate) payload_number: usize,
 }
 
 impl TryFrom<&str> for RTPMap {
@@ -319,59 +449,6 @@ impl TryFrom<&str> for RTPMap {
     }
 }
 
-impl Into<String> for RTPMap {
-    fn into(self) -> String {
-        format!("rtpmap:{} {}", self.payload_number, self.codec.into())
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum MediaCodec {
-    Audio(AudioCodec),
-    Video(VideoCodec),
-    Unsupported,
-}
-
-impl Into<String> for MediaCodec {
-    fn into(self) -> String {
-        match self {
-            MediaCodec::Audio(audio_codec) => audio_codec.into(),
-            MediaCodec::Video(video_codec) => video_codec.into(),
-            MediaCodec::Unsupported => {
-                panic!("Unsupported MediaCodec should not be converted to String")
-            }
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum VideoCodec {
-    H264,
-}
-
-impl Into<String> for VideoCodec {
-    fn into(self) -> String {
-        match self {
-            VideoCodec::H264 => "h264/90000".to_string(),
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum AudioCodec {
-    Opus,
-}
-impl Into<String> for AudioCodec {
-    fn into(self) -> String {
-        match self {
-            AudioCodec::Opus => "opus/48000/2".to_string(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct MediaSSRC {
-    pub(crate) ssrc: String,
-}
-
 impl TryFrom<&str> for MediaSSRC {
     type Error = LineParseError;
 
@@ -388,17 +465,6 @@ impl TryFrom<&str> for MediaSSRC {
             ssrc: ssrc.to_string(),
         })
     }
-}
-impl Into<String> for MediaSSRC {
-    fn into(self) -> String {
-        format!("ssrc:{}", self.ssrc)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct FMTP {
-    pub(crate) payload_number: usize,
-    pub(crate) format_capability: Vec<String>,
 }
 
 impl TryFrom<&str> for FMTP {
@@ -426,21 +492,6 @@ impl TryFrom<&str> for FMTP {
             payload_number,
         })
     }
-}
-impl Into<String> for FMTP {
-    fn into(self) -> String {
-        let format_capabilities = self.format_capability.join(";");
-        format!("fmtp:{} {}", self.payload_number, format_capabilities)
-    }
-}
-
-#[derive(Debug, Clone)]
-struct Candidate {
-    foundation: String,
-    component_id: usize,
-    priority: usize,
-    connection_address: IpAddr,
-    port: usize,
 }
 
 impl TryFrom<&str> for Candidate {
@@ -494,24 +545,6 @@ impl TryFrom<&str> for Candidate {
     }
 }
 
-impl Into<String> for Candidate {
-    fn into(self) -> String {
-        format!(
-            "cadidate:{} {} UDP {} {} {}",
-            self.foundation,
-            self.component_id,
-            self.priority,
-            self.connection_address.to_string(),
-            self.port
-        )
-    }
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct ICEUsername {
-    username: String,
-}
-
 impl TryFrom<&str> for ICEUsername {
     type Error = LineParseError;
 
@@ -525,17 +558,6 @@ impl TryFrom<&str> for ICEUsername {
     }
 }
 
-impl Into<String> for ICEUsername {
-    fn into(self) -> String {
-        format!("ice-ufrag:{}", self.username)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct ICEPassword {
-    password: String,
-}
-
 impl TryFrom<&str> for ICEPassword {
     type Error = LineParseError;
 
@@ -546,12 +568,6 @@ impl TryFrom<&str> for ICEPassword {
         Ok(ICEPassword {
             password: value.to_string(),
         })
-    }
-}
-
-impl Into<String> for ICEPassword {
-    fn into(self) -> String {
-        format!("ice-pwd:{}", self.password)
     }
 }
 
