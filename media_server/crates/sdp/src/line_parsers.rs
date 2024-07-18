@@ -1,6 +1,13 @@
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 
+#[derive(Debug)]
+pub(crate) struct SDPOffer {
+    pub(crate) ice_username: ICEUsername,
+    pub(crate) ice_password: ICEPassword,
+    pub(crate) audio_media_description: Vec<Attribute>,
+    pub(crate) video_media_description: Vec<Attribute>,
+}
 #[derive(Debug)]
 pub enum LineParseError {
     SequenceError,
@@ -18,18 +25,15 @@ enum SDPLine {
     Originator(String),
     SessionName(String),
     SessionTime(String),
-    ConnectionData(String),
+    ConnectionData(ConnectionData),
     Attribute(Attribute),
     MediaDescription(MediaDescription),
     Unrecognized,
 }
 
 #[derive(Debug)]
-pub(crate) struct SDPOffer {
-    pub(crate) ice_username: ICEUsername,
-    pub(crate) ice_password: ICEPassword,
-    pub(crate) audio_media_description: Vec<Attribute>,
-    pub(crate) video_media_description: Vec<Attribute>,
+struct ConnectionData {
+    ip: IpAddr,
 }
 
 #[derive(Debug, Clone)]
@@ -135,12 +139,37 @@ struct Candidate {
 
 #[derive(Clone, Debug)]
 pub(crate) struct ICEUsername {
-    username: String,
+    pub(crate) username: String,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct ICEPassword {
-    password: String,
+    pub(crate) password: String,
+}
+
+impl From<SDPLine> for String {
+    fn from(value: SDPLine) -> Self {
+        match value {
+            SDPLine::ProtocolVersion(proto) => format!("v={}", proto),
+            SDPLine::Originator(originator) => format!("o={}", originator),
+            SDPLine::SessionName(session_name) => format!("s={}", session_name),
+            SDPLine::SessionTime(session_time) => format!("t={}", session_time),
+            SDPLine::ConnectionData(connection_data) => String::from(connection_data),
+            SDPLine::Attribute(attr) => String::from(attr),
+            SDPLine::MediaDescription(media_description) => String::from(media_description),
+            SDPLine::Unrecognized => "undefined-attribute".to_string(), //todo handle Unrecognized cases
+        }
+    }
+}
+
+impl From<ConnectionData> for String {
+    fn from(value: ConnectionData) -> Self {
+        let ip_family = match &value.ip {
+            IpAddr::V4(_) => "IP4",
+            IpAddr::V6(_) => "IP6",
+        };
+        format!("c=IN {} {}", ip_family, ip_family.to_string())
+    }
 }
 
 impl From<Attribute> for String {
@@ -203,7 +232,7 @@ impl From<MediaDescription> for String {
             .collect::<Vec<_>>()
             .join(" ");
         format!(
-            "{} {} {} {}",
+            "m={} {} {} {}",
             String::from(value.media_type),
             value.transport_port,
             String::from(value.transport_protocol),
@@ -307,6 +336,55 @@ impl From<Candidate> for String {
     }
 }
 
+impl TryFrom<&str> for SDPLine {
+    type Error = LineParseError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let (sdp_type, value) = value
+            .split_once("=")
+            .ok_or(LineParseError::MalformedSDPLine)?;
+        match sdp_type {
+            "v" => Ok(SDPLine::ProtocolVersion(value.to_string())),
+            "c" => Ok(SDPLine::ConnectionData(ConnectionData::try_from(value)?)),
+            "o" => Ok(SDPLine::Originator(value.to_string())),
+            "s" => Ok(SDPLine::SessionName(value.to_string())),
+            "t" => Ok(SDPLine::SessionTime(value.to_string())),
+            "m" => Ok(SDPLine::MediaDescription(MediaDescription::try_from(
+                value,
+            )?)),
+            "a" => Ok(SDPLine::Attribute(Attribute::try_from(value)?)),
+            _ => Ok(SDPLine::Unrecognized),
+        }
+    }
+}
+
+impl TryFrom<&str> for Attribute {
+    type Error = LineParseError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let key = value
+            .split(":")
+            .next()
+            .ok_or(Self::Error::MalformedAttribute)?;
+
+        match key {
+            "ice-ufrag" => Ok(Attribute::ICEUsername(ICEUsername::try_from(value)?)),
+            "ice-pwd" => Ok(Attribute::ICEPassword(ICEPassword::try_from(value)?)),
+            "fingerprint" => Ok(Attribute::Fingerprint(Fingerprint::try_from(value)?)),
+            "candidate" => Ok(Attribute::Candidate(Candidate::try_from(value)?)),
+            "ssrc" => Ok(Attribute::MediaSSRC(MediaSSRC::try_from(value)?)),
+            "sendonly" => Ok(Attribute::SendOnly),
+            "recvonly" => Ok(Attribute::ReceiveOnly),
+            "mid" => Ok(Attribute::MediaID(MediaID::try_from(value)?)),
+            "group" => Ok(Attribute::MediaGroup(MediaGroup::try_from(value)?)),
+            "rtpmap" => Ok(Attribute::RTPMap(RTPMap::try_from(value)?)),
+            "fmtp" => Ok(Attribute::FMTP(FMTP::try_from(value)?)),
+            "rtcp-mux" => Ok(Attribute::RTCPMux),
+            _ => Ok(Attribute::Unrecognized),
+        }
+    }
+}
+
 impl TryFrom<&str> for MediaDescription {
     type Error = LineParseError;
 
@@ -340,6 +418,45 @@ impl TryFrom<&str> for MediaDescription {
             media_format_description,
             transport_protocol,
         })
+    }
+}
+
+impl TryFrom<&str> for ConnectionData {
+    type Error = LineParseError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let (_, value) = value
+            .split_once("c=")
+            .ok_or(Self::Error::MalformedSDPLine)?;
+        let mut split = value.split(" ");
+
+        let first_line_matches_pattern = split
+            .next()
+            .ok_or(Self::Error::MalformedSDPLine)?
+            .eq_ignore_ascii_case("in");
+
+        if !first_line_matches_pattern {
+            return Err(Self::Error::MalformedSDPLine);
+        }
+
+        let ip_addr = split
+            .next()
+            .and_then(|line| match line {
+                "IP4" => {
+                    let unparsed_ip = split.next()?;
+                    let ip = Ipv4Addr::from_str(unparsed_ip).ok()?;
+                    Some(IpAddr::V4(ip))
+                }
+                "IP6" => {
+                    let unparsed_ip = split.next()?;
+                    let ip = Ipv6Addr::from_str(unparsed_ip).ok()?;
+                    Some(IpAddr::V6(ip))
+                }
+                _ => None,
+            })
+            .ok_or(Self::Error::MalformedSDPLine)?;
+
+        Ok(Self { ip: ip_addr })
     }
 }
 
@@ -574,7 +691,7 @@ impl TryFrom<&str> for ICEPassword {
 pub fn parse_raw_sdp_offer(data: &str) -> Result<SDPOffer, LineParseError> {
     let sdp_lines = data
         .lines()
-        .map(parse_sdp_line)
+        .map(SDPLine::try_from)
         .collect::<Result<Vec<SDPLine>, LineParseError>>()?;
 
     let mut iter = sdp_lines.iter();
@@ -690,50 +807,6 @@ pub fn parse_raw_sdp_offer(data: &str) -> Result<SDPOffer, LineParseError> {
         audio_media_description: audio_media_attributes,
         video_media_description: video_media_attributes,
     })
-}
-
-fn parse_sdp_line(line: &str) -> Result<SDPLine, LineParseError> {
-    let (sdp_type, value) = line
-        .split_once("=")
-        .ok_or(LineParseError::MalformedSDPLine)?;
-    match sdp_type {
-        "v" => Ok(SDPLine::ProtocolVersion(value.to_string())),
-        "o" => Ok(SDPLine::Originator(value.to_string())),
-        "s" => Ok(SDPLine::SessionName(value.to_string())),
-        "t" => Ok(SDPLine::SessionTime(value.to_string())),
-        "m" => Ok(SDPLine::MediaDescription(MediaDescription::try_from(
-            value,
-        )?)),
-        "a" => {
-            let attribute = parse_attribute(value)?;
-
-            Ok(SDPLine::Attribute(attribute))
-        }
-        _ => Ok(SDPLine::Unrecognized),
-    }
-}
-
-fn parse_attribute(attribute: &str) -> Result<Attribute, LineParseError> {
-    let (key, value) = attribute
-        .split_once(":")
-        .map(|(key, value)| (key, Some(value.to_string())))
-        .unwrap_or((attribute, None));
-
-    match key {
-        "ice-ufrag" => Ok(Attribute::ICEUsername(ICEUsername::try_from(attribute)?)),
-        "ice-pwd" => Ok(Attribute::ICEPassword(ICEPassword::try_from(attribute)?)),
-        "fingerprint" => Ok(Attribute::Fingerprint(Fingerprint::try_from(attribute)?)),
-        "candidate" => Ok(Attribute::Candidate(Candidate::try_from(attribute)?)),
-        "ssrc" => Ok(Attribute::MediaSSRC(MediaSSRC::try_from(attribute)?)),
-        "sendonly" => Ok(Attribute::SendOnly),
-        "recvonly" => Ok(Attribute::ReceiveOnly),
-        "mid" => Ok(Attribute::MediaID(MediaID::try_from(attribute)?)),
-        "group" => Ok(Attribute::MediaGroup(MediaGroup::try_from(attribute)?)),
-        "rtpmap" => Ok(Attribute::RTPMap(RTPMap::try_from(attribute)?)),
-        "fmtp" => Ok(Attribute::FMTP(FMTP::try_from(attribute)?)),
-        "rtcp-mux" => Ok(Attribute::RTCPMux),
-        _ => Ok(Attribute::Unrecognized),
-    }
 }
 
 // #[cfg(test)]
