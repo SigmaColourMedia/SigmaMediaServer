@@ -9,7 +9,7 @@ pub(crate) struct SDPOffer {
     pub(crate) video_media_description: Vec<Attribute>,
 }
 #[derive(Debug)]
-pub enum LineParseError {
+pub enum SDPParseError {
     SequenceError,
     MissingICECredentials,
     UnsupportedMediaCount,
@@ -19,8 +19,8 @@ pub enum LineParseError {
     MalformedMediaDescriptor,
     MalformedSDPLine,
 }
-#[derive(Debug)]
-enum SDPLine {
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum SDPLine {
     ProtocolVersion(String),
     Originator(String),
     SessionName(String),
@@ -31,12 +31,12 @@ enum SDPLine {
     Unrecognized,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 struct ConnectionData {
     ip: IpAddr,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Attribute {
     Unrecognized,
     SendOnly,
@@ -53,42 +53,42 @@ pub(crate) enum Attribute {
     Candidate(Candidate),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub(crate) struct MediaDescription {
-    media_type: MediaType,
+    pub(crate) media_type: MediaType,
     transport_port: usize,
     transport_protocol: MediaTransportProtocol,
     media_format_description: Vec<usize>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub(crate) enum MediaType {
     Video,
     Audio,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 enum MediaTransportProtocol {
     DtlsSrtp,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 struct MediaID {
     id: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 struct MediaGroup {
     group: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Fingerprint {
     hash_function: HashFunction,
     hash: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum HashFunction {
     SHA256,
     Unsupported,
@@ -116,7 +116,7 @@ pub(crate) struct MediaSSRC {
     pub(crate) ssrc: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct RTPMap {
     pub(crate) codec: MediaCodec,
     pub(crate) payload_number: usize,
@@ -128,21 +128,21 @@ pub(crate) struct FMTP {
     pub(crate) format_capability: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
-struct Candidate {
-    foundation: String,
-    component_id: usize,
-    priority: usize,
-    connection_address: IpAddr,
-    port: usize,
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Candidate {
+    pub(crate) foundation: String,
+    pub(crate) component_id: usize,
+    pub(crate) priority: usize,
+    pub(crate) connection_address: IpAddr,
+    pub(crate) port: u16,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ICEUsername {
     pub(crate) username: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ICEPassword {
     pub(crate) password: String,
 }
@@ -337,31 +337,35 @@ impl From<Candidate> for String {
 }
 
 impl TryFrom<&str> for SDPLine {
-    type Error = LineParseError;
+    type Error = SDPParseError;
 
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let (sdp_type, value) = value
+    fn try_from(input: &str) -> Result<Self, Self::Error> {
+        let (sdp_type, value) = input
             .split_once("=")
-            .ok_or(LineParseError::MalformedSDPLine)?;
+            .ok_or(SDPParseError::MalformedSDPLine)?;
+
         match sdp_type {
             "v" => Ok(SDPLine::ProtocolVersion(value.to_string())),
-            "c" => Ok(SDPLine::ConnectionData(ConnectionData::try_from(value)?)),
+            "c" => Ok(SDPLine::ConnectionData(ConnectionData::try_from(input)?)),
             "o" => Ok(SDPLine::Originator(value.to_string())),
             "s" => Ok(SDPLine::SessionName(value.to_string())),
             "t" => Ok(SDPLine::SessionTime(value.to_string())),
             "m" => Ok(SDPLine::MediaDescription(MediaDescription::try_from(
-                value,
+                input,
             )?)),
-            "a" => Ok(SDPLine::Attribute(Attribute::try_from(value)?)),
+            "a" => Ok(SDPLine::Attribute(Attribute::try_from(input)?)),
             _ => Ok(SDPLine::Unrecognized),
         }
     }
 }
 
 impl TryFrom<&str> for Attribute {
-    type Error = LineParseError;
+    type Error = SDPParseError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let (_, value) = value
+            .split_once("a=")
+            .ok_or(Self::Error::MalformedAttribute)?;
         let key = value
             .split(":")
             .next()
@@ -386,31 +390,34 @@ impl TryFrom<&str> for Attribute {
 }
 
 impl TryFrom<&str> for MediaDescription {
-    type Error = LineParseError;
+    type Error = SDPParseError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let (_, value) = value
+            .split_once("m=")
+            .ok_or(Self::Error::MalformedSDPLine)?;
         let mut split = value.split(" ");
 
         let media_type = split
             .next()
-            .ok_or(LineParseError::MalformedMediaDescriptor)
+            .ok_or(SDPParseError::MalformedMediaDescriptor)
             .and_then(|media_type| MediaType::try_from(media_type))?;
 
         let transport_port = split
             .next()
             .and_then(|port| port.parse::<usize>().ok())
-            .ok_or(LineParseError::MalformedMediaDescriptor)?;
+            .ok_or(SDPParseError::MalformedMediaDescriptor)?;
 
         let transport_protocol = split
             .next()
-            .ok_or(LineParseError::MalformedMediaDescriptor)
+            .ok_or(SDPParseError::MalformedMediaDescriptor)
             .and_then(|transport_protocol| MediaTransportProtocol::try_from(transport_protocol))?;
 
         let media_format_description = split
             .take_while(|line| !line.is_empty())
             .map(|line| line.parse::<usize>().ok())
             .collect::<Option<Vec<usize>>>()
-            .ok_or(LineParseError::MalformedAttribute)?;
+            .ok_or(SDPParseError::MalformedAttribute)?;
 
         Ok(MediaDescription {
             transport_port,
@@ -422,7 +429,7 @@ impl TryFrom<&str> for MediaDescription {
 }
 
 impl TryFrom<&str> for ConnectionData {
-    type Error = LineParseError;
+    type Error = SDPParseError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let (_, value) = value
@@ -461,7 +468,7 @@ impl TryFrom<&str> for ConnectionData {
 }
 
 impl TryFrom<&str> for MediaType {
-    type Error = LineParseError;
+    type Error = SDPParseError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
@@ -473,7 +480,7 @@ impl TryFrom<&str> for MediaType {
 }
 
 impl TryFrom<&str> for MediaTransportProtocol {
-    type Error = LineParseError;
+    type Error = SDPParseError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
@@ -484,7 +491,7 @@ impl TryFrom<&str> for MediaTransportProtocol {
 }
 
 impl TryFrom<&str> for MediaID {
-    type Error = LineParseError;
+    type Error = SDPParseError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let (_, value) = value
@@ -497,7 +504,7 @@ impl TryFrom<&str> for MediaID {
 }
 
 impl TryFrom<&str> for MediaGroup {
-    type Error = LineParseError;
+    type Error = SDPParseError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let (_, value) = value
@@ -510,7 +517,7 @@ impl TryFrom<&str> for MediaGroup {
 }
 
 impl TryFrom<&str> for Fingerprint {
-    type Error = LineParseError;
+    type Error = SDPParseError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let (_, value) = value
@@ -518,7 +525,7 @@ impl TryFrom<&str> for Fingerprint {
             .ok_or(Self::Error::MalformedAttribute)?;
         let (hash_function, hash) = value
             .split_once(" ")
-            .ok_or(LineParseError::MalformedAttribute)?;
+            .ok_or(SDPParseError::MalformedAttribute)?;
 
         let hash_function = HashFunction::from(hash_function);
 
@@ -539,7 +546,7 @@ impl From<&str> for HashFunction {
 }
 
 impl TryFrom<&str> for RTPMap {
-    type Error = LineParseError;
+    type Error = SDPParseError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let (_, value) = value
@@ -547,11 +554,11 @@ impl TryFrom<&str> for RTPMap {
             .ok_or(Self::Error::MalformedAttribute)?;
         let (payload_number, codec) = value
             .split_once(" ")
-            .ok_or(LineParseError::MalformedAttribute)?;
+            .ok_or(SDPParseError::MalformedAttribute)?;
 
         let payload_number = payload_number
             .parse::<usize>()
-            .map_err(|_| LineParseError::MalformedAttribute)?;
+            .map_err(|_| SDPParseError::MalformedAttribute)?;
 
         let media_codec = match codec.to_ascii_lowercase().as_str() {
             "h264/90000" => MediaCodec::Video(VideoCodec::H264),
@@ -567,7 +574,7 @@ impl TryFrom<&str> for RTPMap {
 }
 
 impl TryFrom<&str> for MediaSSRC {
-    type Error = LineParseError;
+    type Error = SDPParseError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let (_, value) = value
@@ -576,7 +583,7 @@ impl TryFrom<&str> for MediaSSRC {
         let ssrc = value
             .split(" ")
             .next()
-            .ok_or(LineParseError::MalformedSDPLine)?;
+            .ok_or(SDPParseError::MalformedSDPLine)?;
 
         Ok(MediaSSRC {
             ssrc: ssrc.to_string(),
@@ -585,7 +592,7 @@ impl TryFrom<&str> for MediaSSRC {
 }
 
 impl TryFrom<&str> for FMTP {
-    type Error = LineParseError;
+    type Error = SDPParseError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let (_, value) = value
@@ -593,11 +600,11 @@ impl TryFrom<&str> for FMTP {
             .ok_or(Self::Error::MalformedAttribute)?;
         let (payload_number, capabilities) = value
             .split_once(" ")
-            .ok_or(LineParseError::MalformedAttribute)?;
+            .ok_or(SDPParseError::MalformedAttribute)?;
 
         let payload_number = payload_number
             .parse::<usize>()
-            .map_err(|_| LineParseError::MalformedAttribute)?;
+            .map_err(|_| SDPParseError::MalformedAttribute)?;
 
         let format_capability = capabilities
             .split(";")
@@ -612,7 +619,7 @@ impl TryFrom<&str> for FMTP {
 }
 
 impl TryFrom<&str> for Candidate {
-    type Error = LineParseError;
+    type Error = SDPParseError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let (_, value) = value
@@ -621,36 +628,36 @@ impl TryFrom<&str> for Candidate {
         let mut split = value.split(" ");
         let foundation = split
             .next()
-            .ok_or(LineParseError::MalformedAttribute)?
+            .ok_or(SDPParseError::MalformedAttribute)?
             .to_string();
         let component_id = split
             .next()
-            .ok_or(LineParseError::MalformedAttribute)
+            .ok_or(SDPParseError::MalformedAttribute)
             .map(|id| id.parse::<usize>())?
-            .map_err(|_| LineParseError::MalformedAttribute)?;
+            .map_err(|_| SDPParseError::MalformedAttribute)?;
 
-        let protocol = split.next().ok_or(LineParseError::MalformedAttribute)?;
+        let protocol = split.next().ok_or(SDPParseError::MalformedAttribute)?;
 
         if !protocol.eq("UDP") {
-            return Err(LineParseError::MalformedAttribute);
+            return Err(SDPParseError::MalformedAttribute);
         }
 
         let priority = split
             .next()
-            .ok_or(LineParseError::MalformedSDPLine)?
+            .ok_or(SDPParseError::MalformedSDPLine)?
             .parse::<usize>()
-            .map_err(|_| LineParseError::MalformedSDPLine)?;
+            .map_err(|_| SDPParseError::MalformedSDPLine)?;
 
         let ip = split
             .next()
-            .ok_or(LineParseError::MalformedAttribute)
-            .and_then(|ip| IpAddr::from_str(ip).map_err(|_| LineParseError::MalformedAttribute))?;
+            .ok_or(SDPParseError::MalformedAttribute)
+            .and_then(|ip| IpAddr::from_str(ip).map_err(|_| SDPParseError::MalformedAttribute))?;
 
         let port = split
             .next()
-            .ok_or(LineParseError::MalformedSDPLine)?
-            .parse::<usize>()
-            .map_err(|_| LineParseError::MalformedSDPLine)?;
+            .ok_or(SDPParseError::MalformedSDPLine)?
+            .parse::<u16>()
+            .map_err(|_| SDPParseError::MalformedSDPLine)?;
 
         Ok(Candidate {
             component_id,
@@ -663,7 +670,7 @@ impl TryFrom<&str> for Candidate {
 }
 
 impl TryFrom<&str> for ICEUsername {
-    type Error = LineParseError;
+    type Error = SDPParseError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let (_, value) = value
@@ -676,7 +683,7 @@ impl TryFrom<&str> for ICEUsername {
 }
 
 impl TryFrom<&str> for ICEPassword {
-    type Error = LineParseError;
+    type Error = SDPParseError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let (_, value) = value
@@ -688,33 +695,33 @@ impl TryFrom<&str> for ICEPassword {
     }
 }
 
-pub fn parse_raw_sdp_offer(data: &str) -> Result<SDPOffer, LineParseError> {
+pub fn parse_raw_sdp_offer(data: &str) -> Result<SDPOffer, SDPParseError> {
     let sdp_lines = data
         .lines()
         .map(SDPLine::try_from)
-        .collect::<Result<Vec<SDPLine>, LineParseError>>()?;
+        .collect::<Result<Vec<SDPLine>, SDPParseError>>()?;
 
     let mut iter = sdp_lines.iter();
 
     // Check if session description segment is properly formatted.
-    let protocol_version = iter.next().ok_or(LineParseError::MalformedSDPLine)?;
+    let protocol_version = iter.next().ok_or(SDPParseError::MalformedSDPLine)?;
     if !matches!(protocol_version, SDPLine::ProtocolVersion(_)) {
-        return Err(LineParseError::SequenceError);
+        return Err(SDPParseError::SequenceError);
     }
 
-    let originator = iter.next().ok_or(LineParseError::MalformedSDPLine)?;
+    let originator = iter.next().ok_or(SDPParseError::MalformedSDPLine)?;
     if !matches!(originator, SDPLine::Originator(_)) {
-        return Err(LineParseError::SequenceError);
+        return Err(SDPParseError::SequenceError);
     }
 
-    let session_name = iter.next().ok_or(LineParseError::MalformedSDPLine)?;
+    let session_name = iter.next().ok_or(SDPParseError::MalformedSDPLine)?;
     if !matches!(session_name, SDPLine::SessionName(_)) {
-        return Err(LineParseError::SequenceError);
+        return Err(SDPParseError::SequenceError);
     }
 
-    let session_time = iter.next().ok_or(LineParseError::MalformedSDPLine)?;
+    let session_time = iter.next().ok_or(SDPParseError::MalformedSDPLine)?;
     if !matches!(session_time, SDPLine::SessionTime(_)) {
-        return Err(LineParseError::SequenceError);
+        return Err(SDPParseError::SequenceError);
     }
 
     // Check for ICE credentials. If multiple credentials are provided, only the first occurrence will be used.
@@ -727,7 +734,7 @@ pub fn parse_raw_sdp_offer(data: &str) -> Result<SDPOffer, LineParseError> {
             }
             None
         })
-        .ok_or(LineParseError::MissingICECredentials)?;
+        .ok_or(SDPParseError::MissingICECredentials)?;
     let ice_password = sdp_lines
         .iter()
         .find_map(|line| {
@@ -736,7 +743,7 @@ pub fn parse_raw_sdp_offer(data: &str) -> Result<SDPOffer, LineParseError> {
             }
             None
         })
-        .ok_or(LineParseError::MissingICECredentials)?;
+        .ok_or(SDPParseError::MissingICECredentials)?;
 
     // Validate media descriptor segments
     let mut media_descriptors_iter = sdp_lines
@@ -750,7 +757,7 @@ pub fn parse_raw_sdp_offer(data: &str) -> Result<SDPOffer, LineParseError> {
 
     // Assert that we're dealing with 2 media descriptors to avoid redundant checks later (Audio and Video)
     if media_descriptor_count != 2 {
-        return Err(LineParseError::UnsupportedMediaCount);
+        return Err(SDPParseError::UnsupportedMediaCount);
     }
 
     let first_media_line = media_descriptors_iter
@@ -761,11 +768,11 @@ pub fn parse_raw_sdp_offer(data: &str) -> Result<SDPOffer, LineParseError> {
                 "The first item after session description end should always be media description"
             ),
         })
-        .ok_or(LineParseError::MalformedMediaDescriptor)?;
+        .ok_or(SDPParseError::MalformedMediaDescriptor)?;
 
     // First media descriptor must be Audio. This is an arbitrary decision to ease implementation.
     if !matches!(first_media_line.media_type, MediaType::Audio) {
-        return Err(LineParseError::SequenceError);
+        return Err(SDPParseError::SequenceError);
     }
 
     let audio_media_attributes = media_descriptors_iter
@@ -791,7 +798,7 @@ pub fn parse_raw_sdp_offer(data: &str) -> Result<SDPOffer, LineParseError> {
         .expect("Second media descriptor should be present");
 
     if !matches!(second_media_line.media_type, MediaType::Video) {
-        return Err(LineParseError::SequenceError);
+        return Err(SDPParseError::SequenceError);
     }
 
     let video_media_attributes = second_media_description_segment
