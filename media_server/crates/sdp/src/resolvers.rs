@@ -4,7 +4,8 @@ use rand::{Rng, thread_rng};
 use rand::distributions::Alphanumeric;
 
 use crate::line_parsers::{
-    AudioCodec, Candidate, Fingerprint, MediaType, SDPLine, SDPParseError, VideoCodec,
+    Attribute, AudioCodec, Candidate, Fingerprint, MediaCodec, MediaType, SDPLine, SDPParseError,
+    VideoCodec,
 };
 
 #[derive(Debug)]
@@ -70,6 +71,72 @@ impl SDPResolver {
             fingerprint,
             candidate,
         }
+    }
+    const ACCEPTED_MEDIA_CODEC: MediaCodec = MediaCodec::Video(VideoCodec::H264);
+    const ACCEPTED_AUDIO_CODEC: MediaCodec = MediaCodec::Audio(AudioCodec::Opus);
+
+    fn get_ice_credentials(sdp: &SDP) -> Option<ICECredentials> {
+        let get_ice_username = |section: &Vec<SDPLine>| {
+            section.iter().find_map(|line| match line {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::ICEUsername(ice_username) => Some(ice_username),
+                    _ => None,
+                },
+                _ => None,
+            })
+        };
+        let get_ice_password = |section: &Vec<SDPLine>| {
+            section.iter().find_map(|line| match line {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::ICEPassword(ice_password) => Some(ice_password),
+                    _ => None,
+                },
+                _ => None,
+            })
+        };
+
+        // Look for ICE credentials in session section. These serve as default values, are overridden by media-level ICE credentials, are not required.
+        let default_username = get_ice_username(&sdp.session_section);
+        let default_password = get_ice_password(&sdp.session_section);
+
+        let audio_media_username = get_ice_username(&sdp.audio_section);
+        let audio_media_password = get_ice_password(&sdp.audio_section);
+
+        let video_media_username = get_ice_username(&sdp.video_section);
+        let video_media_password = get_ice_password(&sdp.video_section);
+
+        // If media-level ICE credentials are present, then they need to be the same for all data streams
+        if audio_media_username.is_some() {
+            let audio_media_username = audio_media_username?;
+            let audio_media_password = audio_media_password?;
+            let video_media_username = video_media_username?;
+            let video_media_password = video_media_password?;
+
+            if audio_media_username.ne(video_media_username)
+                || audio_media_password.ne(video_media_password)
+            {
+                return None;
+            }
+
+            return Some(ICECredentials {
+                remote_username: audio_media_username.username.to_string(),
+                remote_password: audio_media_password.password.to_string(),
+                host_username: get_random_string(4),
+                host_password: get_random_string(22),
+            });
+        }
+
+        return Some(ICECredentials {
+            remote_username: default_username?.username.to_string(),
+            remote_password: default_password?.password.to_string(),
+            host_username: get_random_string(4),
+            host_password: get_random_string(22),
+        });
+    }
+
+    fn accept_streamer_session(sdp: SDP) -> Result<NegotiatedSession, SDPParseError> {
+        let ice_credentials =
+            Self::get_ice_credentials(&sdp).ok_or(SDPParseError::MissingICECredentials)?;
     }
 
     /**
