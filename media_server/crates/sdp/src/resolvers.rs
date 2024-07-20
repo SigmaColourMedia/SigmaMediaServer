@@ -4,26 +4,8 @@ use rand::{Rng, thread_rng};
 use rand::distributions::Alphanumeric;
 
 use crate::line_parsers::{
-    AudioCodec, Candidate, Fingerprint, FMTP, ICEPassword, ICEUsername, MediaSSRC, MediaType,
-    SDPLine, SDPParseError, VideoCodec,
+    AudioCodec, Candidate, Fingerprint, MediaType, SDPLine, SDPParseError, VideoCodec,
 };
-
-fn test() {}
-#[derive(Debug, Clone)]
-pub struct ResolvedSDP {
-    host_ice_username: ICEUsername,
-    host_ice_password: ICEPassword,
-    remote_ice_username: ICEUsername,
-    remote_ice_password: ICEPassword,
-    video_codec: VideoCodec,
-    video_payload_number: usize,
-    video_capability: FMTP,
-    remote_video_ssrc: MediaSSRC,
-    audio_codec: AudioCodec,
-    audio_payload_number: usize,
-    remote_audio_ssrc: MediaSSRC,
-    agent_type: AgentType,
-}
 
 #[derive(Debug)]
 struct SDP {
@@ -32,19 +14,31 @@ struct SDP {
     audio_section: Vec<SDPLine>,
 }
 
-#[derive(Debug, Clone)]
-enum AgentType {
-    Streamer,
-    Viewer,
+struct NegotiatedSession {
+    sdp_answer: SDP,
+    ice_credentials: ICECredentials,
+    video_session: VideoSession,
+    audio_session: AudioSession,
+}
+struct ICECredentials {
+    host_username: String,
+    host_password: String,
+    remote_username: String,
+    remote_password: String,
+}
+struct VideoSession {
+    codec: VideoCodec,
+    payload_number: usize,
+    host_ssrc: String,
+    remote_ssrc: String,
+    capabilities: Vec<String>,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum StreamerOfferSDPParseError {
-    UnsupportedMediaCodecs,
-    DemuxRequired,
-    MissingVideoProfileSettings,
-    MissingRemoteSSRC,
-    UnsupportedMediaDirection,
+struct AudioSession {
+    codec: AudioCodec,
+    payload_number: usize,
+    host_ssrc: String,
+    remote_ssrc: String,
 }
 
 struct SDPResolver {
@@ -78,6 +72,12 @@ impl SDPResolver {
         }
     }
 
+    /**
+    Parse raw string data to SDP struct. SDP struct is split into session, audio and video section, with each section having ownership over corresponding SDPLine elements.
+    Check if session section is properly formatted.
+    Only two media sections are legal and the first one needs to be audio. This is a completely arbitrary decision
+    that serves to ease parser implementations.
+        */
     fn get_sdp(raw_data: &str) -> Result<SDP, SDPParseError> {
         let sdp_lines = raw_data
             .lines()

@@ -157,7 +157,7 @@ impl From<SDPLine> for String {
             SDPLine::ConnectionData(connection_data) => String::from(connection_data),
             SDPLine::Attribute(attr) => String::from(attr),
             SDPLine::MediaDescription(media_description) => String::from(media_description),
-            SDPLine::Unrecognized => "undefined-attribute".to_string(), //todo handle Unrecognized cases
+            SDPLine::Unrecognized => "".to_string(), //todo handle Unrecognized cases
         }
     }
 }
@@ -267,7 +267,9 @@ impl From<HashFunction> for String {
     fn from(value: HashFunction) -> Self {
         match value {
             HashFunction::SHA256 => "sha-256".to_string(),
-            HashFunction::Unsupported => "unsupported".to_string(),
+            HashFunction::Unsupported => {
+                panic!("Unsupported HashFunction cannot be converted to String")
+            }
         }
     }
 }
@@ -288,7 +290,7 @@ impl From<MediaCodec> for String {
             MediaCodec::Audio(audio_codec) => String::from(audio_codec),
             MediaCodec::Video(video_codec) => String::from(video_codec),
             MediaCodec::Unsupported => {
-                panic!("Unsupported MediaCodec should not be converted to String")
+                panic!("Unsupported MediaCodec cannot be converted to String")
             }
         }
     }
