@@ -2,13 +2,6 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 
 #[derive(Debug)]
-pub(crate) struct SDPOffer {
-    pub(crate) ice_username: ICEUsername,
-    pub(crate) ice_password: ICEPassword,
-    pub(crate) audio_media_description: Vec<Attribute>,
-    pub(crate) video_media_description: Vec<Attribute>,
-}
-#[derive(Debug)]
 pub enum SDPParseError {
     SequenceError,
     MissingICECredentials,
@@ -73,13 +66,8 @@ enum MediaTransportProtocol {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct MediaID {
-    id: String,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-struct MediaGroup {
-    group: String,
+pub(crate) struct MediaID {
+    pub(crate) id: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -113,7 +101,13 @@ pub(crate) enum AudioCodec {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MediaSSRC {
-    pub(crate) ssrc: String,
+    pub(crate) ssrc: u32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum MediaGroup {
+    Bundle(Vec<String>),
+    LipSync(Vec<String>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -249,7 +243,14 @@ impl From<MediaID> for String {
 
 impl From<MediaGroup> for String {
     fn from(value: MediaGroup) -> Self {
-        format!("group:{}", value.group)
+        match value {
+            MediaGroup::Bundle(groups) => {
+                format!("group:BUNDLE {}", groups.join(" "))
+            }
+            MediaGroup::LipSync(groups) => {
+                format!("group:LS {}", groups.join(" "))
+            }
+        }
     }
 }
 
@@ -512,9 +513,21 @@ impl TryFrom<&str> for MediaGroup {
         let (_, value) = value
             .split_once("group:")
             .ok_or(Self::Error::MalformedAttribute)?;
-        Ok(Self {
-            group: value.to_string(),
-        })
+
+        let (group_type, group_values) = value
+            .split_once(" ")
+            .ok_or(Self::Error::MalformedAttribute)?;
+
+        let group_values = group_values
+            .split(" ")
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+
+        match group_type {
+            "BUNDLE" => Ok(MediaGroup::Bundle(group_values)),
+            "LS" => Ok(MediaGroup::LipSync(group_values)),
+            _ => Err(Self::Error::MalformedAttribute),
+        }
     }
 }
 
@@ -588,7 +601,9 @@ impl TryFrom<&str> for MediaSSRC {
             .ok_or(SDPParseError::MalformedSDPLine)?;
 
         Ok(MediaSSRC {
-            ssrc: ssrc.to_string(),
+            ssrc: ssrc
+                .parse::<u32>()
+                .map_err(|_| Self::Error::MalformedAttribute)?,
         })
     }
 }
@@ -695,127 +710,6 @@ impl TryFrom<&str> for ICEPassword {
             password: value.to_string(),
         })
     }
-}
-
-pub fn parse_raw_sdp_offer(data: &str) -> Result<SDPOffer, SDPParseError> {
-    let sdp_lines = data
-        .lines()
-        .map(SDPLine::try_from)
-        .collect::<Result<Vec<SDPLine>, SDPParseError>>()?;
-
-    let mut iter = sdp_lines.iter();
-
-    // Check if session description segment is properly formatted.
-    let protocol_version = iter.next().ok_or(SDPParseError::MalformedSDPLine)?;
-    if !matches!(protocol_version, SDPLine::ProtocolVersion(_)) {
-        return Err(SDPParseError::SequenceError);
-    }
-
-    let originator = iter.next().ok_or(SDPParseError::MalformedSDPLine)?;
-    if !matches!(originator, SDPLine::Originator(_)) {
-        return Err(SDPParseError::SequenceError);
-    }
-
-    let session_name = iter.next().ok_or(SDPParseError::MalformedSDPLine)?;
-    if !matches!(session_name, SDPLine::SessionName(_)) {
-        return Err(SDPParseError::SequenceError);
-    }
-
-    let session_time = iter.next().ok_or(SDPParseError::MalformedSDPLine)?;
-    if !matches!(session_time, SDPLine::SessionTime(_)) {
-        return Err(SDPParseError::SequenceError);
-    }
-
-    // Check for ICE credentials. If multiple credentials are provided, only the first occurrence will be used.
-    // todo Reject SDP with multiple different ICE credential attributes
-    let ice_username = sdp_lines
-        .iter()
-        .find_map(|line| {
-            if let SDPLine::Attribute(Attribute::ICEUsername(username)) = line {
-                return Some(username);
-            }
-            None
-        })
-        .ok_or(SDPParseError::MissingICECredentials)?;
-    let ice_password = sdp_lines
-        .iter()
-        .find_map(|line| {
-            if let SDPLine::Attribute(Attribute::ICEPassword(username)) = line {
-                return Some(username);
-            }
-            None
-        })
-        .ok_or(SDPParseError::MissingICECredentials)?;
-
-    // Validate media descriptor segments
-    let mut media_descriptors_iter = sdp_lines
-        .iter()
-        .skip_while(|line| !matches!(line, SDPLine::MediaDescription(_)));
-
-    let media_descriptor_count = media_descriptors_iter
-        .clone()
-        .filter(|line| matches!(line, SDPLine::MediaDescription(_)))
-        .count();
-
-    // Assert that we're dealing with 2 media descriptors to avoid redundant checks later (Audio and Video)
-    if media_descriptor_count != 2 {
-        return Err(SDPParseError::UnsupportedMediaCount);
-    }
-
-    let first_media_line = media_descriptors_iter
-        .next()
-        .map(|line| match line {
-            SDPLine::MediaDescription(media_description) => media_description,
-            _ => unreachable!(
-                "The first item after session description end should always be media description"
-            ),
-        })
-        .ok_or(SDPParseError::MalformedMediaDescriptor)?;
-
-    // First media descriptor must be Audio. This is an arbitrary decision to ease implementation.
-    if !matches!(first_media_line.media_type, MediaType::Audio) {
-        return Err(SDPParseError::SequenceError);
-    }
-
-    let audio_media_attributes = media_descriptors_iter
-        .clone()
-        .take_while(|line| !matches!(line, SDPLine::MediaDescription(_)))
-        .filter_map(|line| match line {
-            SDPLine::Attribute(attr) => Some(attr.clone()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-
-    let mut second_media_description_segment =
-        media_descriptors_iter.skip_while(|line| !matches!(line, SDPLine::MediaDescription(_)));
-
-    let second_media_line = second_media_description_segment
-        .next()
-        .map(|line| match line {
-            SDPLine::MediaDescription(media_description) => media_description,
-            _ => unreachable!(
-                "The first item after session description end should always be media description"
-            ),
-        })
-        .expect("Second media descriptor should be present");
-
-    if !matches!(second_media_line.media_type, MediaType::Video) {
-        return Err(SDPParseError::SequenceError);
-    }
-
-    let video_media_attributes = second_media_description_segment
-        .filter_map(|line| match line {
-            SDPLine::Attribute(attr) => Some(attr.clone()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-
-    Ok(SDPOffer {
-        ice_username: ice_username.clone(),
-        ice_password: ice_password.clone(),
-        audio_media_description: audio_media_attributes,
-        video_media_description: video_media_attributes,
-    })
 }
 
 // #[cfg(test)]

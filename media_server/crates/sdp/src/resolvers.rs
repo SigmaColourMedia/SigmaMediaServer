@@ -1,11 +1,11 @@
 use std::net::SocketAddr;
 
-use rand::{Rng, thread_rng};
+use rand::{Rng, RngCore, thread_rng};
 use rand::distributions::Alphanumeric;
 
 use crate::line_parsers::{
-    Attribute, AudioCodec, Candidate, Fingerprint, MediaCodec, MediaType, SDPLine, SDPParseError,
-    VideoCodec,
+    Attribute, AudioCodec, Candidate, Fingerprint, MediaCodec, MediaGroup, MediaID, MediaType,
+    SDPLine, SDPParseError, VideoCodec,
 };
 
 #[derive(Debug)]
@@ -30,16 +30,16 @@ struct ICECredentials {
 struct VideoSession {
     codec: VideoCodec,
     payload_number: usize,
-    host_ssrc: String,
-    remote_ssrc: String,
+    host_ssrc: u32,
+    remote_ssrc: u32,
     capabilities: Vec<String>,
 }
 
 struct AudioSession {
     codec: AudioCodec,
     payload_number: usize,
-    host_ssrc: String,
-    remote_ssrc: String,
+    host_ssrc: u32,
+    remote_ssrc: u32,
 }
 
 struct SDPResolver {
@@ -53,6 +53,10 @@ fn get_random_string(size: usize) -> String {
         .take(size)
         .map(char::from)
         .collect()
+}
+
+fn get_random_ssrc() -> u32 {
+    thread_rng().next_u32()
 }
 
 impl SDPResolver {
@@ -72,14 +76,14 @@ impl SDPResolver {
             candidate,
         }
     }
-    const ACCEPTED_MEDIA_CODEC: MediaCodec = MediaCodec::Video(VideoCodec::H264);
-    const ACCEPTED_AUDIO_CODEC: MediaCodec = MediaCodec::Audio(AudioCodec::Opus);
+    const ACCEPTED_VIDEO_CODEC: VideoCodec = VideoCodec::H264;
+    const ACCEPTED_AUDIO_CODEC: AudioCodec = AudioCodec::Opus;
 
     fn get_ice_credentials(sdp: &SDP) -> Option<ICECredentials> {
         let get_ice_username = |section: &Vec<SDPLine>| {
             section.iter().find_map(|line| match line {
                 SDPLine::Attribute(attr) => match attr {
-                    Attribute::ICEUsername(ice_username) => Some(ice_username),
+                    Attribute::ICEUsername(ice_username) => Some(ice_username.clone()),
                     _ => None,
                 },
                 _ => None,
@@ -88,7 +92,7 @@ impl SDPResolver {
         let get_ice_password = |section: &Vec<SDPLine>| {
             section.iter().find_map(|line| match line {
                 SDPLine::Attribute(attr) => match attr {
-                    Attribute::ICEPassword(ice_password) => Some(ice_password),
+                    Attribute::ICEPassword(ice_password) => Some(ice_password.clone()),
                     _ => None,
                 },
                 _ => None,
@@ -112,8 +116,8 @@ impl SDPResolver {
             let video_media_username = video_media_username?;
             let video_media_password = video_media_password?;
 
-            if audio_media_username.ne(video_media_username)
-                || audio_media_password.ne(video_media_password)
+            if audio_media_username.ne(&video_media_username)
+                || audio_media_password.ne(&video_media_password)
             {
                 return None;
             }
@@ -134,9 +138,226 @@ impl SDPResolver {
         });
     }
 
+    fn get_audio_session(sdp: &SDP) -> Option<AudioSession> {
+        // Check if audio stream is bundled
+        let bundle_group = sdp.session_section.iter().find_map(|item| match item {
+            SDPLine::Attribute(attr) => match attr {
+                Attribute::MediaGroup(media_group) => match media_group {
+                    MediaGroup::Bundle(group) => Some(group),
+                    MediaGroup::LipSync(_) => None,
+                },
+                _ => None,
+            },
+            _ => None,
+        })?;
+
+        let audio_mid = MediaID {
+            id: bundle_group.iter().nth(0)?.to_string(),
+        };
+
+        let target_audio_mid = sdp.audio_section.iter().find_map(|item| match item {
+            SDPLine::Attribute(attr) => match attr {
+                Attribute::MediaID(media_id) => Some(media_id),
+                _ => None,
+            },
+            _ => None,
+        })?;
+
+        if target_audio_mid.ne(&audio_mid) {
+            return None;
+        }
+
+        // Check if audio stream is demuxed
+        let is_rtcp_demuxed = sdp
+            .audio_section
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::RTCPMux => Some(()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .is_some();
+
+        if !is_rtcp_demuxed {
+            return None;
+        }
+
+        // Check if stream is sendonly
+        let is_sendonly_direction = sdp
+            .audio_section
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::SendOnly => Some(()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .is_some();
+
+        if !is_sendonly_direction {
+            return None;
+        }
+
+        let remote_audio_ssrc = sdp.audio_section.iter().find_map(|item| match item {
+            SDPLine::Attribute(attr) => match attr {
+                Attribute::MediaSSRC(media_ssrc) => Some(media_ssrc.ssrc),
+                _ => None,
+            },
+            _ => None,
+        })?;
+
+        let accepted_codec_payload_number =
+            sdp.audio_section.iter().find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::RTPMap(rtpmap) => {
+                        if rtpmap
+                            .codec
+                            .eq(&MediaCodec::Audio(Self::ACCEPTED_AUDIO_CODEC))
+                        {
+                            return Some(rtpmap.payload_number);
+                        }
+                        None
+                    }
+                    _ => None,
+                },
+                _ => None,
+            })?;
+
+        Some(AudioSession {
+            codec: AudioCodec::Opus,
+            payload_number: accepted_codec_payload_number,
+            remote_ssrc: remote_audio_ssrc,
+            host_ssrc: get_random_ssrc(),
+        })
+    }
+
+    fn get_video_session(sdp: &SDP) -> Option<VideoSession> {
+        // Check if stream is bundled
+        let bundle_group = sdp.session_section.iter().find_map(|item| match item {
+            SDPLine::Attribute(attr) => match attr {
+                Attribute::MediaGroup(media_group) => match media_group {
+                    MediaGroup::Bundle(group) => Some(group),
+                    MediaGroup::LipSync(_) => None,
+                },
+                _ => None,
+            },
+            _ => None,
+        })?;
+
+        let video_mid = MediaID {
+            id: bundle_group.iter().nth(1)?.to_string(),
+        };
+
+        let target_video_mid = sdp.video_section.iter().find_map(|item| match item {
+            SDPLine::Attribute(attr) => match attr {
+                Attribute::MediaID(media_id) => Some(media_id),
+                _ => None,
+            },
+            _ => None,
+        })?;
+
+        if target_video_mid.ne(&video_mid) {
+            return None;
+        }
+
+        // Check if stream is demuxed
+        let is_rtcp_demuxed = sdp
+            .video_section
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::RTCPMux => Some(()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .is_some();
+
+        if !is_rtcp_demuxed {
+            return None;
+        }
+
+        // Check if stream is sendonly
+        let is_sendonly_direction = sdp
+            .video_section
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::SendOnly => Some(()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .is_some();
+
+        if !is_sendonly_direction {
+            return None;
+        }
+
+        // Check for stream ssrc
+        let remote_video_ssrc = sdp.video_section.iter().find_map(|item| match item {
+            SDPLine::Attribute(attr) => match attr {
+                Attribute::MediaSSRC(media_ssrc) => Some(media_ssrc.ssrc),
+                _ => None,
+            },
+            _ => None,
+        })?;
+
+        // Check if supported codec is present
+        // todo Pick highest available video capabilities
+        let accepted_codec_payload_number =
+            sdp.video_section.iter().find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::RTPMap(rtpmap) => {
+                        if rtpmap
+                            .codec
+                            .eq(&MediaCodec::Video(Self::ACCEPTED_VIDEO_CODEC))
+                        {
+                            return Some(rtpmap.payload_number);
+                        }
+                        None
+                    }
+                    _ => None,
+                },
+                _ => None,
+            })?;
+
+        // Get FMTP value
+        let video_capabilities = sdp.video_section.iter().find_map(|item| match item {
+            SDPLine::Attribute(attr) => match attr {
+                Attribute::FMTP(fmtp) => {
+                    if fmtp.payload_number.eq(&accepted_codec_payload_number) {
+                        return Some(fmtp.format_capability.clone());
+                    }
+                    None
+                }
+                _ => None,
+            },
+            _ => None,
+        })?;
+
+        Some(VideoSession {
+            codec: VideoCodec::H264,
+            capabilities: video_capabilities,
+            payload_number: accepted_codec_payload_number,
+            remote_ssrc: remote_video_ssrc,
+            host_ssrc: get_random_ssrc(),
+        })
+    }
+
     fn accept_streamer_session(sdp: SDP) -> Result<NegotiatedSession, SDPParseError> {
         let ice_credentials =
             Self::get_ice_credentials(&sdp).ok_or(SDPParseError::MissingICECredentials)?;
+
+        let audio_session =
+            Self::get_audio_session(&sdp).ok_or(SDPParseError::MalformedMediaDescriptor)?;
+        let video_session =
+            Self::get_video_session(&sdp).ok_or(SDPParseError::MalformedMediaDescriptor)?;
+
+        Err(SDPParseError::SequenceError)
     }
 
     /**
