@@ -5,6 +5,13 @@ use std::str::FromStr;
 pub enum SDPParseError {
     SequenceError,
     MissingICECredentials,
+    MissingStreamSSRC,
+    UnsupportedMediaCodecs,
+    InvalidStreamDirection,
+    InvalidMediaID,
+    BundleRequired,
+    MissingVideoCapabilities,
+    DemuxRequired,
     UnsupportedMediaCount,
     UnsupportedMediaType,
     UnsupportedMediaProtocol,

@@ -138,38 +138,27 @@ impl SDPResolver {
         });
     }
 
-    fn get_audio_session(sdp: &SDP) -> Option<AudioSession> {
-        // Check if audio stream is bundled
-        let bundle_group = sdp.session_section.iter().find_map(|item| match item {
-            SDPLine::Attribute(attr) => match attr {
-                Attribute::MediaGroup(media_group) => match media_group {
-                    MediaGroup::Bundle(group) => Some(group),
-                    MediaGroup::LipSync(_) => None,
+    fn get_audio_session(
+        session_sdp: &Vec<SDPLine>,
+        target_media_id: &MediaID,
+    ) -> Result<AudioSession, SDPParseError> {
+        let audio_mid = session_sdp
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::MediaID(media_id) => Some(media_id),
+                    _ => None,
                 },
                 _ => None,
-            },
-            _ => None,
-        })?;
+            })
+            .ok_or(SDPParseError::InvalidMediaID)?;
 
-        let audio_mid = MediaID {
-            id: bundle_group.iter().nth(0)?.to_string(),
-        };
-
-        let target_audio_mid = sdp.audio_section.iter().find_map(|item| match item {
-            SDPLine::Attribute(attr) => match attr {
-                Attribute::MediaID(media_id) => Some(media_id),
-                _ => None,
-            },
-            _ => None,
-        })?;
-
-        if target_audio_mid.ne(&audio_mid) {
-            return None;
+        if audio_mid.ne(&target_media_id) {
+            return Err(SDPParseError::InvalidMediaID);
         }
 
         // Check if audio stream is demuxed
-        let is_rtcp_demuxed = sdp
-            .audio_section
+        let is_rtcp_demuxed = session_sdp
             .iter()
             .find_map(|item| match item {
                 SDPLine::Attribute(attr) => match attr {
@@ -181,12 +170,11 @@ impl SDPResolver {
             .is_some();
 
         if !is_rtcp_demuxed {
-            return None;
+            return Err(SDPParseError::DemuxRequired);
         }
 
         // Check if stream is sendonly
-        let is_sendonly_direction = sdp
-            .audio_section
+        let is_sendonly_direction = session_sdp
             .iter()
             .find_map(|item| match item {
                 SDPLine::Attribute(attr) => match attr {
@@ -198,19 +186,23 @@ impl SDPResolver {
             .is_some();
 
         if !is_sendonly_direction {
-            return None;
+            return Err(SDPParseError::InvalidStreamDirection);
         }
 
-        let remote_audio_ssrc = sdp.audio_section.iter().find_map(|item| match item {
-            SDPLine::Attribute(attr) => match attr {
-                Attribute::MediaSSRC(media_ssrc) => Some(media_ssrc.ssrc),
+        let remote_audio_ssrc = session_sdp
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::MediaSSRC(media_ssrc) => Some(media_ssrc.ssrc),
+                    _ => None,
+                },
                 _ => None,
-            },
-            _ => None,
-        })?;
+            })
+            .ok_or(SDPParseError::MissingStreamSSRC)?;
 
-        let accepted_codec_payload_number =
-            sdp.audio_section.iter().find_map(|item| match item {
+        let accepted_codec_payload_number = session_sdp
+            .iter()
+            .find_map(|item| match item {
                 SDPLine::Attribute(attr) => match attr {
                     Attribute::RTPMap(rtpmap) => {
                         if rtpmap
@@ -224,9 +216,10 @@ impl SDPResolver {
                     _ => None,
                 },
                 _ => None,
-            })?;
+            })
+            .ok_or(SDPParseError::UnsupportedMediaCodecs)?;
 
-        Some(AudioSession {
+        Ok(AudioSession {
             codec: Self::ACCEPTED_AUDIO_CODEC,
             payload_number: accepted_codec_payload_number,
             remote_ssrc: remote_audio_ssrc,
@@ -234,38 +227,27 @@ impl SDPResolver {
         })
     }
 
-    fn get_video_session(sdp: &SDP) -> Option<VideoSession> {
-        // Check if stream is bundled
-        let bundle_group = sdp.session_section.iter().find_map(|item| match item {
-            SDPLine::Attribute(attr) => match attr {
-                Attribute::MediaGroup(media_group) => match media_group {
-                    MediaGroup::Bundle(group) => Some(group),
-                    MediaGroup::LipSync(_) => None,
+    fn get_video_session(
+        session_sdp: &Vec<SDPLine>,
+        target_media_id: &MediaID,
+    ) -> Result<VideoSession, SDPParseError> {
+        let media_id = session_sdp
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::MediaID(media_id) => Some(media_id),
+                    _ => None,
                 },
                 _ => None,
-            },
-            _ => None,
-        })?;
+            })
+            .ok_or(SDPParseError::InvalidMediaID)?;
 
-        let video_mid = MediaID {
-            id: bundle_group.iter().nth(1)?.to_string(),
-        };
-
-        let target_video_mid = sdp.video_section.iter().find_map(|item| match item {
-            SDPLine::Attribute(attr) => match attr {
-                Attribute::MediaID(media_id) => Some(media_id),
-                _ => None,
-            },
-            _ => None,
-        })?;
-
-        if target_video_mid.ne(&video_mid) {
-            return None;
+        if media_id.ne(&target_media_id) {
+            return Err(SDPParseError::InvalidMediaID);
         }
 
         // Check if stream is demuxed
-        let is_rtcp_demuxed = sdp
-            .video_section
+        let is_rtcp_demuxed = session_sdp
             .iter()
             .find_map(|item| match item {
                 SDPLine::Attribute(attr) => match attr {
@@ -277,12 +259,11 @@ impl SDPResolver {
             .is_some();
 
         if !is_rtcp_demuxed {
-            return None;
+            return Err(SDPParseError::DemuxRequired);
         }
 
         // Check if stream is sendonly
-        let is_sendonly_direction = sdp
-            .video_section
+        let is_sendonly_direction = session_sdp
             .iter()
             .find_map(|item| match item {
                 SDPLine::Attribute(attr) => match attr {
@@ -294,22 +275,26 @@ impl SDPResolver {
             .is_some();
 
         if !is_sendonly_direction {
-            return None;
+            return Err(SDPParseError::InvalidStreamDirection);
         }
 
         // Check for stream ssrc
-        let remote_video_ssrc = sdp.video_section.iter().find_map(|item| match item {
-            SDPLine::Attribute(attr) => match attr {
-                Attribute::MediaSSRC(media_ssrc) => Some(media_ssrc.ssrc),
+        let remote_video_ssrc = session_sdp
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::MediaSSRC(media_ssrc) => Some(media_ssrc.ssrc),
+                    _ => None,
+                },
                 _ => None,
-            },
-            _ => None,
-        })?;
+            })
+            .ok_or(SDPParseError::MissingStreamSSRC)?;
 
         // Check if supported codec is present
         // todo Pick highest available video capabilities
-        let accepted_codec_payload_number =
-            sdp.video_section.iter().find_map(|item| match item {
+        let accepted_codec_payload_number = session_sdp
+            .iter()
+            .find_map(|item| match item {
                 SDPLine::Attribute(attr) => match attr {
                     Attribute::RTPMap(rtpmap) => {
                         if rtpmap
@@ -323,23 +308,27 @@ impl SDPResolver {
                     _ => None,
                 },
                 _ => None,
-            })?;
+            })
+            .ok_or(SDPParseError::UnsupportedMediaCodecs)?;
 
         // Get FMTP value
-        let video_capabilities = sdp.video_section.iter().find_map(|item| match item {
-            SDPLine::Attribute(attr) => match attr {
-                Attribute::FMTP(fmtp) => {
-                    if fmtp.payload_number.eq(&accepted_codec_payload_number) {
-                        return Some(fmtp.format_capability.clone());
+        let video_capabilities = session_sdp
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::FMTP(fmtp) => {
+                        if fmtp.payload_number.eq(&accepted_codec_payload_number) {
+                            return Some(fmtp.format_capability.clone());
+                        }
+                        None
                     }
-                    None
-                }
+                    _ => None,
+                },
                 _ => None,
-            },
-            _ => None,
-        })?;
+            })
+            .ok_or(SDPParseError::MissingVideoCapabilities)?;
 
-        Some(VideoSession {
+        Ok(VideoSession {
             codec: Self::ACCEPTED_VIDEO_CODEC,
             capabilities: video_capabilities,
             payload_number: accepted_codec_payload_number,
@@ -349,13 +338,43 @@ impl SDPResolver {
     }
 
     fn accept_streamer_session(sdp: SDP) -> Result<NegotiatedSession, SDPParseError> {
+        // Check if stream is bundled
+        let bundle_group = sdp
+            .session_section
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::MediaGroup(media_group) => match media_group {
+                        MediaGroup::Bundle(group) => Some(group),
+                        MediaGroup::LipSync(_) => None,
+                    },
+                    _ => None,
+                },
+                _ => None,
+            })
+            .ok_or(SDPParseError::BundleRequired)?;
+
+        let audio_mid = MediaID {
+            id: bundle_group
+                .iter()
+                .nth(0)
+                .ok_or(SDPParseError::MalformedSDPLine)?
+                .to_string(),
+        };
+
+        let video_mid = MediaID {
+            id: bundle_group
+                .iter()
+                .nth(1)
+                .ok_or(SDPParseError::MalformedSDPLine)?
+                .to_string(),
+        };
+
         let ice_credentials =
             Self::get_ice_credentials(&sdp).ok_or(SDPParseError::MissingICECredentials)?;
 
-        let audio_session =
-            Self::get_audio_session(&sdp).ok_or(SDPParseError::MalformedMediaDescriptor)?;
-        let video_session =
-            Self::get_video_session(&sdp).ok_or(SDPParseError::MalformedMediaDescriptor)?;
+        let audio_session = Self::get_audio_session(&sdp.audio_section, &audio_mid)?;
+        let video_session = Self::get_video_session(&sdp.video_section, &video_mid)?;
 
         Err(SDPParseError::SequenceError)
     }
