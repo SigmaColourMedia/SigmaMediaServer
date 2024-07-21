@@ -338,7 +338,7 @@ impl SDPResolver {
     }
 
     fn accept_streamer_session(sdp: SDP) -> Result<NegotiatedSession, SDPParseError> {
-        // Check if stream is bundled
+        // Check if stream is bundled and get media stream ids
         let bundle_group = sdp
             .session_section
             .iter()
@@ -372,7 +372,6 @@ impl SDPResolver {
 
         let ice_credentials =
             Self::get_ice_credentials(&sdp).ok_or(SDPParseError::MissingICECredentials)?;
-
         let audio_session = Self::get_audio_session(&sdp.audio_section, &audio_mid)?;
         let video_session = Self::get_video_session(&sdp.video_section, &video_mid)?;
 
