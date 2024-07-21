@@ -227,7 +227,7 @@ impl SDPResolver {
             })?;
 
         Some(AudioSession {
-            codec: AudioCodec::Opus,
+            codec: Self::ACCEPTED_AUDIO_CODEC,
             payload_number: accepted_codec_payload_number,
             remote_ssrc: remote_audio_ssrc,
             host_ssrc: get_random_ssrc(),
@@ -340,7 +340,7 @@ impl SDPResolver {
         })?;
 
         Some(VideoSession {
-            codec: VideoCodec::H264,
+            codec: Self::ACCEPTED_VIDEO_CODEC,
             capabilities: video_capabilities,
             payload_number: accepted_codec_payload_number,
             remote_ssrc: remote_video_ssrc,
