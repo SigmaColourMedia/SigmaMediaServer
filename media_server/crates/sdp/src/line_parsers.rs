@@ -22,9 +22,9 @@ pub enum SDPParseError {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum SDPLine {
     ProtocolVersion(String),
-    Originator(String),
+    Originator(Originator),
     SessionName(String),
-    SessionTime(String),
+    SessionTime(SessionTime),
     ConnectionData(ConnectionData),
     Attribute(Attribute),
     MediaDescription(MediaDescription),
@@ -80,6 +80,20 @@ pub(crate) enum ICEOption {
     ICE2,
     Trickle,
     Unsupported,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Originator {
+    pub(crate) username: String,
+    pub(crate) session_id: String,
+    pub(crate) session_version: String,
+    pub(crate) ip_addr: IpAddr,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct SessionTime {
+    pub(crate) start_time: usize,
+    pub(crate) end_time: usize,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ICEOptions {
@@ -166,9 +180,9 @@ impl From<SDPLine> for String {
     fn from(value: SDPLine) -> Self {
         match value {
             SDPLine::ProtocolVersion(proto) => format!("v={}", proto),
-            SDPLine::Originator(originator) => format!("o={}", originator),
+            SDPLine::Originator(originator) => String::from(originator),
             SDPLine::SessionName(session_name) => format!("s={}", session_name),
-            SDPLine::SessionTime(session_time) => format!("t={}", session_time),
+            SDPLine::SessionTime(session_time) => String::from(session_time),
             SDPLine::ConnectionData(connection_data) => String::from(connection_data),
             SDPLine::Attribute(attr) => String::from(attr),
             SDPLine::MediaDescription(media_description) => String::from(media_description),
@@ -212,7 +226,11 @@ impl From<Attribute> for String {
         format!("a={attribute_name}")
     }
 }
-
+impl From<SessionTime> for String {
+    fn from(value: SessionTime) -> Self {
+        format!("t={} {}", value.start_time, value.end_time)
+    }
+}
 impl From<ICEUsername> for String {
     fn from(value: ICEUsername) -> Self {
         format!("ice-ufrag:{}", value.username)
@@ -222,6 +240,23 @@ impl From<ICEUsername> for String {
 impl From<ICEPassword> for String {
     fn from(value: ICEPassword) -> Self {
         format!("ice-pwd:{}", value.password)
+    }
+}
+
+impl From<Originator> for String {
+    fn from(value: Originator) -> Self {
+        let ip_version = match value.ip_addr {
+            IpAddr::V4(_) => "IP4",
+            IpAddr::V6(_) => "IP6",
+        };
+        format!(
+            "o={} {} {} IN {} {}",
+            value.username,
+            value.session_id,
+            value.session_version,
+            ip_version,
+            value.ip_addr.to_string()
+        )
     }
 }
 
@@ -400,9 +435,9 @@ impl TryFrom<&str> for SDPLine {
         match sdp_type {
             "v" => Ok(SDPLine::ProtocolVersion(value.to_string())),
             "c" => Ok(SDPLine::ConnectionData(ConnectionData::try_from(input)?)),
-            "o" => Ok(SDPLine::Originator(value.to_string())),
+            "o" => Ok(SDPLine::Originator(Originator::try_from(input)?)),
             "s" => Ok(SDPLine::SessionName(value.to_string())),
-            "t" => Ok(SDPLine::SessionTime(value.to_string())),
+            "t" => Ok(SDPLine::SessionTime(SessionTime::try_from(input)?)),
             "m" => Ok(SDPLine::MediaDescription(MediaDescription::try_from(
                 input,
             )?)),
@@ -477,6 +512,74 @@ impl TryFrom<&str> for MediaDescription {
             media_type,
             media_format_description,
             transport_protocol,
+        })
+    }
+}
+
+impl TryFrom<&str> for Originator {
+    type Error = SDPParseError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let (key, value) = value
+            .split_once("o=")
+            .ok_or(Self::Error::MalformedSDPLine)?;
+        let mut split = value.split(" ");
+
+        let username = split.next().ok_or(Self::Error::MalformedSDPLine)?;
+        let session_id = split.next().ok_or(Self::Error::MalformedSDPLine)?;
+        let session_version = split.next().ok_or(Self::Error::MalformedSDPLine)?;
+        let network_type = split.next().ok_or(Self::Error::MalformedSDPLine)?;
+
+        if network_type.ne("IN") {
+            return Err(Self::Error::MalformedSDPLine);
+        }
+
+        let ip_type = split.next().ok_or(Self::Error::MalformedSDPLine)?;
+
+        match ip_type {
+            "IP4" => {
+                let unicast_address = split.next().ok_or(Self::Error::MalformedSDPLine)?;
+                let ip = Ipv4Addr::from_str(unicast_address)
+                    .map_err(|_| Self::Error::MalformedSDPLine)?;
+                Ok(Self {
+                    username: username.to_string(),
+                    session_id: session_id.to_string(),
+                    session_version: session_version.to_string(),
+                    ip_addr: IpAddr::V4(ip),
+                })
+            }
+            "IP6" => {
+                let unicast_address = split.next().ok_or(Self::Error::MalformedSDPLine)?;
+                let ip = Ipv6Addr::from_str(unicast_address)
+                    .map_err(|_| Self::Error::MalformedSDPLine)?;
+                Ok(Self {
+                    username: username.to_string(),
+                    session_id: session_id.to_string(),
+                    session_version: session_version.to_string(),
+                    ip_addr: IpAddr::V6(ip),
+                })
+            }
+            _ => Err(Self::Error::MalformedSDPLine),
+        }
+    }
+}
+
+impl TryFrom<&str> for SessionTime {
+    type Error = SDPParseError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let (_, value) = value
+            .split_once("t=")
+            .ok_or(Self::Error::MalformedSDPLine)?;
+        let (start_time, end_time) = value.split_once(" ").ok_or(Self::Error::MalformedSDPLine)?;
+
+        Ok(Self {
+            start_time: start_time
+                .parse::<usize>()
+                .map_err(|_| Self::Error::MalformedSDPLine)?,
+            end_time: end_time
+                .parse::<usize>()
+                .map_err(|_| Self::Error::MalformedSDPLine)?,
         })
     }
 }

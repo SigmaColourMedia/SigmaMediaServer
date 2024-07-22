@@ -6,7 +6,8 @@ use rand::distributions::Alphanumeric;
 use crate::line_parsers::{
     Attribute, AudioCodec, Candidate, ConnectionData, Fingerprint, FMTP, ICEOption,
     ICEOptions, ICEPassword, ICEUsername, MediaCodec, MediaDescription, MediaGroup, MediaID,
-    MediaSSRC, MediaTransportProtocol, MediaType, RTPMap, SDPLine, SDPParseError, VideoCodec,
+    MediaSSRC, MediaTransportProtocol, MediaType, Originator, RTPMap, SDPLine, SDPParseError,
+    SessionTime, VideoCodec,
 };
 
 #[derive(Debug)]
@@ -411,9 +412,17 @@ impl SDPResolver {
 
         let session_section = vec![
             SDPLine::ProtocolVersion("0".to_string()),
-            SDPLine::Originator("smid".to_string()),
+            SDPLine::Originator(Originator {
+                username: "smid".to_string(),
+                ip_addr: self.candidate.connection_address.clone(),
+                session_version: "0".to_string(),
+                session_id: "3767197920".to_string(), // todo Handle unique NTP-like timestamps
+            }),
             SDPLine::SessionName("smid".to_string()),
-            SDPLine::SessionTime("0 0".to_string()),
+            SDPLine::SessionTime(SessionTime {
+                start_time: 0,
+                end_time: 0,
+            }),
             SDPLine::Attribute(Attribute::MediaGroup(MediaGroup::Bundle(
                 bundle_group.clone(),
             ))),
