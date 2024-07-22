@@ -183,7 +183,7 @@ impl From<ConnectionData> for String {
             IpAddr::V4(_) => "IP4",
             IpAddr::V6(_) => "IP6",
         };
-        format!("c=IN {} {}", ip_family, ip_family.to_string())
+        format!("c=IN {} {}", ip_family, value.ip.to_string())
     }
 }
 
@@ -233,15 +233,15 @@ impl From<ICEOptions> for String {
             .map(String::from)
             .collect::<Vec<_>>()
             .join(" ");
-        format!("ice-options: {}", ice_options)
+        format!("ice-options:{}", ice_options)
     }
 }
 
 impl From<ICEOption> for String {
     fn from(value: ICEOption) -> Self {
         match value {
-            ICEOption::ICE2 => "trickle".to_string(),
-            ICEOption::Trickle => "ice2".to_string(),
+            ICEOption::ICE2 => "ice2".to_string(),
+            ICEOption::Trickle => "trickle".to_string(),
             ICEOption::Unsupported => {
                 panic!("Unsupported attributes should not be converted to String")
             }

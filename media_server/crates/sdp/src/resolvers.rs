@@ -16,18 +16,21 @@ struct SDP {
     audio_section: Vec<SDPLine>,
 }
 
+#[derive(Debug)]
 struct NegotiatedSession {
     sdp_answer: SDP,
     ice_credentials: ICECredentials,
     video_session: VideoSession,
     audio_session: AudioSession,
 }
+#[derive(Debug)]
 struct ICECredentials {
     host_username: String,
     host_password: String,
     remote_username: String,
     remote_password: String,
 }
+#[derive(Debug)]
 struct VideoSession {
     codec: VideoCodec,
     payload_number: usize,
@@ -36,6 +39,7 @@ struct VideoSession {
     capabilities: Vec<String>,
 }
 
+#[derive(Debug)]
 struct AudioSession {
     codec: AudioCodec,
     payload_number: usize,
@@ -58,6 +62,31 @@ fn get_random_string(size: usize) -> String {
 
 fn get_random_ssrc() -> u32 {
     thread_rng().next_u32()
+}
+
+impl From<SDP> for String {
+    fn from(value: SDP) -> Self {
+        let video = value
+            .video_section
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<_>>()
+            .join("\r\n");
+        let audio = value
+            .audio_section
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<_>>()
+            .join("\r\n");
+        let session = value
+            .session_section
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<_>>()
+            .join("\r\n");
+
+        format!("{}\r\n{}\r\n{}\r\n", session, audio, video)
+    }
 }
 
 impl SDPResolver {
@@ -337,8 +366,12 @@ impl SDPResolver {
             host_ssrc: get_random_ssrc(),
         })
     }
+    pub fn accept_stream_offer(&self, raw_data: &str) -> Result<NegotiatedSession, SDPParseError> {
+        let sdp = Self::get_sdp(raw_data)?;
+        self.parse_stream_offer(sdp)
+    }
 
-    fn accept_streamer_session(&self, sdp_offer: SDP) -> Result<NegotiatedSession, SDPParseError> {
+    fn parse_stream_offer(&self, sdp_offer: SDP) -> Result<NegotiatedSession, SDPParseError> {
         // Check if stream is bundled and get media stream ids
         let bundle_group = sdp_offer
             .session_section
@@ -577,153 +610,25 @@ impl SDPResolver {
             video_section,
         })
     }
-
-    // pub fn accept_streamer_sdp(
-    //     &self,
-    //     offer: SDPOffer,
-    // ) -> Result<ResolvedSDP, StreamerOfferSDPParseError> {
-    //     let find_payload_number_by_media_codec =
-    //         |media_attributes: &Vec<Attribute>, media_codec: MediaCodec| {
-    //             media_attributes
-    //                 .iter()
-    //                 .find_map(|attr| match attr {
-    //                     Attribute::RTPMap(rtpmap) => {
-    //                         if rtpmap.codec.eq(&media_codec) {
-    //                             return Some(rtpmap);
-    //                         }
-    //                         return None;
-    //                     }
-    //                     _ => None,
-    //                 })
-    //                 .ok_or(StreamerOfferSDPParseError::UnsupportedMediaCodecs)
-    //         };
-    //
-    //     // Check if video and audio is demuxed
-    //     let is_video_demuxed = offer
-    //         .video_media_description
-    //         .iter()
-    //         .find(|attr| match attr {
-    //             Attribute::RTCPMux => true,
-    //             _ => false,
-    //         })
-    //         .is_some();
-    //
-    //     if !is_video_demuxed {
-    //         return Err(StreamerOfferSDPParseError::DemuxRequired);
-    //     }
-    //     let is_audio_demuxed = offer
-    //         .audio_media_description
-    //         .iter()
-    //         .find(|attr| match attr {
-    //             Attribute::RTCPMux => true,
-    //             _ => false,
-    //         })
-    //         .is_some();
-    //     if !is_audio_demuxed {
-    //         return Err(StreamerOfferSDPParseError::DemuxRequired);
-    //     }
-    //
-    //     // Check if media direction is set to sendonly
-    //     let is_video_sendonly = offer
-    //         .video_media_description
-    //         .iter()
-    //         .find(|attr| match attr {
-    //             Attribute::SendOnly => true,
-    //             _ => false,
-    //         })
-    //         .is_some();
-    //     if !is_video_sendonly {
-    //         return Err(StreamerOfferSDPParseError::UnsupportedMediaDirection);
-    //     }
-    //
-    //     let is_audio_sendonly = offer
-    //         .audio_media_description
-    //         .iter()
-    //         .find(|attr| match attr {
-    //             Attribute::SendOnly => true,
-    //             _ => false,
-    //         })
-    //         .is_some();
-    //     if !is_audio_sendonly {
-    //         return Err(StreamerOfferSDPParseError::UnsupportedMediaDirection);
-    //     }
-    //
-    //     let supported_video_rtpmap = find_payload_number_by_media_codec(
-    //         offer.video_media_description.as_ref(),
-    //         MediaCodec::Video(VideoCodec::H264),
-    //     )?
-    //     .clone();
-    //     let supported_audio_rtpmap = find_payload_number_by_media_codec(
-    //         offer.audio_media_description.as_ref(),
-    //         MediaCodec::Audio(AudioCodec::Opus),
-    //     )?
-    //     .clone();
-    //
-    //     let supported_video_fmtp = offer
-    //         .video_media_description
-    //         .iter()
-    //         .find_map(|attr| match attr {
-    //             Attribute::FMTP(fmtp) => {
-    //                 if fmtp
-    //                     .payload_number
-    //                     .eq(&supported_audio_rtpmap.payload_number)
-    //                 {
-    //                     return Some(fmtp.clone());
-    //                 }
-    //                 return None;
-    //             }
-    //             _ => None,
-    //         })
-    //         .ok_or(StreamerOfferSDPParseError::MissingVideoProfileSettings)?;
-    //
-    //     let video_ssrc = offer
-    //         .video_media_description
-    //         .iter()
-    //         .find_map(|attr| match attr {
-    //             Attribute::MediaSSRC(ssrc) => Some(ssrc.clone()),
-    //             _ => None,
-    //         })
-    //         .ok_or(StreamerOfferSDPParseError::MissingRemoteSSRC)?;
-    //     let audio_ssrc = offer
-    //         .audio_media_description
-    //         .iter()
-    //         .find_map(|attr| match attr {
-    //             Attribute::MediaSSRC(ssrc) => Some(ssrc.clone()),
-    //             _ => None,
-    //         })
-    //         .ok_or(StreamerOfferSDPParseError::MissingRemoteSSRC)?;
-    //
-    //     Ok(ResolvedSDP {
-    //         agent_type: AgentType::Streamer,
-    //         fingerprint: self.fingerprint.clone(),
-    //         video_mapping: supported_video_rtpmap,
-    //         audio_mapping: supported_audio_rtpmap,
-    //         host_ice_password: ICEPassword {
-    //             password: get_random_string(20),
-    //         },
-    //         host_ice_username: ICEUsername {
-    //             username: get_random_string(4),
-    //         },
-    //         remote_ice_username: offer.ice_username,
-    //         remote_ice_password: offer.ice_password,
-    //         video_capability: supported_video_fmtp,
-    //         remote_video_ssrc: video_ssrc,
-    //         remote_audio_ssrc: audio_ssrc,
-    //     })
-    // }
 }
 
 mod tests {
     mod sdp_resolver {
         mod get_sdp {
+            use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
             use crate::resolvers::SDPResolver;
 
             const VALID_SDP: &str = "v=0\r\no=rtc 3767197920 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=group:LS 0 1\r\na=msid-semantic:WMS *\r\na=setup:actpass\r\na=ice-ufrag:E2Fr\r\na=ice-pwd:OpQzg1PAwUdeOB244chlgd\r\na=ice-options:trickle\r\na=fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B\r\nm=audio 4557 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 192.168.0.198\r\na=mid:0\r\na=sendonly\r\na=ssrc:1349455989 cname:0X2NGAsK9XcmnsuZ\r\na=ssrc:1349455989 msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-audio\r\na=msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-audio\r\na=rtcp-mux\r\na=rtpmap:111 opus/48000/2\r\na=fmtp:111 minptime=10;maxaveragebitrate=96000;stereo=1;sprop-stereo=1;useinbandfec=1\r\na=candidate:1 1 UDP 2015363327 192.168.0.198 4557 typ host\r\na=candidate:2 1 UDP 2015363583 fe80::6c3d:5b42:1532:2f9a 10007 typ host\r\na=end-of-candidates\r\nm=video 4557 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 192.168.0.198\r\na=mid:1\r\na=sendonly\r\na=ssrc:1349455990 cname:0X2NGAsK9XcmnsuZ\r\na=ssrc:1349455990 msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-video\r\na=msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-video\r\na=rtcp-mux\r\na=rtpmap:96 H264/90000\r\na=rtcp-fb:96 nack\r\na=rtcp-fb:96 nack pli\r\na=rtcp-fb:96 goog-remb\r\na=fmtp:96 profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1\r\n";
 
             #[test]
-            fn resolves_valid_sdp() {
-                let result = SDPResolver::get_sdp(VALID_SDP).expect("Should return valid SDP");
-                println!("{:?}", result)
+            fn resolves_valid_streamer_offer() {
+                let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 52000);
+                let resolver = SDPResolver::new("fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B", socket_addr);
+                let result = resolver
+                    .accept_stream_offer(VALID_SDP)
+                    .expect("Should resolve to OK");
+                println!("{}", String::from(result.sdp_answer))
             }
         }
     }
