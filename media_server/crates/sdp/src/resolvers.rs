@@ -4,8 +4,9 @@ use rand::{Rng, RngCore, thread_rng};
 use rand::distributions::Alphanumeric;
 
 use crate::line_parsers::{
-    Attribute, AudioCodec, Candidate, Fingerprint, MediaCodec, MediaGroup, MediaID, MediaType,
-    SDPLine, SDPParseError, VideoCodec,
+    Attribute, AudioCodec, Candidate, ConnectionData, Fingerprint, FMTP, ICEOption,
+    ICEOptions, ICEPassword, ICEUsername, MediaCodec, MediaDescription, MediaGroup, MediaID,
+    MediaSSRC, MediaTransportProtocol, MediaType, RTPMap, SDPLine, SDPParseError, VideoCodec,
 };
 
 #[derive(Debug)]
@@ -337,9 +338,9 @@ impl SDPResolver {
         })
     }
 
-    fn accept_streamer_session(sdp: SDP) -> Result<NegotiatedSession, SDPParseError> {
+    fn accept_streamer_session(&self, sdp_offer: SDP) -> Result<NegotiatedSession, SDPParseError> {
         // Check if stream is bundled and get media stream ids
-        let bundle_group = sdp
+        let bundle_group = sdp_offer
             .session_section
             .iter()
             .find_map(|item| match item {
@@ -371,11 +372,93 @@ impl SDPResolver {
         };
 
         let ice_credentials =
-            Self::get_ice_credentials(&sdp).ok_or(SDPParseError::MissingICECredentials)?;
-        let audio_session = Self::get_audio_session(&sdp.audio_section, &audio_mid)?;
-        let video_session = Self::get_video_session(&sdp.video_section, &video_mid)?;
+            Self::get_ice_credentials(&sdp_offer).ok_or(SDPParseError::MissingICECredentials)?;
+        let audio_session = Self::get_audio_session(&sdp_offer.audio_section, &audio_mid)?;
+        let video_session = Self::get_video_session(&sdp_offer.video_section, &video_mid)?;
 
-        Err(SDPParseError::SequenceError)
+        let session_section = vec![
+            SDPLine::ProtocolVersion("0".to_string()),
+            SDPLine::Originator("smid".to_string()),
+            SDPLine::SessionName("smid".to_string()),
+            SDPLine::SessionTime("0 0".to_string()),
+            SDPLine::Attribute(Attribute::MediaGroup(MediaGroup::Bundle(
+                bundle_group.clone(),
+            ))),
+            SDPLine::Attribute(Attribute::ICEUsername(ICEUsername {
+                username: ice_credentials.host_username.clone(),
+            })),
+            SDPLine::Attribute(Attribute::ICEPassword(ICEPassword {
+                password: ice_credentials.host_password.clone(),
+            })),
+            SDPLine::Attribute(Attribute::ICEOptions(ICEOptions {
+                options: vec![ICEOption::ICE2],
+            })),
+            SDPLine::Attribute(Attribute::ICELite),
+            SDPLine::Attribute(Attribute::Fingerprint(self.fingerprint.clone())),
+        ];
+
+        let audio_section = vec![
+            SDPLine::MediaDescription(MediaDescription {
+                transport_port: self.candidate.port as usize,
+                media_type: MediaType::Audio,
+                transport_protocol: MediaTransportProtocol::DtlsSrtp,
+                media_format_description: vec![audio_session.payload_number],
+            }),
+            SDPLine::ConnectionData(ConnectionData {
+                ip: self.candidate.connection_address,
+            }),
+            SDPLine::Attribute(Attribute::ReceiveOnly),
+            SDPLine::Attribute(Attribute::RTCPMux),
+            SDPLine::Attribute(Attribute::MediaID(audio_mid)),
+            SDPLine::Attribute(Attribute::Candidate(self.candidate.clone())),
+            SDPLine::Attribute(Attribute::EndOfCandidates),
+            SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                codec: MediaCodec::Audio(audio_session.codec.clone()),
+                payload_number: audio_session.payload_number,
+            })),
+            SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                ssrc: audio_session.host_ssrc,
+            })),
+        ];
+
+        let video_section = vec![
+            SDPLine::MediaDescription(MediaDescription {
+                transport_port: self.candidate.port as usize,
+                media_type: MediaType::Video,
+                transport_protocol: MediaTransportProtocol::DtlsSrtp,
+                media_format_description: vec![video_session.payload_number],
+            }),
+            SDPLine::ConnectionData(ConnectionData {
+                ip: self.candidate.connection_address,
+            }),
+            SDPLine::Attribute(Attribute::ReceiveOnly),
+            SDPLine::Attribute(Attribute::RTCPMux),
+            SDPLine::Attribute(Attribute::MediaID(video_mid)),
+            SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                codec: MediaCodec::Video(video_session.codec.clone()),
+                payload_number: audio_session.payload_number,
+            })),
+            SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                ssrc: video_session.host_ssrc,
+            })),
+            SDPLine::Attribute(Attribute::FMTP(FMTP {
+                payload_number: video_session.payload_number,
+                format_capability: video_session.capabilities.clone(),
+            })),
+        ];
+
+        let sdp_answer = SDP {
+            session_section,
+            audio_section,
+            video_section,
+        };
+
+        Ok(NegotiatedSession {
+            ice_credentials,
+            audio_session,
+            video_session,
+            sdp_answer,
+        })
     }
 
     /**

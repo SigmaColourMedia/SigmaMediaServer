@@ -32,13 +32,16 @@ pub(crate) enum SDPLine {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-struct ConnectionData {
-    ip: IpAddr,
+pub(crate) struct ConnectionData {
+    pub(crate) ip: IpAddr,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Attribute {
     Unrecognized,
+    EndOfCandidates,
+    ICELite,
+    ICEOptions(ICEOptions),
     SendOnly,
     ReceiveOnly,
     MediaID(MediaID),
@@ -56,9 +59,9 @@ pub(crate) enum Attribute {
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) struct MediaDescription {
     pub(crate) media_type: MediaType,
-    transport_port: usize,
-    transport_protocol: MediaTransportProtocol,
-    media_format_description: Vec<usize>,
+    pub(crate) transport_port: usize,
+    pub(crate) transport_protocol: MediaTransportProtocol,
+    pub(crate) media_format_description: Vec<usize>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -68,8 +71,19 @@ pub(crate) enum MediaType {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-enum MediaTransportProtocol {
+pub(crate) enum MediaTransportProtocol {
     DtlsSrtp,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum ICEOption {
+    ICE2,
+    Trickle,
+    Unsupported,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ICEOptions {
+    pub(crate) options: Vec<ICEOption>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -176,7 +190,9 @@ impl From<ConnectionData> for String {
 impl From<Attribute> for String {
     fn from(value: Attribute) -> Self {
         let attribute_name = match value {
-            Attribute::Unrecognized => "undefined".to_string(),
+            Attribute::Unrecognized => {
+                panic!("Unrecognized attributes should not be converted to String")
+            }
             Attribute::SendOnly => "sendonly".to_string(),
             Attribute::ReceiveOnly => "recvonly".to_string(),
             Attribute::RTCPMux => "rtcp-mux".to_string(),
@@ -189,6 +205,9 @@ impl From<Attribute> for String {
             Attribute::RTPMap(attr) => String::from(attr),
             Attribute::FMTP(attr) => String::from(attr),
             Attribute::Candidate(attr) => String::from(attr),
+            Attribute::ICELite => "ice-lite".to_string(),
+            Attribute::EndOfCandidates => "end-of-candidates".to_string(),
+            Attribute::ICEOptions(ice_options) => String::from(ice_options),
         };
         format!("a={attribute_name}")
     }
@@ -203,6 +222,30 @@ impl From<ICEUsername> for String {
 impl From<ICEPassword> for String {
     fn from(value: ICEPassword) -> Self {
         format!("ice-pwd:{}", value.password)
+    }
+}
+
+impl From<ICEOptions> for String {
+    fn from(value: ICEOptions) -> Self {
+        let ice_options = value
+            .options
+            .into_iter()
+            .map(String::from)
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!("ice-options: {}", ice_options)
+    }
+}
+
+impl From<ICEOption> for String {
+    fn from(value: ICEOption) -> Self {
+        match value {
+            ICEOption::ICE2 => "trickle".to_string(),
+            ICEOption::Trickle => "ice2".to_string(),
+            ICEOption::Unsupported => {
+                panic!("Unsupported attributes should not be converted to String")
+            }
+        }
     }
 }
 
@@ -474,6 +517,37 @@ impl TryFrom<&str> for ConnectionData {
             .ok_or(Self::Error::MalformedSDPLine)?;
 
         Ok(Self { ip: ip_addr })
+    }
+}
+
+impl TryFrom<&str> for ICEOptions {
+    type Error = SDPParseError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let (_, value) = value
+            .split_once("ice-options:")
+            .ok_or(Self::Error::MalformedAttribute)?;
+
+        let ice_options = value
+            .split(" ")
+            .map(ICEOption::try_from)
+            .collect::<Result<Vec<ICEOption>, Self::Error>>()?;
+
+        Ok(Self {
+            options: ice_options,
+        })
+    }
+}
+
+impl TryFrom<&str> for ICEOption {
+    type Error = SDPParseError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "ice2" => Ok(ICEOption::ICE2),
+            "trickle" => Ok(ICEOption::Trickle),
+            _ => Ok(ICEOption::Unsupported),
+        }
     }
 }
 
