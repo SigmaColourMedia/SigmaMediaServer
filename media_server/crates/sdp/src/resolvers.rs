@@ -107,9 +107,16 @@ impl SDPResolver {
             candidate,
         }
     }
+    pub fn accept_stream_offer(&self, raw_data: &str) -> Result<NegotiatedSession, SDPParseError> {
+        let sdp = Self::get_sdp(raw_data)?;
+        self.parse_stream_offer(sdp)
+    }
     const ACCEPTED_VIDEO_CODEC: VideoCodec = VideoCodec::H264;
     const ACCEPTED_AUDIO_CODEC: AudioCodec = AudioCodec::Opus;
 
+    /** Gets ICE credentials from the SDP. Uses session-level credentials if no media-level credentials were provided.
+    If media-level credentials were provided, check if they match across media-streams and if so resolve to ICECredentials.
+    */
     fn get_ice_credentials(sdp: &SDP) -> Option<ICECredentials> {
         let get_ice_username = |section: &Vec<SDPLine>| {
             section.iter().find_map(|line| match line {
@@ -169,27 +176,13 @@ impl SDPResolver {
         });
     }
 
-    fn get_audio_session(
-        session_sdp: &Vec<SDPLine>,
-        target_media_id: &MediaID,
+    /** Get AudioSession based off audio-media-level SDPLines. Resolve codecs based on supported streamer codecs.
+     */
+    fn get_streamer_audio_session(
+        audio_media_section: &Vec<SDPLine>,
     ) -> Result<AudioSession, SDPParseError> {
-        let audio_mid = session_sdp
-            .iter()
-            .find_map(|item| match item {
-                SDPLine::Attribute(attr) => match attr {
-                    Attribute::MediaID(media_id) => Some(media_id),
-                    _ => None,
-                },
-                _ => None,
-            })
-            .ok_or(SDPParseError::InvalidMediaID)?;
-
-        if audio_mid.ne(&target_media_id) {
-            return Err(SDPParseError::InvalidMediaID);
-        }
-
         // Check if audio stream is demuxed
-        let is_rtcp_demuxed = session_sdp
+        let is_rtcp_demuxed = audio_media_section
             .iter()
             .find_map(|item| match item {
                 SDPLine::Attribute(attr) => match attr {
@@ -205,7 +198,7 @@ impl SDPResolver {
         }
 
         // Check if stream is sendonly
-        let is_sendonly_direction = session_sdp
+        let is_sendonly_direction = audio_media_section
             .iter()
             .find_map(|item| match item {
                 SDPLine::Attribute(attr) => match attr {
@@ -220,7 +213,7 @@ impl SDPResolver {
             return Err(SDPParseError::InvalidStreamDirection);
         }
 
-        let remote_audio_ssrc = session_sdp
+        let remote_audio_ssrc = audio_media_section
             .iter()
             .find_map(|item| match item {
                 SDPLine::Attribute(attr) => match attr {
@@ -231,7 +224,7 @@ impl SDPResolver {
             })
             .ok_or(SDPParseError::MissingStreamSSRC)?;
 
-        let accepted_codec_payload_number = session_sdp
+        let accepted_codec_payload_number = audio_media_section
             .iter()
             .find_map(|item| match item {
                 SDPLine::Attribute(attr) => match attr {
@@ -258,27 +251,11 @@ impl SDPResolver {
         })
     }
 
-    fn get_video_session(
-        session_sdp: &Vec<SDPLine>,
-        target_media_id: &MediaID,
+    fn get_streamer_video_session(
+        video_media: &Vec<SDPLine>,
     ) -> Result<VideoSession, SDPParseError> {
-        let media_id = session_sdp
-            .iter()
-            .find_map(|item| match item {
-                SDPLine::Attribute(attr) => match attr {
-                    Attribute::MediaID(media_id) => Some(media_id),
-                    _ => None,
-                },
-                _ => None,
-            })
-            .ok_or(SDPParseError::InvalidMediaID)?;
-
-        if media_id.ne(&target_media_id) {
-            return Err(SDPParseError::InvalidMediaID);
-        }
-
         // Check if stream is demuxed
-        let is_rtcp_demuxed = session_sdp
+        let is_rtcp_demuxed = video_media
             .iter()
             .find_map(|item| match item {
                 SDPLine::Attribute(attr) => match attr {
@@ -294,7 +271,7 @@ impl SDPResolver {
         }
 
         // Check if stream is sendonly
-        let is_sendonly_direction = session_sdp
+        let is_sendonly_direction = video_media
             .iter()
             .find_map(|item| match item {
                 SDPLine::Attribute(attr) => match attr {
@@ -310,7 +287,7 @@ impl SDPResolver {
         }
 
         // Check for stream ssrc
-        let remote_video_ssrc = session_sdp
+        let remote_video_ssrc = video_media
             .iter()
             .find_map(|item| match item {
                 SDPLine::Attribute(attr) => match attr {
@@ -323,7 +300,7 @@ impl SDPResolver {
 
         // Check if supported codec is present
         // todo Pick highest available video capabilities
-        let accepted_codec_payload_number = session_sdp
+        let accepted_codec_payload_number = video_media
             .iter()
             .find_map(|item| match item {
                 SDPLine::Attribute(attr) => match attr {
@@ -343,7 +320,7 @@ impl SDPResolver {
             .ok_or(SDPParseError::UnsupportedMediaCodecs)?;
 
         // Get FMTP value
-        let video_capabilities = session_sdp
+        let video_capabilities = video_media
             .iter()
             .find_map(|item| match item {
                 SDPLine::Attribute(attr) => match attr {
@@ -367,14 +344,9 @@ impl SDPResolver {
             host_ssrc: get_random_ssrc(),
         })
     }
-    pub fn accept_stream_offer(&self, raw_data: &str) -> Result<NegotiatedSession, SDPParseError> {
-        let sdp = Self::get_sdp(raw_data)?;
-        self.parse_stream_offer(sdp)
-    }
 
-    fn parse_stream_offer(&self, sdp_offer: SDP) -> Result<NegotiatedSession, SDPParseError> {
-        // Check if stream is bundled and get media stream ids
-        let bundle_group = sdp_offer
+    fn get_media_ids(sdp: &SDP) -> Result<(MediaID, MediaID), SDPParseError> {
+        let bundle_group = sdp
             .session_section
             .iter()
             .find_map(|item| match item {
@@ -389,7 +361,7 @@ impl SDPResolver {
             })
             .ok_or(SDPParseError::BundleRequired)?;
 
-        let audio_mid = MediaID {
+        let expected_audio_mid = MediaID {
             id: bundle_group
                 .iter()
                 .nth(0)
@@ -397,7 +369,7 @@ impl SDPResolver {
                 .to_string(),
         };
 
-        let video_mid = MediaID {
+        let expected_video_mid = MediaID {
             id: bundle_group
                 .iter()
                 .nth(1)
@@ -405,10 +377,49 @@ impl SDPResolver {
                 .to_string(),
         };
 
+        let actual_audio_id = sdp
+            .audio_section
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::MediaID(media_id) => Some(media_id),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .ok_or(SDPParseError::InvalidMediaID)?;
+
+        if expected_audio_mid.ne(actual_audio_id) {
+            return Err(SDPParseError::InvalidMediaID);
+        }
+
+        let actual_video_id = sdp
+            .video_section
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::MediaID(media_id) => Some(media_id),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .ok_or(SDPParseError::InvalidMediaID)?;
+
+        if expected_video_mid.ne(actual_video_id) {
+            return Err(SDPParseError::InvalidMediaID);
+        }
+
+        return Ok((expected_audio_mid, expected_video_mid));
+    }
+
+    fn parse_stream_offer(&self, sdp_offer: SDP) -> Result<NegotiatedSession, SDPParseError> {
+        // Check if stream is bundled and get media stream ids
+        let (audio_mid, video_mid) = Self::get_media_ids(&sdp_offer)?;
+
         let ice_credentials =
             Self::get_ice_credentials(&sdp_offer).ok_or(SDPParseError::MissingICECredentials)?;
-        let audio_session = Self::get_audio_session(&sdp_offer.audio_section, &audio_mid)?;
-        let video_session = Self::get_video_session(&sdp_offer.video_section, &video_mid)?;
+        let audio_session = Self::get_streamer_audio_session(&sdp_offer.audio_section)?;
+        let video_session = Self::get_streamer_video_session(&sdp_offer.video_section)?;
 
         let session_section = vec![
             SDPLine::ProtocolVersion("0".to_string()),
@@ -423,9 +434,10 @@ impl SDPResolver {
                 start_time: 0,
                 end_time: 0,
             }),
-            SDPLine::Attribute(Attribute::MediaGroup(MediaGroup::Bundle(
-                bundle_group.clone(),
-            ))),
+            SDPLine::Attribute(Attribute::MediaGroup(MediaGroup::Bundle(vec![
+                audio_mid.id.clone(),
+                video_mid.id.clone(),
+            ]))),
             SDPLine::Attribute(Attribute::ICEUsername(ICEUsername {
                 username: ice_credentials.host_username.clone(),
             })),
@@ -503,6 +515,55 @@ impl SDPResolver {
         })
     }
 
+    fn get_viewer_audio_session(
+        audio_media: &Vec<SDPLine>,
+        streamer_session: &NegotiatedSession,
+    ) -> Result<AudioSession, SDPParseError> {
+        // Check if audio stream is demuxed
+        let is_rtcp_demuxed = audio_media
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::RTCPMux => Some(()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .is_some();
+
+        if !is_rtcp_demuxed {
+            return Err(SDPParseError::DemuxRequired);
+        }
+
+        // Check if stream is recvonly
+        let is_recvonly_direction = audio_media
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::ReceiveOnly => Some(()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .is_some();
+
+        if !is_recvonly_direction {
+            return Err(SDPParseError::InvalidStreamDirection);
+        }
+
+        let accepted_audio_codec = &streamer_session.audio_session.codec;
+        Err(SDPParseError::MalformedSDPLine)
+    }
+
+    fn parse_viewer_offer(
+        viewer_sdp: SDP,
+        streamer_session: &NegotiatedSession,
+    ) -> Result<NegotiatedSession, SDPParseError> {
+        let ice_credentials = Self::get_ice_credentials(&viewer_sdp)?;
+        let (audio_mid, video_mid) = Self::get_media_ids(&viewer_sdp)?;
+        Err(SDPParseError::MalformedSDPLine)
+    }
+
     /**
     Parse raw string data to SDP struct. SDP struct is split into session, audio and video section, with each section having ownership over corresponding SDPLine elements.
     Check if session section is properly formatted.
@@ -514,8 +575,6 @@ impl SDPResolver {
             .lines()
             .map(SDPLine::try_from)
             .collect::<Result<Vec<SDPLine>, SDPParseError>>()?;
-
-        println!("input lines {:?}\r\n", sdp_lines);
 
         let next_line = sdp_lines
             .iter()
