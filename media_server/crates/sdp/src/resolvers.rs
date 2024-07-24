@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::net::SocketAddr;
 
 use rand::{Rng, RngCore, thread_rng};
@@ -37,7 +38,7 @@ struct VideoSession {
     payload_number: usize,
     host_ssrc: u32,
     remote_ssrc: u32,
-    capabilities: Vec<String>,
+    capabilities: HashSet<String>,
 }
 
 #[derive(Debug)]
@@ -551,17 +552,260 @@ impl SDPResolver {
             return Err(SDPParseError::InvalidStreamDirection);
         }
 
-        let accepted_audio_codec = &streamer_session.audio_session.codec;
-        Err(SDPParseError::MalformedSDPLine)
+        let legal_audio_codec = &streamer_session.audio_session.codec;
+
+        let resolved_payload_number = audio_media
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::RTPMap(rtpmap) => {
+                        if rtpmap
+                            .codec
+                            .eq(&MediaCodec::Audio(legal_audio_codec.clone()))
+                        {
+                            return Some(rtpmap.payload_number);
+                        }
+                        None
+                    }
+                    _ => None,
+                },
+                _ => None,
+            })
+            .ok_or(SDPParseError::UnsupportedMediaCodecs)?;
+
+        let remote_ssrc = audio_media
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::MediaSSRC(media_ssrc) => Some(media_ssrc),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .ok_or(SDPParseError::MissingStreamSSRC)?;
+
+        Ok(AudioSession {
+            codec: legal_audio_codec.clone(),
+            payload_number: resolved_payload_number,
+            host_ssrc: get_random_ssrc(),
+            remote_ssrc: remote_ssrc.ssrc,
+        })
+    }
+
+    fn get_viewer_video_session(
+        video_media: &Vec<SDPLine>,
+        streamer_session: &NegotiatedSession,
+    ) -> Result<VideoSession, SDPParseError> {
+        // Check if stream is demuxed
+        let is_rtcp_demuxed = video_media
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::RTCPMux => Some(()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .is_some();
+
+        if !is_rtcp_demuxed {
+            return Err(SDPParseError::DemuxRequired);
+        }
+
+        // Check if stream is recvonly
+        let is_recvonly_direction = video_media
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::ReceiveOnly => Some(()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .is_some();
+
+        if !is_recvonly_direction {
+            return Err(SDPParseError::InvalidStreamDirection);
+        }
+
+        /*
+        Here we start to look for a payload number that matches both streamer video codec and streamer video capabilities
+         */
+        // Only the negotiated streamer video codec is considered a legal option
+        let legal_video_codec = &streamer_session.video_session.codec;
+
+        // Get all payload numbers matching legal Video codec
+        let available_payload_numbers = video_media
+            .iter()
+            .filter_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::RTPMap(rtpmap) => {
+                        if rtpmap
+                            .codec
+                            .eq(&MediaCodec::Video(legal_video_codec.clone()))
+                        {
+                            return Some(rtpmap.payload_number);
+                        }
+                        None
+                    }
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect::<Vec<usize>>();
+
+        // Only the negotiated streamer video FMTP is considered a legal option
+        let legal_video_fmtp = &streamer_session.video_session.capabilities;
+
+        // Filter out all FMTPs not matching the available payload numbers and then look for one matching the legal FMTP
+        // The filter could be skipped, but then we have no guarantee that this FMTP actually points to the proper codec
+        let resolved_payload_number = video_media
+            .iter()
+            .filter_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::FMTP(fmtp) => {
+                        if available_payload_numbers.contains(&fmtp.payload_number) {
+                            return Some(fmtp);
+                        }
+                        None
+                    }
+                    _ => None,
+                },
+                _ => None,
+            })
+            .find_map(|fmtp| {
+                if fmtp.format_capability.eq(legal_video_fmtp) {
+                    return Some(fmtp.payload_number);
+                }
+                None
+            })
+            .ok_or(SDPParseError::UnsupportedMediaCodecs)?;
+
+        let remote_ssrc = video_media
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::MediaSSRC(media_ssrc) => Some(media_ssrc),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .ok_or(SDPParseError::MissingStreamSSRC)?;
+
+        Ok(VideoSession {
+            capabilities: legal_video_fmtp.clone(),
+            host_ssrc: get_random_ssrc(),
+            remote_ssrc: remote_ssrc.ssrc,
+            payload_number: resolved_payload_number,
+            codec: legal_video_codec.clone(),
+        })
     }
 
     fn parse_viewer_offer(
+        &self,
         viewer_sdp: SDP,
         streamer_session: &NegotiatedSession,
     ) -> Result<NegotiatedSession, SDPParseError> {
-        let ice_credentials = Self::get_ice_credentials(&viewer_sdp)?;
+        let ice_credentials =
+            Self::get_ice_credentials(&viewer_sdp).ok_or(SDPParseError::MissingICECredentials)?;
         let (audio_mid, video_mid) = Self::get_media_ids(&viewer_sdp)?;
-        Err(SDPParseError::MalformedSDPLine)
+        let audio_session =
+            Self::get_viewer_audio_session(&viewer_sdp.audio_section, streamer_session)?;
+        let video_session =
+            Self::get_viewer_video_session(&viewer_sdp.video_section, streamer_session)?;
+
+        let session_section = vec![
+            SDPLine::ProtocolVersion("0".to_string()),
+            SDPLine::Originator(Originator {
+                username: "smid".to_string(),
+                ip_addr: self.candidate.connection_address.clone(),
+                session_version: "0".to_string(),
+                session_id: "3767197920".to_string(), // todo Handle unique NTP-like timestamps
+            }),
+            SDPLine::SessionName("smid".to_string()),
+            SDPLine::SessionTime(SessionTime {
+                start_time: 0,
+                end_time: 0,
+            }),
+            SDPLine::Attribute(Attribute::MediaGroup(MediaGroup::Bundle(vec![
+                audio_mid.id.clone(),
+                video_mid.id.clone(),
+            ]))),
+            SDPLine::Attribute(Attribute::ICEUsername(ICEUsername {
+                username: ice_credentials.host_username.clone(),
+            })),
+            SDPLine::Attribute(Attribute::ICEPassword(ICEPassword {
+                password: ice_credentials.host_password.clone(),
+            })),
+            SDPLine::Attribute(Attribute::ICEOptions(ICEOptions {
+                options: vec![ICEOption::ICE2],
+            })),
+            SDPLine::Attribute(Attribute::ICELite),
+            SDPLine::Attribute(Attribute::Fingerprint(self.fingerprint.clone())),
+        ];
+
+        let audio_section = vec![
+            SDPLine::MediaDescription(MediaDescription {
+                transport_port: self.candidate.port as usize,
+                media_type: MediaType::Audio,
+                transport_protocol: MediaTransportProtocol::DtlsSrtp,
+                media_format_description: vec![audio_session.payload_number],
+            }),
+            SDPLine::ConnectionData(ConnectionData {
+                ip: self.candidate.connection_address,
+            }),
+            SDPLine::Attribute(Attribute::SendOnly),
+            SDPLine::Attribute(Attribute::RTCPMux),
+            SDPLine::Attribute(Attribute::MediaID(audio_mid)),
+            SDPLine::Attribute(Attribute::Candidate(self.candidate.clone())),
+            SDPLine::Attribute(Attribute::EndOfCandidates),
+            SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                codec: MediaCodec::Audio(audio_session.codec.clone()),
+                payload_number: audio_session.payload_number,
+            })),
+            SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                ssrc: audio_session.host_ssrc,
+            })),
+        ];
+
+        let video_section = vec![
+            SDPLine::MediaDescription(MediaDescription {
+                transport_port: self.candidate.port as usize,
+                media_type: MediaType::Video,
+                transport_protocol: MediaTransportProtocol::DtlsSrtp,
+                media_format_description: vec![video_session.payload_number],
+            }),
+            SDPLine::ConnectionData(ConnectionData {
+                ip: self.candidate.connection_address,
+            }),
+            SDPLine::Attribute(Attribute::SendOnly),
+            SDPLine::Attribute(Attribute::RTCPMux),
+            SDPLine::Attribute(Attribute::MediaID(video_mid)),
+            SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                codec: MediaCodec::Video(video_session.codec.clone()),
+                payload_number: audio_session.payload_number,
+            })),
+            SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                ssrc: video_session.host_ssrc,
+            })),
+            SDPLine::Attribute(Attribute::FMTP(FMTP {
+                payload_number: video_session.payload_number,
+                format_capability: video_session.capabilities.clone(),
+            })),
+        ];
+
+        let sdp_answer = SDP {
+            session_section,
+            audio_section,
+            video_section,
+        };
+
+        Ok(NegotiatedSession {
+            ice_credentials,
+            audio_session,
+            video_session,
+            sdp_answer,
+        })
     }
 
     /**

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 
@@ -154,7 +155,7 @@ pub(crate) struct RTPMap {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct FMTP {
     pub(crate) payload_number: usize,
-    pub(crate) format_capability: Vec<String>,
+    pub(crate) format_capability: HashSet<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -406,7 +407,11 @@ impl From<MediaSSRC> for String {
 
 impl From<FMTP> for String {
     fn from(value: FMTP) -> Self {
-        let format_capabilities = value.format_capability.join(";");
+        let format_capabilities = value
+            .format_capability
+            .into_iter()
+            .collect::<Vec<String>>()
+            .join(";");
         format!("fmtp:{} {}", value.payload_number, format_capabilities)
     }
 }
@@ -810,7 +815,7 @@ impl TryFrom<&str> for FMTP {
         let format_capability = capabilities
             .split(";")
             .map(ToString::to_string)
-            .collect::<Vec<String>>();
+            .collect::<HashSet<String>>();
 
         Ok(FMTP {
             format_capability,
