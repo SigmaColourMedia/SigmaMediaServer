@@ -927,568 +927,203 @@ impl SDPResolver {
 mod tests {
     mod sdp_resolver {
         mod get_sdp {
-            use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+            use std::collections::HashSet;
+            use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+            use std::str::FromStr;
 
+            use crate::line_parsers::{
+                Attribute, AudioCodec, Candidate, ConnectionData, Fingerprint, FMTP,
+                HashFunction, ICEOption, ICEOptions, ICEPassword, ICEUsername, MediaCodec,
+                MediaDescription, MediaGroup, MediaID, MediaSSRC, MediaTransportProtocol, MediaType,
+                Originator, RTPMap, SDPLine, SessionTime, VideoCodec,
+            };
             use crate::resolvers::SDPResolver;
 
             const VALID_SDP: &str = "v=0\r\no=rtc 3767197920 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=group:LS 0 1\r\na=msid-semantic:WMS *\r\na=setup:actpass\r\na=ice-ufrag:E2Fr\r\na=ice-pwd:OpQzg1PAwUdeOB244chlgd\r\na=ice-options:trickle\r\na=fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B\r\nm=audio 4557 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 192.168.0.198\r\na=mid:0\r\na=sendonly\r\na=ssrc:1349455989 cname:0X2NGAsK9XcmnsuZ\r\na=ssrc:1349455989 msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-audio\r\na=msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-audio\r\na=rtcp-mux\r\na=rtpmap:111 opus/48000/2\r\na=fmtp:111 minptime=10;maxaveragebitrate=96000;stereo=1;sprop-stereo=1;useinbandfec=1\r\na=candidate:1 1 UDP 2015363327 192.168.0.198 4557 typ host\r\na=candidate:2 1 UDP 2015363583 fe80::6c3d:5b42:1532:2f9a 10007 typ host\r\na=end-of-candidates\r\nm=video 4557 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 192.168.0.198\r\na=mid:1\r\na=sendonly\r\na=ssrc:1349455990 cname:0X2NGAsK9XcmnsuZ\r\na=ssrc:1349455990 msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-video\r\na=msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-video\r\na=rtcp-mux\r\na=rtpmap:96 H264/90000\r\na=rtcp-fb:96 nack\r\na=rtcp-fb:96 nack pli\r\na=rtcp-fb:96 goog-remb\r\na=fmtp:96 profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1\r\n";
 
             #[test]
-            fn resolves_valid_streamer_offer() {
-                let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 52000);
-                let resolver = SDPResolver::new("fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B", socket_addr);
-                let result = resolver
-                    .accept_stream_offer(VALID_SDP)
-                    .expect("Should resolve to OK");
-                println!("{}", String::from(result.sdp_answer))
+            fn resolves_valid_sdp() {
+                let result = SDPResolver::get_sdp(VALID_SDP).expect("Should resolve to OK");
+
+                let expected_session_media = vec![
+                    SDPLine::ProtocolVersion("0".to_string()),
+                    SDPLine::Originator(Originator {
+                        username: "rtc".to_string(),
+                        session_id: "3767197920".to_string(),
+                        session_version: "0".to_string(),
+                        ip_addr: IpAddr::V4(Ipv4Addr::from([127, 0, 0, 1])),
+                    }),
+                    SDPLine::SessionName("-".to_string()),
+                    SDPLine::SessionTime(SessionTime {
+                        start_time: 0,
+                        end_time: 0,
+                    }),
+                    SDPLine::Attribute(Attribute::MediaGroup(MediaGroup::Bundle(vec![
+                        "0".to_string(),
+                        "1".to_string(),
+                    ]))),
+                    SDPLine::Attribute(Attribute::MediaGroup(MediaGroup::LipSync(vec![
+                        "0".to_string(),
+                        "1".to_string(),
+                    ]))),
+                    SDPLine::Attribute(Attribute::Unrecognized),
+                    SDPLine::Attribute(Attribute::Unrecognized),
+                    SDPLine::Attribute(Attribute::ICEUsername(ICEUsername {
+                        username: "E2Fr".to_string(),
+                    })),
+                    SDPLine::Attribute(Attribute::ICEPassword(ICEPassword {
+                        password: "OpQzg1PAwUdeOB244chlgd".to_string(),
+                    })),
+                    SDPLine::Attribute(Attribute::ICEOptions(ICEOptions {
+                        options: vec![ICEOption::Trickle],
+                    })),
+                    SDPLine::Attribute(Attribute::Fingerprint(Fingerprint{
+                        hash_function: HashFunction::SHA256,
+                        hash: "EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B".to_string()
+                    }))
+                ];
+
+                let expected_audio_media = vec![
+                    SDPLine::MediaDescription(MediaDescription {
+                        media_type: MediaType::Audio,
+                        transport_port: 4557,
+                        transport_protocol: MediaTransportProtocol::DtlsSrtp,
+                        media_format_description: vec![111],
+                    }),
+                    SDPLine::ConnectionData(ConnectionData {
+                        ip: IpAddr::V4(Ipv4Addr::from([192, 168, 0, 198])),
+                    }),
+                    SDPLine::Attribute(Attribute::MediaID(MediaID {
+                        id: "0".to_string(),
+                    })),
+                    SDPLine::Attribute(Attribute::SendOnly),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC { ssrc: 1349455989 })),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC { ssrc: 1349455989 })),
+                    SDPLine::Attribute(Attribute::Unrecognized),
+                    SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        codec: MediaCodec::Audio(AudioCodec::Opus),
+                        payload_number: 111,
+                    })),
+                    SDPLine::Attribute(Attribute::FMTP(FMTP {
+                        payload_number: 111,
+                        format_capability: HashSet::from([
+                            "minptime=10".to_string(),
+                            "maxaveragebitrate=96000".to_string(),
+                            "stereo=1".to_string(),
+                            "sprop-stereo=1".to_string(),
+                            "useinbandfec=1".to_string(),
+                        ]),
+                    })),
+                    SDPLine::Attribute(Attribute::Candidate(Candidate {
+                        connection_address: IpAddr::V4(Ipv4Addr::from([192, 168, 0, 198])),
+                        port: 4557,
+                        priority: 2015363327,
+                        component_id: 1,
+                        foundation: "1".to_string(),
+                    })),
+                    SDPLine::Attribute(Attribute::Candidate(Candidate {
+                        connection_address: IpAddr::V6(
+                            Ipv6Addr::from_str("fe80::6c3d:5b42:1532:2f9a")
+                                .expect("IPv6 string representation should be correct"),
+                        ),
+                        port: 10007,
+                        priority: 2015363583,
+                        component_id: 1,
+                        foundation: "2".to_string(),
+                    })),
+                    SDPLine::Attribute(Attribute::EndOfCandidates),
+                ];
+
+                let expected_video_session = vec![
+                    SDPLine::MediaDescription(MediaDescription {
+                        media_type: MediaType::Video,
+                        transport_port: 4557,
+                        transport_protocol: MediaTransportProtocol::DtlsSrtp,
+                        media_format_description: vec![96],
+                    }),
+                    SDPLine::ConnectionData(ConnectionData {
+                        ip: IpAddr::V4(Ipv4Addr::from([192, 168, 0, 198])),
+                    }),
+                    SDPLine::Attribute(Attribute::MediaID(MediaID {
+                        id: "1".to_string(),
+                    })),
+                    SDPLine::Attribute(Attribute::SendOnly),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC { ssrc: 1349455990 })),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC { ssrc: 1349455990 })),
+                    SDPLine::Attribute(Attribute::Unrecognized),
+                    SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        codec: MediaCodec::Video(VideoCodec::H264),
+                        payload_number: 96,
+                    })),
+                    SDPLine::Attribute(Attribute::Unrecognized),
+                    SDPLine::Attribute(Attribute::Unrecognized),
+                    SDPLine::Attribute(Attribute::Unrecognized),
+                    SDPLine::Attribute(Attribute::FMTP(FMTP {
+                        payload_number: 96,
+                        format_capability: HashSet::from([
+                            "profile-level-id=42e01f".to_string(),
+                            "packetization-mode=1".to_string(),
+                            "level-asymmetry-allowed=1".to_string(),
+                        ]),
+                    })),
+                ];
+
+                assert!(
+                    result.session_section.eq(&expected_session_media),
+                    "Resolved session media should match expected session media"
+                );
+                assert!(
+                    result.audio_section.eq(&expected_audio_media),
+                    "Resolved audio media should match expected audio media"
+                );
+                assert!(
+                    result.video_section.eq(&expected_video_session),
+                    "Resolved video media should match expected video media"
+                );
             }
+
+            #[test]
+            fn rejects_sdp_with_extra_media() {
+                let invalid_sdp = "v=0\r\no=rtc 3767197920 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=group:LS 0 1\r\na=msid-semantic:WMS *\r\na=setup:actpass\r\na=ice-ufrag:E2Fr\r\na=ice-pwd:OpQzg1PAwUdeOB244chlgd\r\na=ice-options:trickle\r\na=fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B\r\nm=audio 4557 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 192.168.0.198\r\na=mid:0\r\na=sendonly\r\na=ssrc:1349455989 cname:0X2NGAsK9XcmnsuZ\r\na=ssrc:1349455989 msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-audio\r\na=msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-audio\r\na=rtcp-mux\r\na=rtpmap:111 opus/48000/2\r\na=fmtp:111 minptime=10;maxaveragebitrate=96000;stereo=1;sprop-stereo=1;useinbandfec=1\r\na=candidate:1 1 UDP 2015363327 192.168.0.198 4557 typ host\r\na=candidate:2 1 UDP 2015363583 fe80::6c3d:5b42:1532:2f9a 10007 typ host\r\na=end-of-candidates\r\nm=video 4557 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 192.168.0.198\r\na=mid:1\r\na=sendonly\r\na=ssrc:1349455990 cname:0X2NGAsK9XcmnsuZ\r\na=ssrc:1349455990 msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-video\r\na=msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-video\r\na=rtcp-mux\r\na=rtpmap:96 H264/90000\r\na=rtcp-fb:96 nack\r\na=rtcp-fb:96 nack pli\r\na=rtcp-fb:96 goog-remb\r\na=fmtp:96 profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1\r\nm=video 4557 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 192.168.0.198\r\na=mid:1\r\na=sendonly\r\na=ssrc:1349455990 cname:0X2NGAsK9XcmnsuZ\r\na=ssrc:1349455990 msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-video\r\na=msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-video\r\na=rtcp-mux\r\na=rtpmap:96 H264/90000\r\na=rtcp-fb:96 nack\r\na=rtcp-fb:96 nack pli\r\na=rtcp-fb:96 goog-remb\r\na=fmtp:96 profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1\r\n";
+
+                SDPResolver::get_sdp(invalid_sdp).expect_err("Should reject SDP");
+            }
+
+            #[test]
+            fn rejects_sdp_with_unrecognized_media() {
+                let invalid_sdp = "v=0\r\no=rtc 3767197920 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=group:LS 0 1\r\na=msid-semantic:WMS *\r\na=setup:actpass\r\na=ice-ufrag:E2Fr\r\na=ice-pwd:OpQzg1PAwUdeOB244chlgd\r\na=ice-options:trickle\r\na=fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B\r\nm=text 4557 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 192.168.0.198\r\na=mid:0\r\na=sendonly\r\na=ssrc:1349455989 cname:0X2NGAsK9XcmnsuZ\r\na=ssrc:1349455989 msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-audio\r\na=msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-audio\r\na=rtcp-mux\r\na=rtpmap:111 opus/48000/2\r\na=fmtp:111 minptime=10;maxaveragebitrate=96000;stereo=1;sprop-stereo=1;useinbandfec=1\r\na=candidate:1 1 UDP 2015363327 192.168.0.198 4557 typ host\r\na=candidate:2 1 UDP 2015363583 fe80::6c3d:5b42:1532:2f9a 10007 typ host\r\na=end-of-candidates\r\nm=video 4557 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 192.168.0.198\r\na=mid:1\r\na=sendonly\r\na=ssrc:1349455990 cname:0X2NGAsK9XcmnsuZ\r\na=ssrc:1349455990 msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-video\r\na=msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-video\r\na=rtcp-mux\r\na=rtpmap:96 H264/90000\r\na=rtcp-fb:96 nack\r\na=rtcp-fb:96 nack pli\r\na=rtcp-fb:96 goog-remb\r\na=fmtp:96 profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1\r\n";
+                SDPResolver::get_sdp(invalid_sdp).expect_err("Should reject SDP");
+            }
+
+            #[test]
+            fn rejects_sdp_with_one_media_section() {
+                let invalid_sdp = "v=0\r\no=rtc 3767197920 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=group:LS 0 1\r\na=msid-semantic:WMS *\r\na=setup:actpass\r\na=ice-ufrag:E2Fr\r\na=ice-pwd:OpQzg1PAwUdeOB244chlgd\r\na=ice-options:trickle\r\na=fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B\r\nm=audio 4557 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 192.168.0.198\r\na=mid:0\r\na=sendonly\r\na=ssrc:1349455989 cname:0X2NGAsK9XcmnsuZ\r\na=ssrc:1349455989 msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-audio\r\na=msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-audio\r\na=rtcp-mux\r\na=rtpmap:111 opus/48000/2\r\na=fmtp:111 minptime=10;maxaveragebitrate=96000;stereo=1;sprop-stereo=1;useinbandfec=1\r\na=candidate:1 1 UDP 2015363327 192.168.0.198 4557 typ host\r\na=candidate:2 1 UDP 2015363583 fe80::6c3d:5b42:1532:2f9a 10007 typ host\r\na=end-of-candidates\r\n";
+                SDPResolver::get_sdp(invalid_sdp).expect_err("Should reject SDP");
+            }
+
+            #[test]
+            fn rejects_sdp_with_incorrect_session_media_items_order() {
+                let invalid_sdp = "v=0\r\no=rtc 3767197920 0 IN IP4 127.0.0.1\r\nt=0 0\r\ns=-\r\na=group:BUNDLE 0 1\r\na=group:LS 0 1\r\na=msid-semantic:WMS *\r\na=setup:actpass\r\na=ice-ufrag:E2Fr\r\na=ice-pwd:OpQzg1PAwUdeOB244chlgd\r\na=ice-options:trickle\r\na=fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B\r\nm=audio 4557 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 192.168.0.198\r\na=mid:0\r\na=sendonly\r\na=ssrc:1349455989 cname:0X2NGAsK9XcmnsuZ\r\na=ssrc:1349455989 msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-audio\r\na=msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-audio\r\na=rtcp-mux\r\na=rtpmap:111 opus/48000/2\r\na=fmtp:111 minptime=10;maxaveragebitrate=96000;stereo=1;sprop-stereo=1;useinbandfec=1\r\na=candidate:1 1 UDP 2015363327 192.168.0.198 4557 typ host\r\na=candidate:2 1 UDP 2015363583 fe80::6c3d:5b42:1532:2f9a 10007 typ host\r\na=end-of-candidates\r\nm=video 4557 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 192.168.0.198\r\na=mid:1\r\na=sendonly\r\na=ssrc:1349455990 cname:0X2NGAsK9XcmnsuZ\r\na=ssrc:1349455990 msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-video\r\na=msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-video\r\na=rtcp-mux\r\na=rtpmap:96 H264/90000\r\na=rtcp-fb:96 nack\r\na=rtcp-fb:96 nack pli\r\na=rtcp-fb:96 goog-remb\r\na=fmtp:96 profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1\r\n";
+                SDPResolver::get_sdp(invalid_sdp).expect_err("Should reject SDP");
+            }
+
+            #[test]
+            fn rejects_sdp_with_missing_required_session_media_items() {
+                let invalid_sdp = "v=0\r\no=rtc 3767197920 0 IN IP4 127.0.0.1\r\ns=-\r\na=group:BUNDLE 0 1\r\na=group:LS 0 1\r\na=msid-semantic:WMS *\r\na=setup:actpass\r\na=ice-ufrag:E2Fr\r\na=ice-pwd:OpQzg1PAwUdeOB244chlgd\r\na=ice-options:trickle\r\na=fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B\r\nm=audio 4557 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 192.168.0.198\r\na=mid:0\r\na=sendonly\r\na=ssrc:1349455989 cname:0X2NGAsK9XcmnsuZ\r\na=ssrc:1349455989 msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-audio\r\na=msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-audio\r\na=rtcp-mux\r\na=rtpmap:111 opus/48000/2\r\na=fmtp:111 minptime=10;maxaveragebitrate=96000;stereo=1;sprop-stereo=1;useinbandfec=1\r\na=candidate:1 1 UDP 2015363327 192.168.0.198 4557 typ host\r\na=candidate:2 1 UDP 2015363583 fe80::6c3d:5b42:1532:2f9a 10007 typ host\r\na=end-of-candidates\r\nm=video 4557 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 192.168.0.198\r\na=mid:1\r\na=sendonly\r\na=ssrc:1349455990 cname:0X2NGAsK9XcmnsuZ\r\na=ssrc:1349455990 msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-video\r\na=msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-video\r\na=rtcp-mux\r\na=rtpmap:96 H264/90000\r\na=rtcp-fb:96 nack\r\na=rtcp-fb:96 nack pli\r\na=rtcp-fb:96 goog-remb\r\na=fmtp:96 profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1\r\n";
+                SDPResolver::get_sdp(invalid_sdp).expect_err("Should reject SDP");
+            }
+
+            // #[test]
+            // fn resolves_valid_streamer_offer() {
+            //     let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 52000);
+            //     let resolver = SDPResolver::new("fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B", socket_addr);
+            //     let result = resolver
+            //         .accept_stream_offer(VALID_SDP)
+            //         .expect("Should resolve to OK");
+            //     println!("{}", String::from(result.sdp_answer))
+            // }
         }
     }
 }
-
-//
-// mod tests {
-//     mod accept_streamer_sdp {
-//         use crate::line_parsers::{
-//             Attribute, AudioCodec, FMTP, MediaCodec, MediaSSRC, RTPMap, SDPOffer, VideoCodec,
-//         };
-//         use crate::resolvers::{accept_streamer_sdp, StreamerOfferSDPParseError};
-//
-//         #[test]
-//         fn rejects_empty_media_attributes() {
-//             let offer: SDPOffer = SDPOffer {
-//                 ice_username: "test".to_string(),
-//                 ice_password: "test".to_string(),
-//                 video_media_description: vec![],
-//                 audio_media_description: vec![],
-//             };
-//
-//             let result = accept_streamer_sdp(offer);
-//
-//             assert!(result.is_err())
-//         }
-//
-//         #[test]
-//         fn rejects_recvonly_offer() {
-//             let video_attributes: Vec<Attribute> = vec![
-//                 Attribute::ReceiveOnly,
-//                 Attribute::RTCPMux,
-//                 Attribute::MediaSSRC(MediaSSRC {
-//                     ssrc: "video-ssrc".to_string(),
-//                 }),
-//                 Attribute::FMTP(FMTP {
-//                     payload_number: 96,
-//                     format_capability: vec!["fake-profile-level".to_string()],
-//                 }),
-//                 Attribute::RTPMap(RTPMap {
-//                     codec: MediaCodec::Video(VideoCodec::H264),
-//                     payload_number: 96,
-//                 }),
-//             ];
-//
-//             let audio_attributes: Vec<Attribute> = vec![
-//                 Attribute::ReceiveOnly,
-//                 Attribute::RTCPMux,
-//                 Attribute::MediaSSRC(MediaSSRC {
-//                     ssrc: "audio-ssrc".to_string(),
-//                 }),
-//                 Attribute::RTPMap(RTPMap {
-//                     codec: MediaCodec::Audio(AudioCodec::Opus),
-//                     payload_number: 111,
-//                 }),
-//             ];
-//
-//             let offer_username = "username";
-//             let offer_password = "password";
-//
-//             let offer = SDPOffer {
-//                 ice_username: offer_username.to_string(),
-//                 ice_password: offer_password.to_string(),
-//                 audio_media_description: audio_attributes,
-//                 video_media_description: video_attributes,
-//             };
-//
-//             let result = accept_streamer_sdp(offer).expect_err("Should reject offer");
-//
-//             assert_eq!(
-//                 result,
-//                 StreamerOfferSDPParseError::UnsupportedMediaDirection,
-//                 "Should fail with UnsupportedMediaDirection error"
-//             )
-//         }
-//
-//         #[test]
-//         fn rejects_video_recvonly_offer() {
-//             let video_attributes: Vec<Attribute> = vec![
-//                 Attribute::ReceiveOnly,
-//                 Attribute::RTCPMux,
-//                 Attribute::MediaSSRC(MediaSSRC {
-//                     ssrc: "video-ssrc".to_string(),
-//                 }),
-//                 Attribute::FMTP(FMTP {
-//                     payload_number: 96,
-//                     format_capability: vec!["fake-profile-level".to_string()],
-//                 }),
-//                 Attribute::RTPMap(RTPMap {
-//                     codec: MediaCodec::Video(VideoCodec::H264),
-//                     payload_number: 96,
-//                 }),
-//             ];
-//
-//             let audio_attributes: Vec<Attribute> = vec![
-//                 Attribute::SendOnly,
-//                 Attribute::RTCPMux,
-//                 Attribute::MediaSSRC(MediaSSRC {
-//                     ssrc: "audio-ssrc".to_string(),
-//                 }),
-//                 Attribute::RTPMap(RTPMap {
-//                     codec: MediaCodec::Audio(AudioCodec::Opus),
-//                     payload_number: 111,
-//                 }),
-//             ];
-//
-//             let offer_username = "username";
-//             let offer_password = "password";
-//
-//             let offer = SDPOffer {
-//                 ice_username: offer_username.to_string(),
-//                 ice_password: offer_password.to_string(),
-//                 audio_media_description: audio_attributes,
-//                 video_media_description: video_attributes,
-//             };
-//
-//             let result = accept_streamer_sdp(offer).expect_err("Should reject offer");
-//
-//             assert_eq!(
-//                 result,
-//                 StreamerOfferSDPParseError::UnsupportedMediaDirection,
-//                 "Should fail with UnsupportedMediaDirection error"
-//             )
-//         }
-//
-//         #[test]
-//         fn rejects_audio_recvonly_offer() {
-//             let video_attributes: Vec<Attribute> = vec![
-//                 Attribute::SendOnly,
-//                 Attribute::RTCPMux,
-//                 Attribute::MediaSSRC(MediaSSRC {
-//                     ssrc: "video-ssrc".to_string(),
-//                 }),
-//                 Attribute::FMTP(FMTP {
-//                     payload_number: 96,
-//                     format_capability: vec!["fake-profile-level".to_string()],
-//                 }),
-//                 Attribute::RTPMap(RTPMap {
-//                     codec: MediaCodec::Video(VideoCodec::H264),
-//                     payload_number: 96,
-//                 }),
-//             ];
-//
-//             let audio_attributes: Vec<Attribute> = vec![
-//                 Attribute::ReceiveOnly,
-//                 Attribute::RTCPMux,
-//                 Attribute::MediaSSRC(MediaSSRC {
-//                     ssrc: "audio-ssrc".to_string(),
-//                 }),
-//                 Attribute::RTPMap(RTPMap {
-//                     codec: MediaCodec::Audio(AudioCodec::Opus),
-//                     payload_number: 111,
-//                 }),
-//             ];
-//
-//             let offer_username = "username";
-//             let offer_password = "password";
-//
-//             let offer = SDPOffer {
-//                 ice_username: offer_username.to_string(),
-//                 ice_password: offer_password.to_string(),
-//                 audio_media_description: audio_attributes,
-//                 video_media_description: video_attributes,
-//             };
-//
-//             let result = accept_streamer_sdp(offer).expect_err("Should reject offer");
-//
-//             assert_eq!(
-//                 result,
-//                 StreamerOfferSDPParseError::UnsupportedMediaDirection,
-//                 "Should fail with UnsupportedMediaDirection error"
-//             )
-//         }
-//
-//         #[test]
-//         fn rejects_non_muxed_offer() {
-//             let video_attributes: Vec<Attribute> = vec![
-//                 Attribute::SendOnly,
-//                 Attribute::MediaSSRC(MediaSSRC {
-//                     ssrc: "video-ssrc".to_string(),
-//                 }),
-//                 Attribute::FMTP(FMTP {
-//                     payload_number: 96,
-//                     format_capability: vec!["fake-profile-level".to_string()],
-//                 }),
-//                 Attribute::RTPMap(RTPMap {
-//                     codec: MediaCodec::Video(VideoCodec::H264),
-//                     payload_number: 96,
-//                 }),
-//             ];
-//
-//             let audio_attributes: Vec<Attribute> = vec![
-//                 Attribute::SendOnly,
-//                 Attribute::MediaSSRC(MediaSSRC {
-//                     ssrc: "audio-ssrc".to_string(),
-//                 }),
-//                 Attribute::RTPMap(RTPMap {
-//                     codec: MediaCodec::Audio(AudioCodec::Opus),
-//                     payload_number: 111,
-//                 }),
-//             ];
-//
-//             let offer_username = "username";
-//             let offer_password = "password";
-//
-//             let offer = SDPOffer {
-//                 ice_username: offer_username.to_string(),
-//                 ice_password: offer_password.to_string(),
-//                 audio_media_description: audio_attributes,
-//                 video_media_description: video_attributes,
-//             };
-//
-//             let result = accept_streamer_sdp(offer).expect_err("Should reject offer");
-//
-//             assert_eq!(
-//                 result,
-//                 StreamerOfferSDPParseError::DemuxRequired,
-//                 "Should fail with DemuxRequired error"
-//             )
-//         }
-//
-//         #[test]
-//         fn rejects_offer_with_unsupported_video_codecs() {
-//             let video_attributes: Vec<Attribute> = vec![
-//                 Attribute::SendOnly,
-//                 Attribute::RTCPMux,
-//                 Attribute::MediaSSRC(MediaSSRC {
-//                     ssrc: "video-ssrc".to_string(),
-//                 }),
-//                 Attribute::FMTP(FMTP {
-//                     payload_number: 96,
-//                     format_capability: vec!["fake-profile-level".to_string()],
-//                 }),
-//                 Attribute::RTPMap(RTPMap {
-//                     codec: MediaCodec::Unsupported,
-//                     payload_number: 96,
-//                 }),
-//             ];
-//
-//             let audio_attributes: Vec<Attribute> = vec![
-//                 Attribute::SendOnly,
-//                 Attribute::RTCPMux,
-//                 Attribute::MediaSSRC(MediaSSRC {
-//                     ssrc: "audio-ssrc".to_string(),
-//                 }),
-//                 Attribute::RTPMap(RTPMap {
-//                     codec: MediaCodec::Audio(AudioCodec::Opus),
-//                     payload_number: 111,
-//                 }),
-//             ];
-//
-//             let offer_username = "username";
-//             let offer_password = "password";
-//
-//             let offer = SDPOffer {
-//                 ice_username: offer_username.to_string(),
-//                 ice_password: offer_password.to_string(),
-//                 audio_media_description: audio_attributes,
-//                 video_media_description: video_attributes,
-//             };
-//
-//             let result = accept_streamer_sdp(offer).expect_err("Should reject offer");
-//
-//             assert_eq!(
-//                 result,
-//                 StreamerOfferSDPParseError::UnsupportedMediaCodecs,
-//                 "Should fail with UnsupportedMediaCodecs error"
-//             )
-//         }
-//
-//         #[test]
-//         fn rejects_offer_with_unsupported_audio_codecs() {
-//             let video_attributes: Vec<Attribute> = vec![
-//                 Attribute::SendOnly,
-//                 Attribute::RTCPMux,
-//                 Attribute::MediaSSRC(MediaSSRC {
-//                     ssrc: "video-ssrc".to_string(),
-//                 }),
-//                 Attribute::FMTP(FMTP {
-//                     payload_number: 96,
-//                     format_capability: vec!["fake-profile-level".to_string()],
-//                 }),
-//                 Attribute::RTPMap(RTPMap {
-//                     codec: MediaCodec::Video(VideoCodec::H264),
-//                     payload_number: 96,
-//                 }),
-//             ];
-//
-//             let audio_attributes: Vec<Attribute> = vec![
-//                 Attribute::SendOnly,
-//                 Attribute::RTCPMux,
-//                 Attribute::MediaSSRC(MediaSSRC {
-//                     ssrc: "audio-ssrc".to_string(),
-//                 }),
-//                 Attribute::RTPMap(RTPMap {
-//                     codec: MediaCodec::Unsupported,
-//                     payload_number: 111,
-//                 }),
-//             ];
-//
-//             let offer_username = "username";
-//             let offer_password = "password";
-//
-//             let offer = SDPOffer {
-//                 ice_username: offer_username.to_string(),
-//                 ice_password: offer_password.to_string(),
-//                 audio_media_description: audio_attributes,
-//                 video_media_description: video_attributes,
-//             };
-//
-//             let result = accept_streamer_sdp(offer).expect_err("Should reject offer");
-//
-//             assert_eq!(
-//                 result,
-//                 StreamerOfferSDPParseError::UnsupportedMediaCodecs,
-//                 "Should fail with UnsupportedMediaCodecs error"
-//             )
-//         }
-//
-//         #[test]
-//         fn rejects_offer_with_missing_video_ssrc() {
-//             let video_attributes: Vec<Attribute> = vec![
-//                 Attribute::SendOnly,
-//                 Attribute::RTCPMux,
-//                 Attribute::FMTP(FMTP {
-//                     payload_number: 96,
-//                     format_capability: vec!["fake-profile-level".to_string()],
-//                 }),
-//                 Attribute::RTPMap(RTPMap {
-//                     codec: MediaCodec::Video(VideoCodec::H264),
-//                     payload_number: 96,
-//                 }),
-//             ];
-//
-//             let audio_attributes: Vec<Attribute> = vec![
-//                 Attribute::SendOnly,
-//                 Attribute::RTCPMux,
-//                 Attribute::MediaSSRC(MediaSSRC {
-//                     ssrc: "audio-ssrc".to_string(),
-//                 }),
-//                 Attribute::RTPMap(RTPMap {
-//                     codec: MediaCodec::Audio(AudioCodec::Opus),
-//                     payload_number: 111,
-//                 }),
-//             ];
-//
-//             let offer_username = "username";
-//             let offer_password = "password";
-//
-//             let offer = SDPOffer {
-//                 ice_username: offer_username.to_string(),
-//                 ice_password: offer_password.to_string(),
-//                 audio_media_description: audio_attributes,
-//                 video_media_description: video_attributes,
-//             };
-//
-//             let result = accept_streamer_sdp(offer).expect_err("Should reject offer");
-//
-//             assert_eq!(
-//                 result,
-//                 StreamerOfferSDPParseError::MissingRemoteSSRC,
-//                 "Should fail with MissingRemoteSSRC error"
-//             )
-//         }
-//
-//         #[test]
-//         fn rejects_offer_with_missing_audio_ssrc() {
-//             let video_attributes: Vec<Attribute> = vec![
-//                 Attribute::SendOnly,
-//                 Attribute::RTCPMux,
-//                 Attribute::MediaSSRC(MediaSSRC {
-//                     ssrc: "video-ssrc".to_string(),
-//                 }),
-//                 Attribute::FMTP(FMTP {
-//                     payload_number: 96,
-//                     format_capability: vec!["fake-profile-level".to_string()],
-//                 }),
-//                 Attribute::RTPMap(RTPMap {
-//                     codec: MediaCodec::Video(VideoCodec::H264),
-//                     payload_number: 96,
-//                 }),
-//             ];
-//
-//             let audio_attributes: Vec<Attribute> = vec![
-//                 Attribute::SendOnly,
-//                 Attribute::RTCPMux,
-//                 Attribute::RTPMap(RTPMap {
-//                     codec: MediaCodec::Audio(AudioCodec::Opus),
-//                     payload_number: 111,
-//                 }),
-//             ];
-//
-//             let offer_username = "username";
-//             let offer_password = "password";
-//
-//             let offer = SDPOffer {
-//                 ice_username: offer_username.to_string(),
-//                 ice_password: offer_password.to_string(),
-//                 audio_media_description: audio_attributes,
-//                 video_media_description: video_attributes,
-//             };
-//
-//             let result = accept_streamer_sdp(offer).expect_err("Should reject offer");
-//
-//             assert_eq!(
-//                 result,
-//                 StreamerOfferSDPParseError::MissingRemoteSSRC,
-//                 "Should fail with MissingRemoteSSRC error"
-//             )
-//         }
-//
-//         #[test]
-//         fn rejects_offer_with_missing_video_fmtp() {
-//             let video_attributes: Vec<Attribute> = vec![
-//                 Attribute::SendOnly,
-//                 Attribute::RTCPMux,
-//                 Attribute::MediaSSRC(MediaSSRC {
-//                     ssrc: "video-ssrc".to_string(),
-//                 }),
-//                 Attribute::RTPMap(RTPMap {
-//                     codec: MediaCodec::Video(VideoCodec::H264),
-//                     payload_number: 96,
-//                 }),
-//             ];
-//
-//             let audio_attributes: Vec<Attribute> = vec![
-//                 Attribute::SendOnly,
-//                 Attribute::RTCPMux,
-//                 Attribute::MediaSSRC(MediaSSRC {
-//                     ssrc: "audio-ssrc".to_string(),
-//                 }),
-//                 Attribute::RTPMap(RTPMap {
-//                     codec: MediaCodec::Audio(AudioCodec::Opus),
-//                     payload_number: 111,
-//                 }),
-//             ];
-//
-//             let offer_username = "username";
-//             let offer_password = "password";
-//
-//             let offer = SDPOffer {
-//                 ice_username: offer_username.to_string(),
-//                 ice_password: offer_password.to_string(),
-//                 audio_media_description: audio_attributes,
-//                 video_media_description: video_attributes,
-//             };
-//
-//             let result = accept_streamer_sdp(offer).expect_err("Should reject offer");
-//
-//             assert_eq!(
-//                 result,
-//                 StreamerOfferSDPParseError::MissingVideoProfileSettings,
-//                 "Should fail with MissingVideoProfileSettings error"
-//             )
-//         }
-//
-//         #[test]
-//         fn resolves_valid_offer() {
-//             let valid_video_media_attributes: Vec<Attribute> = vec![
-//                 Attribute::SendOnly,
-//                 Attribute::RTCPMux,
-//                 Attribute::MediaSSRC(MediaSSRC {
-//                     ssrc: "video-ssrc".to_string(),
-//                 }),
-//                 Attribute::FMTP(FMTP {
-//                     payload_number: 96,
-//                     format_capability: vec!["fake-profile-level".to_string()],
-//                 }),
-//                 Attribute::RTPMap(RTPMap {
-//                     codec: MediaCodec::Video(VideoCodec::H264),
-//                     payload_number: 96,
-//                 }),
-//             ];
-//
-//             let valid_audio_media_attributes: Vec<Attribute> = vec![
-//                 Attribute::SendOnly,
-//                 Attribute::RTCPMux,
-//                 Attribute::MediaSSRC(MediaSSRC {
-//                     ssrc: "audio-ssrc".to_string(),
-//                 }),
-//                 Attribute::RTPMap(RTPMap {
-//                     codec: MediaCodec::Audio(AudioCodec::Opus),
-//                     payload_number: 111,
-//                 }),
-//             ];
-//
-//             let offer_username = "username";
-//             let offer_password = "password";
-//
-//             let offer = SDPOffer {
-//                 ice_username: offer_username.to_string(),
-//                 ice_password: offer_password.to_string(),
-//                 audio_media_description: valid_audio_media_attributes,
-//                 video_media_description: valid_video_media_attributes,
-//             };
-//             let result = accept_streamer_sdp(offer).expect("Should accept SDP offer");
-//
-//             assert_eq!(
-//                 result.video_codec,
-//                 VideoCodec::H264,
-//                 "Video codec should be H264"
-//             );
-//
-//             assert_eq!(
-//                 result.video_payload_number, 96,
-//                 "Video payload number should be 96"
-//             );
-//             assert_eq!(
-//                 result.video_capability,
-//                 FMTP {
-//                     payload_number: 96,
-//                     format_capability: vec!["fake-profile-level".to_string()]
-//                 },
-//                 "Video FMTP should match offer FMTP with payload number 96"
-//             );
-//             assert_eq!(
-//                 result.remote_video_ssrc,
-//                 MediaSSRC {
-//                     ssrc: "video-ssrc".to_string()
-//                 },
-//                 "Video MediaSSRC should match the offer MediaSSRC"
-//             );
-//
-//             assert_eq!(
-//                 result.audio_codec,
-//                 AudioCodec::Opus,
-//                 "Audio codec should be Opus"
-//             );
-//             assert_eq!(
-//                 result.audio_payload_number, 111,
-//                 "Audio payload number should be 111"
-//             );
-//             assert_eq!(
-//                 result.remote_audio_ssrc,
-//                 MediaSSRC {
-//                     ssrc: "audio-ssrc".to_string()
-//                 },
-//                 "Audio MediaSSRC should match the offer MediaSSRC"
-//             );
-//
-//             assert_eq!(
-//                 result.remote_ice_username, offer_username,
-//                 "Remote ICE username should match offer username"
-//             );
-//             assert_eq!(
-//                 result.remote_ice_password, offer_password,
-//                 "Remote ICE password should match offer password"
-//             );
-//         }
-//     }
-// }

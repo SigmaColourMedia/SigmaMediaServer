@@ -108,12 +108,12 @@ pub(crate) struct MediaID {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Fingerprint {
-    hash_function: HashFunction,
-    hash: String,
+    pub(crate) hash_function: HashFunction,
+    pub(crate) hash: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-enum HashFunction {
+pub(crate) enum HashFunction {
     SHA256,
     Unsupported,
 }
@@ -477,6 +477,8 @@ impl TryFrom<&str> for Attribute {
             "rtpmap" => Ok(Attribute::RTPMap(RTPMap::try_from(value)?)),
             "fmtp" => Ok(Attribute::FMTP(FMTP::try_from(value)?)),
             "rtcp-mux" => Ok(Attribute::RTCPMux),
+            "ice-options" => Ok(Attribute::ICEOptions(ICEOptions::try_from(value)?)),
+            "end-of-candidates" => Ok(Attribute::EndOfCandidates),
             _ => Ok(Attribute::Unrecognized),
         }
     }
