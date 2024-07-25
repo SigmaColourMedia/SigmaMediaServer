@@ -149,7 +149,7 @@ impl SDPResolver {
         let video_media_password = get_ice_password(&sdp.video_section);
 
         // If media-level ICE credentials are present, then they need to be the same for all data streams
-        if audio_media_username.is_some() {
+        if audio_media_username.is_some() || video_media_username.is_some() {
             let audio_media_username = audio_media_username?;
             let audio_media_password = audio_media_password?;
             let video_media_username = video_media_username?;
@@ -1114,16 +1114,186 @@ mod tests {
                 let invalid_sdp = "v=0\r\no=rtc 3767197920 0 IN IP4 127.0.0.1\r\ns=-\r\na=group:BUNDLE 0 1\r\na=group:LS 0 1\r\na=msid-semantic:WMS *\r\na=setup:actpass\r\na=ice-ufrag:E2Fr\r\na=ice-pwd:OpQzg1PAwUdeOB244chlgd\r\na=ice-options:trickle\r\na=fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B\r\nm=audio 4557 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 192.168.0.198\r\na=mid:0\r\na=sendonly\r\na=ssrc:1349455989 cname:0X2NGAsK9XcmnsuZ\r\na=ssrc:1349455989 msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-audio\r\na=msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-audio\r\na=rtcp-mux\r\na=rtpmap:111 opus/48000/2\r\na=fmtp:111 minptime=10;maxaveragebitrate=96000;stereo=1;sprop-stereo=1;useinbandfec=1\r\na=candidate:1 1 UDP 2015363327 192.168.0.198 4557 typ host\r\na=candidate:2 1 UDP 2015363583 fe80::6c3d:5b42:1532:2f9a 10007 typ host\r\na=end-of-candidates\r\nm=video 4557 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 192.168.0.198\r\na=mid:1\r\na=sendonly\r\na=ssrc:1349455990 cname:0X2NGAsK9XcmnsuZ\r\na=ssrc:1349455990 msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-video\r\na=msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-video\r\na=rtcp-mux\r\na=rtpmap:96 H264/90000\r\na=rtcp-fb:96 nack\r\na=rtcp-fb:96 nack pli\r\na=rtcp-fb:96 goog-remb\r\na=fmtp:96 profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1\r\n";
                 SDPResolver::get_sdp(invalid_sdp).expect_err("Should reject SDP");
             }
+        }
 
-            // #[test]
-            // fn resolves_valid_streamer_offer() {
-            //     let socket_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 52000);
-            //     let resolver = SDPResolver::new("fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B", socket_addr);
-            //     let result = resolver
-            //         .accept_stream_offer(VALID_SDP)
-            //         .expect("Should resolve to OK");
-            //     println!("{}", String::from(result.sdp_answer))
-            // }
+        mod get_ice_credentials {
+            use crate::line_parsers::{Attribute, ICEPassword, ICEUsername, SDPLine};
+            use crate::resolvers::{SDP, SDPResolver};
+
+            #[test]
+            fn resolves_sdp_with_default_credentials() {
+                let expected_ice_username = ICEUsername {
+                    username: "test".to_string(),
+                };
+
+                let expected_ice_password = ICEPassword {
+                    password: "test".to_string(),
+                };
+
+                let sdp = SDP {
+                    session_section: vec![
+                        SDPLine::Attribute(Attribute::ICEUsername(expected_ice_username.clone())),
+                        SDPLine::Attribute(Attribute::ICEPassword(expected_ice_password.clone())),
+                    ],
+                    video_section: vec![],
+                    audio_section: vec![],
+                };
+
+                let ice_credentials =
+                    SDPResolver::get_ice_credentials(&sdp).expect("Should resolve ICE credentials");
+
+                assert_eq!(
+                    ice_credentials.remote_username, expected_ice_username.username,
+                    "Remote username should match expected username"
+                );
+                assert_eq!(
+                    ice_credentials.remote_password, expected_ice_password.password,
+                    "Remote password should match expected password"
+                );
+            }
+
+            #[test]
+            fn resolves_sdp_with_media_credentials() {
+                let expected_ice_username = ICEUsername {
+                    username: "test".to_string(),
+                };
+
+                let expected_ice_password = ICEPassword {
+                    password: "test".to_string(),
+                };
+
+                let sdp = SDP {
+                    session_section: vec![],
+                    video_section: vec![
+                        SDPLine::Attribute(Attribute::ICEUsername(expected_ice_username.clone())),
+                        SDPLine::Attribute(Attribute::ICEPassword(expected_ice_password.clone())),
+                    ],
+                    audio_section: vec![
+                        SDPLine::Attribute(Attribute::ICEUsername(expected_ice_username.clone())),
+                        SDPLine::Attribute(Attribute::ICEPassword(expected_ice_password.clone())),
+                    ],
+                };
+
+                let ice_credentials =
+                    SDPResolver::get_ice_credentials(&sdp).expect("Should resolve ICE credentials");
+
+                assert_eq!(
+                    ice_credentials.remote_username, expected_ice_username.username,
+                    "Remote username should match expected username"
+                );
+                assert_eq!(
+                    ice_credentials.remote_password, expected_ice_password.password,
+                    "Remote password should match expected password"
+                );
+            }
+
+            #[test]
+            fn selects_media_level_ice_credentials_over_defaults() {
+                let expected_ice_username = ICEUsername {
+                    username: "test".to_string(),
+                };
+
+                let expected_ice_password = ICEPassword {
+                    password: "test".to_string(),
+                };
+
+                let sdp = SDP {
+                    session_section: vec![
+                        SDPLine::Attribute(Attribute::ICEUsername(ICEUsername {
+                            username: "default-username".to_string(),
+                        })),
+                        SDPLine::Attribute(Attribute::ICEPassword(ICEPassword {
+                            password: "default-password".to_string(),
+                        })),
+                    ],
+                    video_section: vec![
+                        SDPLine::Attribute(Attribute::ICEUsername(expected_ice_username.clone())),
+                        SDPLine::Attribute(Attribute::ICEPassword(expected_ice_password.clone())),
+                    ],
+                    audio_section: vec![
+                        SDPLine::Attribute(Attribute::ICEUsername(expected_ice_username.clone())),
+                        SDPLine::Attribute(Attribute::ICEPassword(expected_ice_password.clone())),
+                    ],
+                };
+
+                let ice_credentials =
+                    SDPResolver::get_ice_credentials(&sdp).expect("Should resolve ICE credentials");
+
+                assert_eq!(
+                    ice_credentials.remote_username, expected_ice_username.username,
+                    "Remote username should match expected username"
+                );
+                assert_eq!(
+                    ice_credentials.remote_password, expected_ice_password.password,
+                    "Remote password should match expected password"
+                );
+            }
+
+            #[test]
+            fn rejects_sdp_with_partial_media_credentials() {
+                let expected_ice_username = ICEUsername {
+                    username: "test".to_string(),
+                };
+
+                let expected_ice_password = ICEPassword {
+                    password: "test".to_string(),
+                };
+                let sdp = SDP {
+                    session_section: vec![],
+                    video_section: vec![
+                        SDPLine::Attribute(Attribute::ICEUsername(expected_ice_username.clone())),
+                        SDPLine::Attribute(Attribute::ICEPassword(expected_ice_password.clone())),
+                    ],
+                    audio_section: vec![],
+                };
+
+                let ice_credentials = SDPResolver::get_ice_credentials(&sdp);
+
+                assert!(ice_credentials.is_none(), "Should reject SDP")
+            }
+
+            #[test]
+            fn rejects_sdp_with_partial_media_credentials_and_default_credentials() {
+                let expected_ice_username = ICEUsername {
+                    username: "test".to_string(),
+                };
+
+                let expected_ice_password = ICEPassword {
+                    password: "test".to_string(),
+                };
+                let sdp = SDP {
+                    session_section: vec![
+                        SDPLine::Attribute(Attribute::ICEUsername(ICEUsername {
+                            username: "default-username".to_string(),
+                        })),
+                        SDPLine::Attribute(Attribute::ICEPassword(ICEPassword {
+                            password: "default-password".to_string(),
+                        })),
+                    ],
+                    video_section: vec![
+                        SDPLine::Attribute(Attribute::ICEUsername(expected_ice_username.clone())),
+                        SDPLine::Attribute(Attribute::ICEPassword(expected_ice_password.clone())),
+                    ],
+                    audio_section: vec![],
+                };
+
+                let ice_credentials = SDPResolver::get_ice_credentials(&sdp);
+
+                assert!(ice_credentials.is_none(), "Should reject SDP")
+            }
+
+            #[test]
+            fn rejects_sdp_without_ice_credentials() {
+                let sdp = SDP {
+                    session_section: vec![],
+                    video_section: vec![],
+                    audio_section: vec![],
+                };
+
+                let ice_credentials = SDPResolver::get_ice_credentials(&sdp);
+
+                assert!(ice_credentials.is_none(), "Should reject SDP")
+            }
         }
     }
 }
