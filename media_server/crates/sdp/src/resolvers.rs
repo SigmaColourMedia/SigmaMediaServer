@@ -1295,5 +1295,352 @@ mod tests {
                 assert!(ice_credentials.is_none(), "Should reject SDP")
             }
         }
+
+        mod get_media_ids {
+            use crate::line_parsers::{Attribute, MediaGroup, MediaID, SDPLine};
+            use crate::resolvers::{SDP, SDPResolver};
+
+            #[test]
+            fn gets_media_ids_of_valid_sdp() {
+                let expected_audio_id = MediaID {
+                    id: "0".to_string(),
+                };
+                let expected_video_id = MediaID {
+                    id: "1".to_string(),
+                };
+
+                let sdp = SDP {
+                    session_section: vec![SDPLine::Attribute(Attribute::MediaGroup(
+                        MediaGroup::Bundle(vec!["0".to_string(), "1".to_string()]),
+                    ))],
+                    audio_section: vec![SDPLine::Attribute(Attribute::MediaID(
+                        expected_audio_id.clone(),
+                    ))],
+                    video_section: vec![SDPLine::Attribute(Attribute::MediaID(
+                        expected_video_id.clone(),
+                    ))],
+                };
+
+                let (actual_audio_id, actual_video_id) =
+                    SDPResolver::get_media_ids(&sdp).expect("Should resolve media ids");
+
+                assert_eq!(
+                    actual_audio_id, expected_audio_id,
+                    "Audio media ids should match"
+                );
+                assert_eq!(
+                    actual_video_id, expected_video_id,
+                    "Video media ids should match"
+                )
+            }
+
+            #[test]
+            fn rejects_if_mediaid_doesnt_match_bundle() {
+                let sdp = SDP {
+                    session_section: vec![SDPLine::Attribute(Attribute::MediaGroup(
+                        MediaGroup::Bundle(vec!["0".to_string(), "1".to_string()]),
+                    ))],
+                    audio_section: vec![SDPLine::Attribute(Attribute::MediaID(MediaID {
+                        id: "0".to_string(),
+                    }))],
+                    video_section: vec![SDPLine::Attribute(Attribute::MediaID(MediaID {
+                        id: "2".to_string(),
+                    }))],
+                };
+
+                SDPResolver::get_media_ids(&sdp).expect_err("Should reject SDP");
+            }
+            #[test]
+            fn rejects_if_missing_bundle() {
+                let sdp = SDP {
+                    session_section: vec![],
+                    audio_section: vec![SDPLine::Attribute(Attribute::MediaID(MediaID {
+                        id: "0".to_string(),
+                    }))],
+                    video_section: vec![SDPLine::Attribute(Attribute::MediaID(MediaID {
+                        id: "1".to_string(),
+                    }))],
+                };
+
+                SDPResolver::get_media_ids(&sdp).expect_err("Should reject SDP");
+            }
+        }
+        mod get_streamer_audio_session {
+            use std::collections::HashSet;
+
+            use crate::line_parsers::{
+                Attribute, AudioCodec, FMTP, MediaCodec, MediaSSRC, RTPMap, SDPLine,
+            };
+            use crate::resolvers::SDPResolver;
+
+            #[test]
+            fn resolves_valid_sdp() {
+                let expected_payload_number: usize = 96;
+                let expected_ssrc: u32 = 1;
+                let audio_media = vec![
+                    SDPLine::Attribute(Attribute::SendOnly),
+                    SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::FMTP(FMTP {
+                        payload_number: expected_payload_number,
+                        format_capability: HashSet::new(),
+                    })),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        payload_number: expected_payload_number,
+                        codec: MediaCodec::Audio(AudioCodec::Opus),
+                    })),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: expected_ssrc,
+                    })),
+                ];
+                let audio_session = SDPResolver::get_streamer_audio_session(&audio_media)
+                    .expect("Should resolve to OK");
+
+                assert_eq!(audio_session.codec, AudioCodec::Opus);
+                assert_eq!(audio_session.payload_number, expected_payload_number);
+                assert_eq!(audio_session.remote_ssrc, expected_ssrc);
+            }
+
+            #[test]
+            fn reject_media_with_missing_ssrc() {
+                let expected_payload_number: usize = 96;
+                let audio_media = vec![
+                    SDPLine::Attribute(Attribute::SendOnly),
+                    SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::FMTP(FMTP {
+                        payload_number: expected_payload_number,
+                        format_capability: HashSet::new(),
+                    })),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        payload_number: expected_payload_number,
+                        codec: MediaCodec::Audio(AudioCodec::Opus),
+                    })),
+                ];
+
+                SDPResolver::get_streamer_audio_session(&audio_media)
+                    .expect_err("Should reject audio media");
+            }
+
+            #[test]
+            fn reject_media_with_missing_rtmp() {
+                let expected_payload_number: usize = 96;
+                let audio_media = vec![
+                    SDPLine::Attribute(Attribute::SendOnly),
+                    SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::FMTP(FMTP {
+                        payload_number: expected_payload_number,
+                        format_capability: HashSet::new(),
+                    })),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC { ssrc: 1 })),
+                ];
+
+                SDPResolver::get_streamer_audio_session(&audio_media)
+                    .expect_err("Should reject audio media");
+            }
+
+            #[test]
+            fn reject_media_with_invalid_direction() {
+                let expected_payload_number: usize = 96;
+                let audio_media = vec![
+                    SDPLine::Attribute(Attribute::ReceiveOnly),
+                    SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        payload_number: expected_payload_number,
+                        codec: MediaCodec::Audio(AudioCodec::Opus),
+                    })),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC { ssrc: 1 })),
+                ];
+
+                SDPResolver::get_streamer_audio_session(&audio_media)
+                    .expect_err("Should reject audio media");
+            }
+
+            #[test]
+            fn reject_non_demuxed_media() {
+                let expected_payload_number: usize = 96;
+                let audio_media = vec![
+                    SDPLine::Attribute(Attribute::SendOnly),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        payload_number: expected_payload_number,
+                        codec: MediaCodec::Audio(AudioCodec::Opus),
+                    })),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC { ssrc: 1 })),
+                ];
+
+                SDPResolver::get_streamer_audio_session(&audio_media)
+                    .expect_err("Should reject audio media");
+            }
+
+            #[test]
+            fn reject_media_with_unsupported_codec() {
+                let expected_payload_number: usize = 96;
+                let audio_media = vec![
+                    SDPLine::Attribute(Attribute::SendOnly),
+                    SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        payload_number: expected_payload_number,
+                        codec: MediaCodec::Unsupported,
+                    })),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC { ssrc: 1 })),
+                ];
+
+                SDPResolver::get_streamer_audio_session(&audio_media)
+                    .expect_err("Should reject audio media");
+            }
+        }
+
+        mod get_streamer_video_session {
+            use std::collections::HashSet;
+
+            use crate::line_parsers::{
+                Attribute, FMTP, MediaCodec, MediaSSRC, RTPMap, SDPLine, VideoCodec,
+            };
+            use crate::resolvers::SDPResolver;
+
+            #[test]
+            fn resolves_valid_media() {
+                let expected_payload_number: usize = 96;
+                let expected_ssrc: u32 = 1;
+                let expected_capabilities = HashSet::from(["profile-test".to_string()]);
+                let video_media = vec![
+                    SDPLine::Attribute(Attribute::SendOnly),
+                    SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::FMTP(FMTP {
+                        payload_number: expected_payload_number,
+                        format_capability: expected_capabilities.clone(),
+                    })),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        payload_number: expected_payload_number,
+                        codec: MediaCodec::Video(VideoCodec::H264),
+                    })),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: expected_ssrc,
+                    })),
+                ];
+
+                let video_session = SDPResolver::get_streamer_video_session(&video_media)
+                    .expect("Should resolve video media");
+
+                assert_eq!(video_session.codec, VideoCodec::H264);
+                assert_eq!(video_session.payload_number, expected_payload_number);
+                assert_eq!(video_session.remote_ssrc, expected_ssrc);
+                assert_eq!(video_session.capabilities, expected_capabilities);
+            }
+
+            #[test]
+            fn rejects_media_with_missing_ssrc() {
+                let expected_payload_number: usize = 96;
+                let expected_capabilities = HashSet::from(["profile-test".to_string()]);
+                let video_media = vec![
+                    SDPLine::Attribute(Attribute::SendOnly),
+                    SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::FMTP(FMTP {
+                        payload_number: expected_payload_number,
+                        format_capability: expected_capabilities.clone(),
+                    })),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        payload_number: expected_payload_number,
+                        codec: MediaCodec::Video(VideoCodec::H264),
+                    })),
+                ];
+
+                SDPResolver::get_streamer_video_session(&video_media)
+                    .expect_err("Should reject media");
+            }
+            #[test]
+            fn rejects_media_with_unsupported_codec() {
+                let expected_payload_number: usize = 96;
+                let expected_ssrc: u32 = 1;
+                let expected_capabilities = HashSet::from(["profile-test".to_string()]);
+                let video_media = vec![
+                    SDPLine::Attribute(Attribute::SendOnly),
+                    SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::FMTP(FMTP {
+                        payload_number: expected_payload_number,
+                        format_capability: expected_capabilities.clone(),
+                    })),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        payload_number: expected_payload_number,
+                        codec: MediaCodec::Unsupported,
+                    })),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: expected_ssrc,
+                    })),
+                ];
+
+                SDPResolver::get_streamer_video_session(&video_media)
+                    .expect_err("Should reject media");
+            }
+
+            #[test]
+            fn rejects_media_with_missing_fmtp() {
+                let expected_payload_number: usize = 96;
+                let expected_ssrc: u32 = 1;
+                let video_media = vec![
+                    SDPLine::Attribute(Attribute::SendOnly),
+                    SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        payload_number: expected_payload_number,
+                        codec: MediaCodec::Video(VideoCodec::H264),
+                    })),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: expected_ssrc,
+                    })),
+                ];
+
+                SDPResolver::get_streamer_video_session(&video_media)
+                    .expect_err("Should reject media");
+            }
+
+            #[test]
+            fn rejects_non_demuxed_media() {
+                let expected_payload_number: usize = 96;
+                let expected_ssrc: u32 = 1;
+                let expected_capabilities = HashSet::from(["profile-test".to_string()]);
+
+                let video_media = vec![
+                    SDPLine::Attribute(Attribute::SendOnly),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        payload_number: expected_payload_number,
+                        codec: MediaCodec::Video(VideoCodec::H264),
+                    })),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: expected_ssrc,
+                    })),
+                    SDPLine::Attribute(Attribute::FMTP(FMTP {
+                        payload_number: expected_payload_number,
+                        format_capability: expected_capabilities,
+                    })),
+                ];
+
+                SDPResolver::get_streamer_video_session(&video_media)
+                    .expect_err("Should reject media");
+            }
+
+            #[test]
+            fn rejects_invalid_direction_media() {
+                let expected_payload_number: usize = 96;
+                let expected_ssrc: u32 = 1;
+                let expected_capabilities = HashSet::from(["profile-test".to_string()]);
+
+                let video_media = vec![
+                    SDPLine::Attribute(Attribute::ReceiveOnly),
+                    SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        payload_number: expected_payload_number,
+                        codec: MediaCodec::Video(VideoCodec::H264),
+                    })),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: expected_ssrc,
+                    })),
+                    SDPLine::Attribute(Attribute::FMTP(FMTP {
+                        payload_number: expected_payload_number,
+                        format_capability: expected_capabilities,
+                    })),
+                ];
+
+                SDPResolver::get_streamer_video_session(&video_media)
+                    .expect_err("Should reject media");
+            }
+        }
     }
 }
