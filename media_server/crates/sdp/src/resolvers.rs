@@ -1781,42 +1781,188 @@ mod tests {
             }
         }
 
-        // mod parse_stream_offer {
-        //     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-        //
-        //     use crate::line_parsers::{Attribute, ICEPassword, ICEUsername, MediaGroup, SDPLine};
-        //     use crate::resolvers::{SDP, SDPResolver};
-        //
-        //     fn init_sdp_resolver() -> SDPResolver {
-        //         let fingerprint = "sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B";
-        //         let ip_address = IpAddr::V4(Ipv4Addr::LOCALHOST);
-        //         let socket_addr = SocketAddr::new(ip_address, 5200);
-        //         SDPResolver::new(fingerprint, socket_addr)
-        //     }
-        //     #[test]
-        //     fn resolves_valid_offer() {
-        //         let sdp_resolver = init_sdp_resolver();
-        //
-        //         let expected_ice_username = ICEUsername {
-        //             username: "test".to_string(),
-        //         };
-        //         let expected_ice_password = ICEPassword {
-        //             password: "test".to_string(),
-        //         };
-        //
-        //         let sdp_offer = SDP {
-        //             session_section: vec![
-        //                 SDPLine::Attribute(Attribute::ICEUsername(expected_ice_username.clone())),
-        //                 SDPLine::Attribute(Attribute::ICEPassword(expected_ice_password.clone())),
-        //                 SDPLine::Attribute(Attribute::MediaGroup(MediaGroup::Bundle(vec![
-        //                     "0".to_string(),
-        //                     "1".to_string(),
-        //                 ]))),
-        //             ],
-        //             audio_section: vec![],
-        //             video_section: vec![],
-        //         };
-        //     }
-        // }
+        mod get_viewer_video_session {
+            use std::collections::HashSet;
+
+            use crate::line_parsers::{
+                Attribute, FMTP, MediaCodec, MediaSSRC, RTPMap, SDPLine, VideoCodec,
+            };
+            use crate::resolvers::{SDPResolver, VideoSession};
+
+            fn init_streamer_session() -> VideoSession {
+                let video_session = VideoSession {
+                    codec: VideoCodec::H264,
+                    capabilities: HashSet::from(["profile-test".to_string()]),
+                    remote_ssrc: 2,
+                    host_ssrc: 1,
+                    payload_number: 111,
+                };
+
+                video_session
+            }
+
+            #[test]
+            fn resolves_valid_media() {
+                let streamer_session = init_streamer_session();
+
+                let expected_payload_number = 96;
+                let expected_ssrc = 2;
+
+                let video_media = vec![
+                    SDPLine::Attribute(Attribute::ReceiveOnly),
+                    SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: expected_ssrc,
+                    })),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        codec: MediaCodec::Video(streamer_session.codec.clone()),
+                        payload_number: expected_payload_number,
+                    })),
+                    SDPLine::Attribute(Attribute::FMTP(FMTP {
+                        payload_number: expected_payload_number,
+                        format_capability: streamer_session.capabilities.clone(),
+                    })),
+                ];
+
+                let video_session =
+                    SDPResolver::get_viewer_video_session(&video_media, &streamer_session)
+                        .expect("Should resolve media");
+
+                assert_eq!(video_session.codec, streamer_session.codec);
+                assert_eq!(video_session.payload_number, expected_payload_number);
+                assert_eq!(video_session.remote_ssrc, expected_ssrc);
+                assert_eq!(video_session.capabilities, streamer_session.capabilities)
+            }
+
+            #[test]
+            fn rejects_media_with_unsupported_codec() {
+                let streamer_session = init_streamer_session();
+
+                let expected_payload_number = 96;
+                let expected_ssrc = 2;
+
+                let video_media = vec![
+                    SDPLine::Attribute(Attribute::ReceiveOnly),
+                    SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: expected_ssrc,
+                    })),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        codec: MediaCodec::Unsupported,
+                        payload_number: expected_payload_number,
+                    })),
+                    SDPLine::Attribute(Attribute::FMTP(FMTP {
+                        payload_number: expected_payload_number,
+                        format_capability: streamer_session.capabilities.clone(),
+                    })),
+                ];
+
+                SDPResolver::get_viewer_video_session(&video_media, &streamer_session)
+                    .expect_err("Should reject media");
+            }
+
+            #[test]
+            fn rejects_media_with_unsupported_fmtp() {
+                let streamer_session = init_streamer_session();
+
+                let expected_payload_number = 96;
+                let expected_ssrc = 2;
+
+                let video_media = vec![
+                    SDPLine::Attribute(Attribute::ReceiveOnly),
+                    SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: expected_ssrc,
+                    })),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        codec: MediaCodec::Video(streamer_session.codec.clone()),
+                        payload_number: expected_payload_number,
+                    })),
+                    SDPLine::Attribute(Attribute::FMTP(FMTP {
+                        payload_number: expected_payload_number,
+                        format_capability: HashSet::from(["unsupported-fmtp".to_string()]),
+                    })),
+                ];
+
+                SDPResolver::get_viewer_video_session(&video_media, &streamer_session)
+                    .expect_err("Should reject media");
+            }
+
+            #[test]
+            fn rejects_media_with_missing_ssrc() {
+                let streamer_session = init_streamer_session();
+
+                let expected_payload_number = 96;
+
+                let video_media = vec![
+                    SDPLine::Attribute(Attribute::ReceiveOnly),
+                    SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        codec: MediaCodec::Video(streamer_session.codec.clone()),
+                        payload_number: expected_payload_number,
+                    })),
+                    SDPLine::Attribute(Attribute::FMTP(FMTP {
+                        payload_number: expected_payload_number,
+                        format_capability: streamer_session.capabilities.clone(),
+                    })),
+                ];
+
+                SDPResolver::get_viewer_video_session(&video_media, &streamer_session)
+                    .expect_err("Should reject media");
+            }
+
+            #[test]
+            fn rejects_media_with_invalid_direction() {
+                let streamer_session = init_streamer_session();
+
+                let expected_payload_number = 96;
+                let expected_ssrc = 2;
+
+                let video_media = vec![
+                    SDPLine::Attribute(Attribute::SendOnly),
+                    SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: expected_ssrc,
+                    })),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        codec: MediaCodec::Video(streamer_session.codec.clone()),
+                        payload_number: expected_payload_number,
+                    })),
+                    SDPLine::Attribute(Attribute::FMTP(FMTP {
+                        payload_number: expected_payload_number,
+                        format_capability: streamer_session.capabilities.clone(),
+                    })),
+                ];
+
+                SDPResolver::get_viewer_video_session(&video_media, &streamer_session)
+                    .expect_err("Should reject media");
+            }
+
+            #[test]
+            fn rejects_non_demuxed_media() {
+                let streamer_session = init_streamer_session();
+
+                let expected_payload_number = 96;
+                let expected_ssrc = 2;
+
+                let video_media = vec![
+                    SDPLine::Attribute(Attribute::ReceiveOnly),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: expected_ssrc,
+                    })),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        codec: MediaCodec::Video(streamer_session.codec.clone()),
+                        payload_number: expected_payload_number,
+                    })),
+                    SDPLine::Attribute(Attribute::FMTP(FMTP {
+                        payload_number: expected_payload_number,
+                        format_capability: streamer_session.capabilities.clone(),
+                    })),
+                ];
+
+                SDPResolver::get_viewer_video_session(&video_media, &streamer_session)
+                    .expect_err("Should reject media");
+            }
+        }
     }
 }
