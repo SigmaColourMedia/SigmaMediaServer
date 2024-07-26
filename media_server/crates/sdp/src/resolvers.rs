@@ -93,8 +93,9 @@ impl From<SDP> for String {
 
 impl SDPResolver {
     pub fn new(fingerprint_hash: &str, udp_socket: SocketAddr) -> Self {
-        let fingerprint = Fingerprint::try_from(fingerprint_hash)
-            .expect("Fingerprint should be in form of \"hash-function hash\"");
+        let fingerprint =
+            Fingerprint::try_from(format!("fingerprint {}", fingerprint_hash).as_str())
+                .expect("Fingerprint should be in form of \"hash-function hash\"");
         let candidate = Candidate {
             foundation: "1".to_string(),
             component_id: 1,
@@ -177,7 +178,7 @@ impl SDPResolver {
         });
     }
 
-    /** Get AudioSession based off audio-media-level SDPLines. Resolve codecs based on supported streamer codecs.
+    /** Get AudioSession based on audio-media-level SDPLines. Resolve codecs based on supported streamer codecs.
      */
     fn get_streamer_audio_session(
         audio_media_section: &Vec<SDPLine>,
@@ -518,7 +519,7 @@ impl SDPResolver {
 
     fn get_viewer_audio_session(
         audio_media: &Vec<SDPLine>,
-        streamer_session: &NegotiatedSession,
+        streamer_session: &AudioSession,
     ) -> Result<AudioSession, SDPParseError> {
         // Check if audio stream is demuxed
         let is_rtcp_demuxed = audio_media
@@ -552,7 +553,7 @@ impl SDPResolver {
             return Err(SDPParseError::InvalidStreamDirection);
         }
 
-        let legal_audio_codec = &streamer_session.audio_session.codec;
+        let legal_audio_codec = &streamer_session.codec;
 
         let resolved_payload_number = audio_media
             .iter()
@@ -594,7 +595,7 @@ impl SDPResolver {
 
     fn get_viewer_video_session(
         video_media: &Vec<SDPLine>,
-        streamer_session: &NegotiatedSession,
+        streamer_session: &VideoSession,
     ) -> Result<VideoSession, SDPParseError> {
         // Check if stream is demuxed
         let is_rtcp_demuxed = video_media
@@ -632,7 +633,7 @@ impl SDPResolver {
         Here we start to look for a payload number that matches both streamer video codec and streamer video capabilities
          */
         // Only the negotiated streamer video codec is considered a legal option
-        let legal_video_codec = &streamer_session.video_session.codec;
+        let legal_video_codec = &streamer_session.codec;
 
         // Get all payload numbers matching legal Video codec
         let available_payload_numbers = video_media
@@ -655,7 +656,7 @@ impl SDPResolver {
             .collect::<Vec<usize>>();
 
         // Only the negotiated streamer video FMTP is considered a legal option
-        let legal_video_fmtp = &streamer_session.video_session.capabilities;
+        let legal_video_fmtp = &streamer_session.capabilities;
 
         // Filter out all FMTPs not matching the available payload numbers and then look for one matching the legal FMTP
         // The filter could be skipped, but then we have no guarantee that this FMTP actually points to the proper codec
@@ -709,10 +710,14 @@ impl SDPResolver {
         let ice_credentials =
             Self::get_ice_credentials(&viewer_sdp).ok_or(SDPParseError::MissingICECredentials)?;
         let (audio_mid, video_mid) = Self::get_media_ids(&viewer_sdp)?;
-        let audio_session =
-            Self::get_viewer_audio_session(&viewer_sdp.audio_section, streamer_session)?;
-        let video_session =
-            Self::get_viewer_video_session(&viewer_sdp.video_section, streamer_session)?;
+        let audio_session = Self::get_viewer_audio_session(
+            &viewer_sdp.audio_section,
+            &streamer_session.audio_session,
+        )?;
+        let video_session = Self::get_viewer_video_session(
+            &viewer_sdp.video_section,
+            &streamer_session.video_session,
+        )?;
 
         let session_section = vec![
             SDPLine::ProtocolVersion("0".to_string()),
@@ -1642,5 +1647,176 @@ mod tests {
                     .expect_err("Should reject media");
             }
         }
+
+        mod get_viewer_audio_session {
+            use crate::line_parsers::{
+                Attribute, AudioCodec, MediaCodec, MediaSSRC, RTPMap, SDPLine,
+            };
+            use crate::resolvers::{AudioSession, SDPResolver};
+
+            fn init_streamer_session() -> AudioSession {
+                let audio_session = AudioSession {
+                    codec: AudioCodec::Opus,
+                    remote_ssrc: 2,
+                    host_ssrc: 1,
+                    payload_number: 111,
+                };
+
+                audio_session
+            }
+
+            #[test]
+            fn resolves_valid_media() {
+                let streamer_session = init_streamer_session();
+
+                let expected_payload_number = 96;
+                let expected_ssrc = 2;
+
+                let audio_media = vec![
+                    SDPLine::Attribute(Attribute::ReceiveOnly),
+                    SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: expected_ssrc,
+                    })),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        codec: MediaCodec::Audio(streamer_session.codec.clone()),
+                        payload_number: expected_payload_number,
+                    })),
+                ];
+
+                let audio_session =
+                    SDPResolver::get_viewer_audio_session(&audio_media, &streamer_session)
+                        .expect("Should resolve media");
+
+                assert_eq!(audio_session.codec, streamer_session.codec);
+                assert_eq!(audio_session.payload_number, expected_payload_number);
+                assert_eq!(audio_session.remote_ssrc, expected_ssrc)
+            }
+
+            #[test]
+            fn rejects_media_mismatching_streamer_codec() {
+                let streamer_session = init_streamer_session();
+
+                let expected_payload_number = 96;
+                let expected_ssrc = 2;
+
+                let audio_media = vec![
+                    SDPLine::Attribute(Attribute::ReceiveOnly),
+                    SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: expected_ssrc,
+                    })),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        codec: MediaCodec::Unsupported,
+                        payload_number: expected_payload_number,
+                    })),
+                ];
+
+                SDPResolver::get_viewer_audio_session(&audio_media, &streamer_session)
+                    .expect_err("Should reject media");
+            }
+
+            #[test]
+            fn rejects_media_missing_ssrc() {
+                let streamer_session = init_streamer_session();
+
+                let expected_payload_number = 96;
+
+                let audio_media = vec![
+                    SDPLine::Attribute(Attribute::ReceiveOnly),
+                    SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        codec: MediaCodec::Audio(streamer_session.codec.clone()),
+                        payload_number: expected_payload_number,
+                    })),
+                ];
+
+                SDPResolver::get_viewer_audio_session(&audio_media, &streamer_session)
+                    .expect_err("Should reject media");
+            }
+
+            #[test]
+            fn rejects_media_with_invalid_media_direction() {
+                let streamer_session = init_streamer_session();
+
+                let expected_payload_number = 96;
+                let expected_ssrc = 2;
+
+                let audio_media = vec![
+                    SDPLine::Attribute(Attribute::SendOnly),
+                    SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: expected_ssrc,
+                    })),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        codec: MediaCodec::Audio(streamer_session.codec.clone()),
+                        payload_number: expected_payload_number,
+                    })),
+                ];
+
+                SDPResolver::get_viewer_audio_session(&audio_media, &streamer_session)
+                    .expect_err("Should reject media");
+            }
+
+            #[test]
+            fn rejects_non_demuxed_media() {
+                let streamer_session = init_streamer_session();
+
+                let expected_payload_number = 96;
+                let expected_ssrc = 2;
+
+                let audio_media = vec![
+                    SDPLine::Attribute(Attribute::ReceiveOnly),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: expected_ssrc,
+                    })),
+                    SDPLine::Attribute(Attribute::RTPMap(RTPMap {
+                        codec: MediaCodec::Audio(streamer_session.codec.clone()),
+                        payload_number: expected_payload_number,
+                    })),
+                ];
+
+                SDPResolver::get_viewer_audio_session(&audio_media, &streamer_session)
+                    .expect_err("Should reject media");
+            }
+        }
+
+        // mod parse_stream_offer {
+        //     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+        //
+        //     use crate::line_parsers::{Attribute, ICEPassword, ICEUsername, MediaGroup, SDPLine};
+        //     use crate::resolvers::{SDP, SDPResolver};
+        //
+        //     fn init_sdp_resolver() -> SDPResolver {
+        //         let fingerprint = "sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B";
+        //         let ip_address = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        //         let socket_addr = SocketAddr::new(ip_address, 5200);
+        //         SDPResolver::new(fingerprint, socket_addr)
+        //     }
+        //     #[test]
+        //     fn resolves_valid_offer() {
+        //         let sdp_resolver = init_sdp_resolver();
+        //
+        //         let expected_ice_username = ICEUsername {
+        //             username: "test".to_string(),
+        //         };
+        //         let expected_ice_password = ICEPassword {
+        //             password: "test".to_string(),
+        //         };
+        //
+        //         let sdp_offer = SDP {
+        //             session_section: vec![
+        //                 SDPLine::Attribute(Attribute::ICEUsername(expected_ice_username.clone())),
+        //                 SDPLine::Attribute(Attribute::ICEPassword(expected_ice_password.clone())),
+        //                 SDPLine::Attribute(Attribute::MediaGroup(MediaGroup::Bundle(vec![
+        //                     "0".to_string(),
+        //                     "1".to_string(),
+        //                 ]))),
+        //             ],
+        //             audio_section: vec![],
+        //             video_section: vec![],
+        //         };
+        //     }
+        // }
     }
 }
