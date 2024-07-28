@@ -12,44 +12,44 @@ use crate::line_parsers::{
 };
 
 #[derive(Debug)]
-struct SDP {
+pub struct SDP {
     session_section: Vec<SDPLine>,
     video_section: Vec<SDPLine>,
     audio_section: Vec<SDPLine>,
 }
 
 #[derive(Debug)]
-struct NegotiatedSession {
-    sdp_answer: SDP,
-    ice_credentials: ICECredentials,
-    video_session: VideoSession,
-    audio_session: AudioSession,
+pub struct NegotiatedSession {
+    pub sdp_answer: SDP,
+    pub ice_credentials: ICECredentials,
+    pub video_session: VideoSession,
+    pub audio_session: AudioSession,
 }
 #[derive(Debug)]
-struct ICECredentials {
-    host_username: String,
-    host_password: String,
-    remote_username: String,
-    remote_password: String,
+pub struct ICECredentials {
+    pub host_username: String,
+    pub host_password: String,
+    pub remote_username: String,
+    pub remote_password: String,
 }
 #[derive(Debug)]
-struct VideoSession {
-    codec: VideoCodec,
-    payload_number: usize,
-    host_ssrc: u32,
-    remote_ssrc: u32,
-    capabilities: HashSet<String>,
+pub struct VideoSession {
+    pub codec: VideoCodec,
+    pub payload_number: usize,
+    pub host_ssrc: u32,
+    pub remote_ssrc: u32,
+    pub capabilities: HashSet<String>,
 }
 
 #[derive(Debug)]
-struct AudioSession {
-    codec: AudioCodec,
-    payload_number: usize,
-    host_ssrc: u32,
-    remote_ssrc: u32,
+pub struct AudioSession {
+    pub codec: AudioCodec,
+    pub payload_number: usize,
+    pub host_ssrc: u32,
+    pub remote_ssrc: u32,
 }
 
-struct SDPResolver {
+pub struct SDPResolver {
     fingerprint: Fingerprint,
     candidate: Candidate,
 }
@@ -92,9 +92,11 @@ impl From<SDP> for String {
 }
 
 impl SDPResolver {
+    const ACCEPTED_VIDEO_CODEC: VideoCodec = VideoCodec::H264;
+    const ACCEPTED_AUDIO_CODEC: AudioCodec = AudioCodec::Opus;
     pub fn new(fingerprint_hash: &str, udp_socket: SocketAddr) -> Self {
         let fingerprint =
-            Fingerprint::try_from(format!("fingerprint {}", fingerprint_hash).as_str())
+            Fingerprint::try_from(format!("fingerprint:{}", fingerprint_hash).as_str())
                 .expect("Fingerprint should be in form of \"hash-function hash\"");
         let candidate = Candidate {
             foundation: "1".to_string(),
@@ -113,8 +115,15 @@ impl SDPResolver {
         let sdp = Self::get_sdp(raw_data)?;
         self.parse_stream_offer(sdp)
     }
-    const ACCEPTED_VIDEO_CODEC: VideoCodec = VideoCodec::H264;
-    const ACCEPTED_AUDIO_CODEC: AudioCodec = AudioCodec::Opus;
+
+    pub fn accept_viewer_offer(
+        &self,
+        raw_data: &str,
+        streamer_session: &NegotiatedSession,
+    ) -> Result<NegotiatedSession, SDPParseError> {
+        let sdp = Self::get_sdp(raw_data)?;
+        self.parse_viewer_offer(sdp, streamer_session)
+    }
 
     /** Gets ICE credentials from the SDP. Uses session-level credentials if no media-level credentials were provided.
     If media-level credentials were provided, check if they match across media-streams and if so resolve to ICECredentials.
@@ -492,7 +501,7 @@ impl SDPResolver {
             SDPLine::Attribute(Attribute::MediaID(video_mid)),
             SDPLine::Attribute(Attribute::RTPMap(RTPMap {
                 codec: MediaCodec::Video(video_session.codec.clone()),
-                payload_number: audio_session.payload_number,
+                payload_number: video_session.payload_number,
             })),
             SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                 ssrc: video_session.host_ssrc,
@@ -788,7 +797,7 @@ impl SDPResolver {
             SDPLine::Attribute(Attribute::MediaID(video_mid)),
             SDPLine::Attribute(Attribute::RTPMap(RTPMap {
                 codec: MediaCodec::Video(video_session.codec.clone()),
-                payload_number: audio_session.payload_number,
+                payload_number: video_session.payload_number,
             })),
             SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                 ssrc: video_session.host_ssrc,
@@ -1128,11 +1137,11 @@ mod tests {
             #[test]
             fn resolves_sdp_with_default_credentials() {
                 let expected_ice_username = ICEUsername {
-                    username: "test".to_string(),
+                    username: "tests".to_string(),
                 };
 
                 let expected_ice_password = ICEPassword {
-                    password: "test".to_string(),
+                    password: "tests".to_string(),
                 };
 
                 let sdp = SDP {
@@ -1160,11 +1169,11 @@ mod tests {
             #[test]
             fn resolves_sdp_with_media_credentials() {
                 let expected_ice_username = ICEUsername {
-                    username: "test".to_string(),
+                    username: "tests".to_string(),
                 };
 
                 let expected_ice_password = ICEPassword {
-                    password: "test".to_string(),
+                    password: "tests".to_string(),
                 };
 
                 let sdp = SDP {
@@ -1195,11 +1204,11 @@ mod tests {
             #[test]
             fn selects_media_level_ice_credentials_over_defaults() {
                 let expected_ice_username = ICEUsername {
-                    username: "test".to_string(),
+                    username: "tests".to_string(),
                 };
 
                 let expected_ice_password = ICEPassword {
-                    password: "test".to_string(),
+                    password: "tests".to_string(),
                 };
 
                 let sdp = SDP {
@@ -1237,11 +1246,11 @@ mod tests {
             #[test]
             fn rejects_sdp_with_partial_media_credentials() {
                 let expected_ice_username = ICEUsername {
-                    username: "test".to_string(),
+                    username: "tests".to_string(),
                 };
 
                 let expected_ice_password = ICEPassword {
-                    password: "test".to_string(),
+                    password: "tests".to_string(),
                 };
                 let sdp = SDP {
                     session_section: vec![],
@@ -1260,11 +1269,11 @@ mod tests {
             #[test]
             fn rejects_sdp_with_partial_media_credentials_and_default_credentials() {
                 let expected_ice_username = ICEUsername {
-                    username: "test".to_string(),
+                    username: "tests".to_string(),
                 };
 
                 let expected_ice_password = ICEPassword {
-                    password: "test".to_string(),
+                    password: "tests".to_string(),
                 };
                 let sdp = SDP {
                     session_section: vec![
@@ -1505,7 +1514,7 @@ mod tests {
             fn resolves_valid_media() {
                 let expected_payload_number: usize = 96;
                 let expected_ssrc: u32 = 1;
-                let expected_capabilities = HashSet::from(["profile-test".to_string()]);
+                let expected_capabilities = HashSet::from(["profile-tests".to_string()]);
                 let video_media = vec![
                     SDPLine::Attribute(Attribute::SendOnly),
                     SDPLine::Attribute(Attribute::RTCPMux),
@@ -1534,7 +1543,7 @@ mod tests {
             #[test]
             fn rejects_media_with_missing_ssrc() {
                 let expected_payload_number: usize = 96;
-                let expected_capabilities = HashSet::from(["profile-test".to_string()]);
+                let expected_capabilities = HashSet::from(["profile-tests".to_string()]);
                 let video_media = vec![
                     SDPLine::Attribute(Attribute::SendOnly),
                     SDPLine::Attribute(Attribute::RTCPMux),
@@ -1555,7 +1564,7 @@ mod tests {
             fn rejects_media_with_unsupported_codec() {
                 let expected_payload_number: usize = 96;
                 let expected_ssrc: u32 = 1;
-                let expected_capabilities = HashSet::from(["profile-test".to_string()]);
+                let expected_capabilities = HashSet::from(["profile-tests".to_string()]);
                 let video_media = vec![
                     SDPLine::Attribute(Attribute::SendOnly),
                     SDPLine::Attribute(Attribute::RTCPMux),
@@ -1600,7 +1609,7 @@ mod tests {
             fn rejects_non_demuxed_media() {
                 let expected_payload_number: usize = 96;
                 let expected_ssrc: u32 = 1;
-                let expected_capabilities = HashSet::from(["profile-test".to_string()]);
+                let expected_capabilities = HashSet::from(["profile-tests".to_string()]);
 
                 let video_media = vec![
                     SDPLine::Attribute(Attribute::SendOnly),
@@ -1625,7 +1634,7 @@ mod tests {
             fn rejects_invalid_direction_media() {
                 let expected_payload_number: usize = 96;
                 let expected_ssrc: u32 = 1;
-                let expected_capabilities = HashSet::from(["profile-test".to_string()]);
+                let expected_capabilities = HashSet::from(["profile-tests".to_string()]);
 
                 let video_media = vec![
                     SDPLine::Attribute(Attribute::ReceiveOnly),
@@ -1792,7 +1801,7 @@ mod tests {
             fn init_streamer_session() -> VideoSession {
                 let video_session = VideoSession {
                     codec: VideoCodec::H264,
-                    capabilities: HashSet::from(["profile-test".to_string()]),
+                    capabilities: HashSet::from(["profile-tests".to_string()]),
                     remote_ssrc: 2,
                     host_ssrc: 1,
                     payload_number: 111,

@@ -126,12 +126,12 @@ pub(crate) enum MediaCodec {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum VideoCodec {
+pub enum VideoCodec {
     H264,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum AudioCodec {
+pub enum AudioCodec {
     Opus,
 }
 
@@ -419,7 +419,7 @@ impl From<FMTP> for String {
 impl From<Candidate> for String {
     fn from(value: Candidate) -> Self {
         format!(
-            "cadidate:{} {} UDP {} {} {}",
+            "candidate:{} {} UDP {} {} {} typ host", //todo Handle other candidate types
             value.foundation,
             value.component_id,
             value.priority,
@@ -903,20 +903,20 @@ impl TryFrom<&str> for ICEPassword {
     }
 }
 
-// #[cfg(test)]
+// #[cfg(tests)]
 // mod tests {
 //
 //     mod parse_fmtp {
 //         use crate::line_parsers::parse_fmtp;
 //
-//         #[test]
+//         #[tests]
 //         fn rejects_malformed_line() {
 //             let attr = "96-profile-level-id other-attributes:1";
 //             let parse_result = parse_fmtp(attr);
 //             assert!(parse_result.is_err(), "Should reject FMTP attribute")
 //         }
 //
-//         #[test]
+//         #[tests]
 //         fn resolves_all_capabilities() {
 //             let attr = "96 profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1";
 //             let fmtp = parse_fmtp(attr).expect("FMTP should be OK");
@@ -941,7 +941,7 @@ impl TryFrom<&str> for ICEPassword {
 //             LineParseError, MediaTransportProtocol, MediaType, parse_media_descriptor,
 //         };
 //
-//         #[test]
+//         #[tests]
 //         fn rejects_unsupported_media_type() {
 //             let media_descriptor = "text 52000 UDP 96";
 //
@@ -953,7 +953,7 @@ impl TryFrom<&str> for ICEPassword {
 //             )
 //         }
 //
-//         #[test]
+//         #[tests]
 //         fn rejects_unsupported_media_transport_protocol() {
 //             let media_descriptor = "video 52000 UDP 96";
 //
@@ -965,7 +965,7 @@ impl TryFrom<&str> for ICEPassword {
 //             )
 //         }
 //
-//         #[test]
+//         #[tests]
 //         fn resolves_supported_media_with_single_payload_number() {
 //             let media_descriptor = "video 52000 UDP/TLS/RTP/SAVPF 96";
 //
@@ -992,7 +992,7 @@ impl TryFrom<&str> for ICEPassword {
 //             )
 //         }
 //
-//         #[test]
+//         #[tests]
 //         fn resolves_supported_media_with_multiple_payload_numbers() {
 //             let media_descriptor = "video 52000 UDP/TLS/RTP/SAVPF 96 102 112";
 //
@@ -1022,7 +1022,7 @@ impl TryFrom<&str> for ICEPassword {
 //     mod parse_rtpmap {
 //         use crate::line_parsers::{MediaCodec, parse_rtpmap, VideoCodec};
 //
-//         #[test]
+//         #[tests]
 //         fn recognizes_unsupported_codec() {
 //             let rtp_attr = "96 myCodec";
 //
@@ -1035,7 +1035,7 @@ impl TryFrom<&str> for ICEPassword {
 //             )
 //         }
 //
-//         #[test]
+//         #[tests]
 //         fn rejects_malformed_attribute() {
 //             let rtp_attr = "96-myCodec";
 //
@@ -1044,7 +1044,7 @@ impl TryFrom<&str> for ICEPassword {
 //             assert!(rtp_map.is_err(), "Should reject attribute parse")
 //         }
 //
-//         #[test]
+//         #[tests]
 //         fn accepts_lowercase_video_codec() {
 //             let rtp_attr = "96 h264/90000";
 //
@@ -1057,7 +1057,7 @@ impl TryFrom<&str> for ICEPassword {
 //             )
 //         }
 //
-//         #[test]
+//         #[tests]
 //         fn accepts_uppercase_video_codec() {
 //             let rtp_attr = "96 H264/90000";
 //
@@ -1074,9 +1074,9 @@ impl TryFrom<&str> for ICEPassword {
 //     mod parse_fingerprint {
 //         use crate::line_parsers::{HashFunction, parse_fingerprint};
 //
-//         #[test]
+//         #[tests]
 //         fn recognizes_unsupported_fingerprint() {
-//             let unsupported_fingerprint = "sha-test EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B";
+//             let unsupported_fingerprint = "sha-tests EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B";
 //             let sdp_parse = parse_fingerprint(unsupported_fingerprint);
 //             let fingerprint = sdp_parse.expect("Fingerprint parse result should be OK");
 //
@@ -1087,14 +1087,14 @@ impl TryFrom<&str> for ICEPassword {
 //             )
 //         }
 //
-//         #[test]
+//         #[tests]
 //         fn fails_on_malformed_attribute() {
 //             let unsupported_fingerprint = "sha-1,EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B";
 //             let sdp_parse = parse_fingerprint(unsupported_fingerprint);
 //             assert!(sdp_parse.is_err(), "Should return Err");
 //         }
 //
-//         #[test]
+//         #[tests]
 //         fn recognizes_sha_256() {
 //             let unsupported_fingerprint = "sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B";
 //             let sdp_parse = parse_fingerprint(unsupported_fingerprint);
