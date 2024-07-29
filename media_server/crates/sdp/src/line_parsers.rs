@@ -5,6 +5,7 @@ use std::str::FromStr;
 #[derive(Debug)]
 pub enum SDPParseError {
     SequenceError,
+    InvalidDTLSRole,
     MissingICECredentials,
     MissingStreamSSRC,
     UnsupportedMediaCodecs,
@@ -54,6 +55,7 @@ pub(crate) enum Attribute {
     RTCPMux,
     RTPMap(RTPMap),
     FMTP(FMTP),
+    Setup(Setup),
     Candidate(Candidate),
 }
 
@@ -141,6 +143,13 @@ pub(crate) struct MediaSSRC {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Setup {
+    ActivePassive,
+    Active,
+    Passive,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum MediaGroup {
     Bundle(Vec<String>),
     LipSync(Vec<String>),
@@ -220,6 +229,7 @@ impl From<Attribute> for String {
             Attribute::RTPMap(attr) => String::from(attr),
             Attribute::FMTP(attr) => String::from(attr),
             Attribute::Candidate(attr) => String::from(attr),
+            Attribute::Setup(attr) => String::from(attr),
             Attribute::ICELite => "ice-lite".to_string(),
             Attribute::EndOfCandidates => "end-of-candidates".to_string(),
             Attribute::ICEOptions(ice_options) => String::from(ice_options),
@@ -281,6 +291,16 @@ impl From<ICEOption> for String {
             ICEOption::Unsupported => {
                 panic!("Unsupported attributes should not be converted to String")
             }
+        }
+    }
+}
+
+impl From<Setup> for String {
+    fn from(value: Setup) -> Self {
+        match value {
+            Setup::ActivePassive => "setup:actpass".to_string(),
+            Setup::Active => "setup:active".to_string(),
+            Setup::Passive => "setup:passive".to_string(),
         }
     }
 }
@@ -479,6 +499,7 @@ impl TryFrom<&str> for Attribute {
             "rtcp-mux" => Ok(Attribute::RTCPMux),
             "ice-options" => Ok(Attribute::ICEOptions(ICEOptions::try_from(value)?)),
             "end-of-candidates" => Ok(Attribute::EndOfCandidates),
+            "setup" => Ok(Attribute::Setup(Setup::try_from(value)?)),
             _ => Ok(Attribute::Unrecognized),
         }
     }
@@ -796,6 +817,23 @@ impl TryFrom<&str> for MediaSSRC {
                 .parse::<u32>()
                 .map_err(|_| Self::Error::MalformedAttribute)?,
         })
+    }
+}
+
+impl TryFrom<&str> for Setup {
+    type Error = SDPParseError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let (_, value) = value
+            .split_once("setup:")
+            .ok_or(Self::Error::MalformedAttribute)?;
+
+        match value {
+            "actpass" => Ok(Self::ActivePassive),
+            "active" => Ok(Self::Active),
+            "passive" => Ok(Self::Passive),
+            _ => Err(Self::Error::MalformedAttribute),
+        }
     }
 }
 

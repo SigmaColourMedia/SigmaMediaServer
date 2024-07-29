@@ -8,7 +8,7 @@ use crate::line_parsers::{
     Attribute, AudioCodec, Candidate, ConnectionData, Fingerprint, FMTP, ICEOption,
     ICEOptions, ICEPassword, ICEUsername, MediaCodec, MediaDescription, MediaGroup, MediaID,
     MediaSSRC, MediaTransportProtocol, MediaType, Originator, RTPMap, SDPLine, SDPParseError,
-    SessionTime, VideoCodec,
+    SessionTime, Setup, VideoCodec,
 };
 
 #[derive(Debug)]
@@ -432,6 +432,25 @@ impl SDPResolver {
         let audio_session = Self::get_streamer_audio_session(&sdp_offer.audio_section)?;
         let video_session = Self::get_streamer_video_session(&sdp_offer.video_section)?;
 
+        let is_passive_dtls_role = sdp_offer
+            .session_section
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::Setup(setup) => match setup {
+                        Setup::Passive => Some(true),
+                        _ => Some(false),
+                    },
+                    _ => None,
+                },
+                _ => None,
+            })
+            .ok_or(SDPParseError::MalformedSDPLine)?;
+
+        if is_passive_dtls_role {
+            return Err(SDPParseError::InvalidDTLSRole);
+        }
+
         let session_section = vec![
             SDPLine::ProtocolVersion("0".to_string()),
             SDPLine::Originator(Originator {
@@ -460,6 +479,7 @@ impl SDPResolver {
             })),
             SDPLine::Attribute(Attribute::ICELite),
             SDPLine::Attribute(Attribute::Fingerprint(self.fingerprint.clone())),
+            SDPLine::Attribute(Attribute::Setup(Setup::Passive)),
         ];
 
         let audio_section = vec![
@@ -728,6 +748,25 @@ impl SDPResolver {
             &streamer_session.video_session,
         )?;
 
+        let is_passive_dtls_role = viewer_sdp
+            .session_section
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::Setup(setup) => match setup {
+                        Setup::Passive => Some(true),
+                        _ => Some(false),
+                    },
+                    _ => None,
+                },
+                _ => None,
+            })
+            .ok_or(SDPParseError::MalformedSDPLine)?;
+
+        if is_passive_dtls_role {
+            return Err(SDPParseError::InvalidDTLSRole);
+        }
+
         let session_section = vec![
             SDPLine::ProtocolVersion("0".to_string()),
             SDPLine::Originator(Originator {
@@ -756,6 +795,7 @@ impl SDPResolver {
             })),
             SDPLine::Attribute(Attribute::ICELite),
             SDPLine::Attribute(Attribute::Fingerprint(self.fingerprint.clone())),
+            SDPLine::Attribute(Attribute::Setup(Setup::Passive)),
         ];
 
         let audio_section = vec![
@@ -949,7 +989,7 @@ mod tests {
                 Attribute, AudioCodec, Candidate, ConnectionData, Fingerprint, FMTP,
                 HashFunction, ICEOption, ICEOptions, ICEPassword, ICEUsername, MediaCodec,
                 MediaDescription, MediaGroup, MediaID, MediaSSRC, MediaTransportProtocol, MediaType,
-                Originator, RTPMap, SDPLine, SessionTime, VideoCodec,
+                Originator, RTPMap, SDPLine, SessionTime, Setup, VideoCodec,
             };
             use crate::resolvers::SDPResolver;
 
@@ -981,7 +1021,7 @@ mod tests {
                         "1".to_string(),
                     ]))),
                     SDPLine::Attribute(Attribute::Unrecognized),
-                    SDPLine::Attribute(Attribute::Unrecognized),
+                    SDPLine::Attribute(Attribute::Setup(Setup::ActivePassive)),
                     SDPLine::Attribute(Attribute::ICEUsername(ICEUsername {
                         username: "E2Fr".to_string(),
                     })),
@@ -994,7 +1034,7 @@ mod tests {
                     SDPLine::Attribute(Attribute::Fingerprint(Fingerprint{
                         hash_function: HashFunction::SHA256,
                         hash: "EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B".to_string()
-                    }))
+                    })),
                 ];
 
                 let expected_audio_media = vec![

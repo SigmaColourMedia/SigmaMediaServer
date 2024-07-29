@@ -60,6 +60,7 @@ mod streamer_offer {
     a=ice-options:ice2\r\n\
     a=ice-lite\r\n\
     a=fingerprint:{fingerprint}\r\n\
+    a=setup:passive\r\n\
     m=audio 52000 UDP/TLS/RTP/SAVPF 111\r\n\
     c=IN IP4 127.0.0.1\r\n\
     a=recvonly\r\n\
@@ -142,6 +143,7 @@ mod streamer_offer {
     a=ice-pwd:password\r\n\
     a=ice-options:ice2\r\n\
     a=fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B\r\n\
+    a=setup:actpass\r\n\
     m=audio 52000 UDP/TLS/RTP/SAVPF 111\r\n\
     c=IN IP4 127.0.0.1\r\n\
     a=sendonly\r\n\
@@ -180,6 +182,7 @@ mod streamer_offer {
     a=ice-pwd:password\r\n\
     a=ice-options:ice2\r\n\
     a=fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B\r\n\
+    a=setup:actpass\r\n\
     m=audio 52000 UDP/TLS/RTP/SAVPF 111\r\n\
     c=IN IP4 127.0.0.1\r\n\
     a=recvonly\r\n\
@@ -216,6 +219,7 @@ mod streamer_offer {
     a=ice-pwd:password\r\n\
     a=ice-options:ice2\r\n\
     a=fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B\r\n\
+    a=setup:actpass\r\n\
     m=audio 52000 UDP/TLS/RTP/SAVPF 111\r\n\
     c=IN IP4 127.0.0.1\r\n\
     a=sendonly\r\n\
@@ -250,6 +254,7 @@ mod streamer_offer {
     a=ice-pwd:password\r\n\
     a=ice-options:ice2\r\n\
     a=fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B\r\n\
+    a=setup:actpass\r\n\
     m=audio 52000 UDP/TLS/RTP/SAVPF 111\r\n\
     c=IN IP4 127.0.0.1\r\n\
     a=sendonly\r\n\
@@ -283,6 +288,7 @@ mod streamer_offer {
     a=ice-pwd:password\r\n\
     a=ice-options:ice2\r\n\
     a=fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B\r\n\
+    a=setup:actpass\r\n\
     m=audio 52000 UDP/TLS/RTP/SAVPF 111\r\n\
     c=IN IP4 127.0.0.1\r\n\
     a=sendonly\r\n\
@@ -293,6 +299,43 @@ mod streamer_offer {
     a=ssrc:2\r\n\
     m=video 52000 UDP/TLS/RTP/SAVPF 96 97\r\n\
     c=IN IP4 127.0.0.1\r\n\
+    a=sendonly\r\n\
+    a=rtcp-mux\r\n\
+    a=rtpmap:96 h264/90000\r\n\
+    a=rtpmap:97 v9/90000\r\n\
+    a=ssrc:1\r\n\
+    a=fmtp:96 profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1\r\n";
+
+        let sdp_resolver = init_sdp_resolver();
+        sdp_resolver
+            .accept_stream_offer(sdp_offer)
+            .expect_err("Should reject SDP");
+    }
+
+    #[test]
+    fn rejects_invalid_dtls_role() {
+        let sdp_offer = "v=0\r\n\
+    o=smid 3767197920 0 IN IP4 127.0.0.1\r\n\
+    s=smid\r\n\
+    t=0 0\r\n\
+    a=group:BUNDLE 0 1\r\n\
+    a=ice-ufrag:username\r\n\
+    a=ice-pwd:password\r\n\
+    a=ice-options:ice2\r\n\
+    a=fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B\r\n\
+    a=setup:passive\r\n\
+    m=audio 52000 UDP/TLS/RTP/SAVPF 111\r\n\
+    c=IN IP4 127.0.0.1\r\n\
+    a=mid:0\r\n\
+    a=sendonly\r\n\
+    a=rtcp-mux\r\n\
+    a=candidate:1 1 UDP 2015363327 127.0.0.1 52000 typ host\r\n\
+    a=end-of-candidates\r\n\
+    a=rtpmap:111 opus/48000/2\r\n\
+    a=ssrc:2\r\n\
+    m=video 52000 UDP/TLS/RTP/SAVPF 96 97\r\n\
+    c=IN IP4 127.0.0.1\r\n\
+    a=mid:1\r\n\
     a=sendonly\r\n\
     a=rtcp-mux\r\n\
     a=rtpmap:96 h264/90000\r\n\
@@ -318,6 +361,7 @@ mod streamer_offer {
     a=ice-pwd:password\r\n\
     a=ice-options:ice2\r\n\
     a=fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B\r\n\
+    a=setup:actpass\r\n\
     m=audio 52000 UDP/TLS/RTP/SAVPF 111\r\n\
     c=IN IP4 127.0.0.1\r\n\
     a=sendonly\r\n\
@@ -354,6 +398,7 @@ mod streamer_offer {
     a=ice-pwd:password\r\n\
     a=ice-options:ice2\r\n\
     a=fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B\r\n\
+    a=setup:actpass\r\n\
     m=audio 52000 UDP/TLS/RTP/SAVPF 111\r\n\
     c=IN IP4 127.0.0.1\r\n\
     a=sendonly\r\n\
@@ -387,6 +432,7 @@ mod streamer_offer {
     a=group:BUNDLE 0 1\r\n\
     a=ice-options:ice2\r\n\
     a=fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B\r\n\
+    a=setup:actpass\r\n\
     m=audio 52000 UDP/TLS/RTP/SAVPF 111\r\n\
     c=IN IP4 127.0.0.1\r\n\
     a=sendonly\r\n\
