@@ -14,7 +14,7 @@ use crate::http::routes::whep::whep_route;
 use crate::http::routes::whip::whip_route;
 use crate::http::server_builder::ServerBuilder;
 use crate::http::ServerCommand;
-use crate::ice_registry::ConnectionType;
+use crate::ice_registry::Session;
 use crate::server::UDPServer;
 
 mod acceptor;
@@ -52,8 +52,20 @@ fn main() {
     loop {
         match rx.recv().expect("Server channel should be open") {
             ServerCommand::HandlePacket(packet, remote) => server.process_packet(&packet, remote),
-            ServerCommand::AddStreamer(session) => {
-                server.session_registry.add_streamer(session);
+            ServerCommand::AddStreamer(sdp_offer, response_tx) => {
+                let negotiated_session = server.sdp_resolver.accept_stream_offer(&sdp_offer).ok();
+
+                let response = negotiated_session
+                    .map(Session::new_streamer)
+                    .map(|session| {
+                        let sdp_answer = String::from(session.media_session.sdp_answer.clone());
+                        server.session_registry.add_streamer(session);
+                        sdp_answer
+                    });
+
+                response_tx
+                    .send(response)
+                    .expect("Response channel should remain open")
             }
             ServerCommand::AddViewer(session) => {
                 server.session_registry.add_viewer(session).unwrap();
@@ -61,17 +73,6 @@ fn main() {
             ServerCommand::GetRooms(sender) => {
                 let rooms = server.session_registry.get_rooms();
                 sender.send(rooms).unwrap()
-            }
-            ServerCommand::GetStreamSDP((sender, stream_id)) => {
-                let stream_sdp =
-                    server
-                        .session_registry
-                        .get_session(&stream_id)
-                        .and_then(|session| match &session.connection_type {
-                            ConnectionType::Viewer(_) => None,
-                            ConnectionType::Streamer(streamer) => Some(streamer.sdp.clone()),
-                        });
-                sender.send(stream_sdp).unwrap()
             }
             ServerCommand::CheckForTimeout => {
                 let sessions: Vec<_> = server

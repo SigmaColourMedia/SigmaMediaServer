@@ -3,7 +3,6 @@ use crate::ice_registry::SessionCredentials;
 use crate::rnd::get_random_string;
 
 pub fn parse_sdp(data: String) -> Option<SDP> {
-    println!("{:?}", data);
     let lines = data.lines();
     let remote_username = lines
         .clone()

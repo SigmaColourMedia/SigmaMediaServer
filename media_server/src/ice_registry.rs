@@ -2,9 +2,10 @@ use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Instant;
 
+use sdp2::NegotiatedSession;
+
 use crate::client::Client;
 use crate::rnd::get_random_string;
-use crate::sdp::SDP;
 
 type ResourceID = String;
 type HostUsername = String;
@@ -47,7 +48,7 @@ impl SessionRegistry {
     pub fn remove_session(&mut self, id: &str) {
         let target_session = self.sessions.get(id);
         if let Some(session) = target_session {
-            let username = &session.credentials.host_username;
+            let username = &session.media_session.ice_credentials.host_username;
             self.username_map.remove(username);
 
             if let Some(remote) = session.client.as_ref().map(|client| client.remote_address) {
@@ -78,16 +79,18 @@ impl SessionRegistry {
             .and_then(|id| self.sessions.get_mut(id))
     }
 
-    pub fn add_streamer(&mut self, streamer: Session) -> Option<ResourceID> {
+    pub fn add_streamer(&mut self, streamer: Session) -> ResourceID {
         let id = streamer.id.clone();
 
         // Update username map
-        self.username_map
-            .insert(streamer.credentials.host_username.clone(), id.clone());
+        self.username_map.insert(
+            streamer.media_session.ice_credentials.host_username.clone(),
+            id.clone(),
+        );
         self.sessions.insert(streamer.id.clone(), streamer); // Update sessions map
         self.rooms.insert(id.clone()); // Update rooms map
 
-        Some(id)
+        id
     }
 
     pub fn add_viewer(&mut self, viewer: Session) -> Option<ResourceID> {
@@ -112,8 +115,10 @@ impl SessionRegistry {
         }
         .map(|_| {
             // Update username map
-            self.username_map
-                .insert(viewer.credentials.host_username.clone(), id.to_owned());
+            self.username_map.insert(
+                viewer.media_session.ice_credentials.host_username.clone(),
+                id.to_owned(),
+            );
 
             // Update sessions Hashmap
             self.sessions.insert(id.to_owned(), viewer);
@@ -127,33 +132,32 @@ pub struct Session {
     pub id: ResourceID,
     pub ttl: Instant,
     pub client: Option<Client>,
-    pub credentials: SessionCredentials,
+    pub media_session: NegotiatedSession,
     pub connection_type: ConnectionType,
 }
 
 impl Session {
-    pub fn new_streamer(credentials: SessionCredentials, sdp: SDP) -> Self {
+    pub fn new_streamer(media_session: NegotiatedSession) -> Self {
         let id = get_random_string(12);
 
         Session {
             id,
             ttl: Instant::now(),
             client: None,
-            credentials,
+            media_session,
             connection_type: ConnectionType::Streamer(Streamer {
                 viewers_ids: vec![],
-                sdp,
             }),
         }
     }
 
-    pub fn new_viewer(target_id: String, credentials: SessionCredentials) -> Self {
+    pub fn new_viewer(target_id: String, media_session: NegotiatedSession) -> Self {
         let id = get_random_string(12);
         Session {
             id,
             ttl: Instant::now(),
             client: None,
-            credentials,
+            media_session,
             connection_type: ConnectionType::Viewer(Viewer {
                 target_resource: target_id.to_owned(),
             }),
@@ -175,7 +179,6 @@ pub struct Viewer {
 #[derive(Debug, Clone)]
 pub struct Streamer {
     pub viewers_ids: Vec<ResourceID>,
-    pub sdp: SDP,
 }
 
 #[derive(Debug)]

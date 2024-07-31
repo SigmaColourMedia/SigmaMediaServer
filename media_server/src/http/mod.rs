@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
+use std::sync::mpsc::Sender;
 
 use crate::ice_registry::Session;
-use crate::sdp::SDP;
 
 pub mod parsers;
 pub mod response_builder;
@@ -68,9 +68,8 @@ impl Display for HttpError {
 
 #[derive(Debug)]
 pub enum ServerCommand {
-    AddStreamer(Session),
+    AddStreamer(String, Sender<Option<String>>),
     AddViewer(Session),
-    GetStreamSDP((std::sync::mpsc::Sender<Option<SDP>>, String)),
     GetRooms(std::sync::mpsc::Sender<Vec<String>>),
     HandlePacket(Vec<u8>, SocketAddr),
     CheckForTimeout,

@@ -2,12 +2,16 @@ use std::io::{ErrorKind, Write};
 use std::net::{SocketAddr, UdpSocket};
 use std::time::Instant;
 
+use sdp2::SDPResolver;
+
 use crate::client::{Client, ClientSslState};
+use crate::config::get_global_config;
 use crate::ice_registry::{ConnectionType, SessionRegistry};
 use crate::stun::{create_stun_success, get_stun_packet, ICEStunMessageType};
 
 pub struct UDPServer {
     pub session_registry: SessionRegistry,
+    pub sdp_resolver: SDPResolver,
     inbound_buffer: Vec<u8>,
     outbound_buffer: Vec<u8>,
     socket: UdpSocket,
@@ -15,7 +19,12 @@ pub struct UDPServer {
 
 impl UDPServer {
     pub fn new(socket: UdpSocket) -> Self {
+        let config = get_global_config();
         UDPServer {
+            sdp_resolver: SDPResolver::new(
+                format!("sha-256 {}", config.ssl_config.fingerprint).as_str(),
+                config.udp_server_config.address,
+            ),
             inbound_buffer: Vec::with_capacity(2000),
             outbound_buffer: Vec::with_capacity(2000),
             socket,
@@ -46,7 +55,7 @@ impl UDPServer {
 
                     let mut buffer: [u8; 200] = [0; 200];
                     let bytes_written = create_stun_success(
-                        &session.credentials,
+                        &session.media_session.ice_credentials,
                         &msg.username_attribute,
                         msg.transaction_id,
                         &remote,
@@ -86,7 +95,8 @@ impl UDPServer {
                         .session_registry
                         .get_session(&resource_id)
                         .unwrap()
-                        .credentials;
+                        .media_session
+                        .ice_credentials;
 
                     // Send OK response
                     let mut buffer: [u8; 200] = [0; 200];

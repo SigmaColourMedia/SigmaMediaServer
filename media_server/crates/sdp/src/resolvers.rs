@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::net::SocketAddr;
 
 use rand::{Rng, RngCore, thread_rng};
-use rand::distributions::Alphanumeric;
+use rand::distr::Alphanumeric;
 
 use crate::line_parsers::{
     Attribute, AudioCodec, Candidate, ConnectionData, Fingerprint, FMTP, ICEOption,
@@ -11,7 +11,7 @@ use crate::line_parsers::{
     SessionTime, Setup, VideoCodec,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SDP {
     session_section: Vec<SDPLine>,
     video_section: Vec<SDPLine>,
