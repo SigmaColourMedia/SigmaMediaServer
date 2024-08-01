@@ -46,7 +46,7 @@ impl HttpServer {
     }
 
     pub fn handle_stream(&self, mut stream: TcpStream) {
-        let mut buffer = [0u8; 3000];
+        let mut buffer = [0u8; 12000];
         stream
             .read(&mut buffer)
             .expect("Failed reading from buffer");
