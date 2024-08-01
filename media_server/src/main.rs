@@ -31,7 +31,7 @@ mod stun;
 pub static GLOBAL_CONFIG: OnceLock<Config> = OnceLock::new();
 
 fn main() {
-    let (tx, mut rx) = std::sync::mpsc::channel::<ServerCommand>();
+    let (tx, rx) = std::sync::mpsc::channel::<ServerCommand>();
     let socket = build_udp_socket();
     let mut server = UDPServer::new(socket.try_clone().unwrap());
 
@@ -67,8 +67,28 @@ fn main() {
                     .send(response)
                     .expect("Response channel should remain open")
             }
-            ServerCommand::AddViewer(session) => {
-                server.session_registry.add_viewer(session).unwrap();
+            ServerCommand::AddViewer(sdp_offer, target_id, response_tx) => {
+                let streamer_session = server
+                    .session_registry
+                    .get_session(&target_id)
+                    .map(|session| &session.media_session);
+
+                let viewer_media_session = streamer_session.and_then(|media_session| {
+                    server
+                        .sdp_resolver
+                        .accept_viewer_offer(&sdp_offer, media_session)
+                        .ok()
+                });
+                let response = viewer_media_session.and_then(|media_session| {
+                    let sdp_answer = String::from(media_session.sdp_answer.clone());
+                    let viewer_session = Session::new_viewer(target_id, media_session);
+                    server.session_registry.add_viewer(viewer_session);
+                    Some(sdp_answer)
+                });
+
+                response_tx
+                    .send(response)
+                    .expect("Response channel should remain open")
             }
             ServerCommand::GetRooms(sender) => {
                 let rooms = server.session_registry.get_rooms();

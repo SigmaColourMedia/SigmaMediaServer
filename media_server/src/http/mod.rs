@@ -3,8 +3,6 @@ use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
 
-use crate::ice_registry::Session;
-
 pub mod parsers;
 pub mod response_builder;
 pub mod routes;
@@ -55,7 +53,7 @@ pub enum HttpError {
 }
 
 impl Display for HttpError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             HttpError::NotFound => write!(f, "404 Not Found"),
             HttpError::InternalServerError => write!(f, "500 Internal Server Error"),
@@ -69,8 +67,8 @@ impl Display for HttpError {
 #[derive(Debug)]
 pub enum ServerCommand {
     AddStreamer(String, Sender<Option<String>>),
-    AddViewer(Session),
-    GetRooms(std::sync::mpsc::Sender<Vec<String>>),
+    AddViewer(String, String, Sender<Option<String>>),
+    GetRooms(Sender<Vec<String>>),
     HandlePacket(Vec<u8>, SocketAddr),
     CheckForTimeout,
 }

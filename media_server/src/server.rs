@@ -80,7 +80,7 @@ impl UDPServer {
                 {
                     let is_new_client = self
                         .session_registry
-                        .get_session(&resource_id)
+                        .get_session_mut(&resource_id)
                         .map(|session| session.client.is_none())
                         .unwrap();
 
@@ -93,7 +93,7 @@ impl UDPServer {
 
                     let credentials = &self
                         .session_registry
-                        .get_session(&resource_id)
+                        .get_session_mut(&resource_id)
                         .unwrap()
                         .media_session
                         .ice_credentials;
@@ -168,7 +168,7 @@ impl UDPServer {
 
         if let Some(viewer_ids) = viewers_to_notify {
             for id in viewer_ids {
-                let viewer_session = self.session_registry.get_session(&id);
+                let viewer_session = self.session_registry.get_session_mut(&id);
                 if let Some(client) = viewer_session.and_then(|session| session.client.as_mut()) {
                     if let ClientSslState::Established(ssl_stream) = &mut client.ssl_state {
                         self.outbound_buffer.clear();
