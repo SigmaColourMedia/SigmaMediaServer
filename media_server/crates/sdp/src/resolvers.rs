@@ -566,6 +566,24 @@ impl SDPResolver {
             return Err(SDPParseError::DemuxRequired);
         }
 
+        let is_passive_dtls_role = audio_media
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::Setup(setup) => match setup {
+                        Setup::Passive => Some(true),
+                        _ => Some(false),
+                    },
+                    _ => None,
+                },
+                _ => None,
+            })
+            .ok_or(SDPParseError::MalformedSDPLine)?;
+
+        if is_passive_dtls_role {
+            return Err(SDPParseError::InvalidDTLSRole);
+        }
+
         // Check if stream is recvonly
         let is_recvonly_direction = audio_media
             .iter()
@@ -640,6 +658,24 @@ impl SDPResolver {
 
         if !is_rtcp_demuxed {
             return Err(SDPParseError::DemuxRequired);
+        }
+
+        let is_passive_dtls_role = video_media
+            .iter()
+            .find_map(|item| match item {
+                SDPLine::Attribute(attr) => match attr {
+                    Attribute::Setup(setup) => match setup {
+                        Setup::Passive => Some(true),
+                        _ => Some(false),
+                    },
+                    _ => None,
+                },
+                _ => None,
+            })
+            .ok_or(SDPParseError::MalformedSDPLine)?;
+
+        if is_passive_dtls_role {
+            return Err(SDPParseError::InvalidDTLSRole);
         }
 
         // Check if stream is recvonly
@@ -748,25 +784,6 @@ impl SDPResolver {
             &streamer_session.video_session,
         )?;
 
-        let is_passive_dtls_role = viewer_sdp
-            .session_section
-            .iter()
-            .find_map(|item| match item {
-                SDPLine::Attribute(attr) => match attr {
-                    Attribute::Setup(setup) => match setup {
-                        Setup::Passive => Some(true),
-                        _ => Some(false),
-                    },
-                    _ => None,
-                },
-                _ => None,
-            })
-            .ok_or(SDPParseError::MalformedSDPLine)?;
-
-        if is_passive_dtls_role {
-            return Err(SDPParseError::InvalidDTLSRole);
-        }
-
         let session_section = vec![
             SDPLine::ProtocolVersion("0".to_string()),
             SDPLine::Originator(Originator {
@@ -871,6 +888,7 @@ impl SDPResolver {
     fn get_sdp(raw_data: &str) -> Result<SDP, SDPParseError> {
         let sdp_lines = raw_data
             .lines()
+            .filter(|line| !line.is_empty())
             .map(SDPLine::try_from)
             .collect::<Result<Vec<SDPLine>, SDPParseError>>()?;
 
@@ -1546,7 +1564,7 @@ mod tests {
             use std::collections::HashSet;
 
             use crate::line_parsers::{
-                Attribute, FMTP, MediaCodec, MediaSSRC, RTPMap, SDPLine, VideoCodec,
+                Attribute, FMTP, MediaCodec, MediaSSRC, RTPMap, SDPLine, Setup, VideoCodec,
             };
             use crate::resolvers::SDPResolver;
 
@@ -1557,6 +1575,7 @@ mod tests {
                 let expected_capabilities = HashSet::from(["profile-tests".to_string()]);
                 let video_media = vec![
                     SDPLine::Attribute(Attribute::SendOnly),
+                    SDPLine::Attribute(Attribute::Setup(Setup::ActivePassive)),
                     SDPLine::Attribute(Attribute::RTCPMux),
                     SDPLine::Attribute(Attribute::FMTP(FMTP {
                         payload_number: expected_payload_number,
@@ -1587,6 +1606,7 @@ mod tests {
                 let video_media = vec![
                     SDPLine::Attribute(Attribute::SendOnly),
                     SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::Setup(Setup::ActivePassive)),
                     SDPLine::Attribute(Attribute::FMTP(FMTP {
                         payload_number: expected_payload_number,
                         format_capability: expected_capabilities.clone(),
@@ -1608,6 +1628,7 @@ mod tests {
                 let video_media = vec![
                     SDPLine::Attribute(Attribute::SendOnly),
                     SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::Setup(Setup::ActivePassive)),
                     SDPLine::Attribute(Attribute::FMTP(FMTP {
                         payload_number: expected_payload_number,
                         format_capability: expected_capabilities.clone(),
@@ -1632,6 +1653,7 @@ mod tests {
                 let video_media = vec![
                     SDPLine::Attribute(Attribute::SendOnly),
                     SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::Setup(Setup::ActivePassive)),
                     SDPLine::Attribute(Attribute::RTPMap(RTPMap {
                         payload_number: expected_payload_number,
                         codec: MediaCodec::Video(VideoCodec::H264),
@@ -1653,6 +1675,7 @@ mod tests {
 
                 let video_media = vec![
                     SDPLine::Attribute(Attribute::SendOnly),
+                    SDPLine::Attribute(Attribute::Setup(Setup::ActivePassive)),
                     SDPLine::Attribute(Attribute::RTPMap(RTPMap {
                         payload_number: expected_payload_number,
                         codec: MediaCodec::Video(VideoCodec::H264),
@@ -1679,6 +1702,7 @@ mod tests {
                 let video_media = vec![
                     SDPLine::Attribute(Attribute::ReceiveOnly),
                     SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::Setup(Setup::ActivePassive)),
                     SDPLine::Attribute(Attribute::RTPMap(RTPMap {
                         payload_number: expected_payload_number,
                         codec: MediaCodec::Video(VideoCodec::H264),
@@ -1699,7 +1723,7 @@ mod tests {
 
         mod get_viewer_audio_session {
             use crate::line_parsers::{
-                Attribute, AudioCodec, MediaCodec, MediaSSRC, RTPMap, SDPLine,
+                Attribute, AudioCodec, MediaCodec, MediaSSRC, RTPMap, SDPLine, Setup,
             };
             use crate::resolvers::{AudioSession, SDPResolver};
 
@@ -1724,6 +1748,7 @@ mod tests {
                 let audio_media = vec![
                     SDPLine::Attribute(Attribute::ReceiveOnly),
                     SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::Setup(Setup::ActivePassive)),
                     SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                         ssrc: expected_ssrc,
                     })),
@@ -1819,6 +1844,7 @@ mod tests {
                     SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                         ssrc: expected_ssrc,
                     })),
+                    SDPLine::Attribute(Attribute::Setup(Setup::ActivePassive)),
                     SDPLine::Attribute(Attribute::RTPMap(RTPMap {
                         codec: MediaCodec::Audio(streamer_session.codec.clone()),
                         payload_number: expected_payload_number,
@@ -1834,7 +1860,7 @@ mod tests {
             use std::collections::HashSet;
 
             use crate::line_parsers::{
-                Attribute, FMTP, MediaCodec, MediaSSRC, RTPMap, SDPLine, VideoCodec,
+                Attribute, FMTP, MediaCodec, MediaSSRC, RTPMap, SDPLine, Setup, VideoCodec,
             };
             use crate::resolvers::{SDPResolver, VideoSession};
 
@@ -1867,6 +1893,7 @@ mod tests {
                         codec: MediaCodec::Video(streamer_session.codec.clone()),
                         payload_number: expected_payload_number,
                     })),
+                    SDPLine::Attribute(Attribute::Setup(Setup::ActivePassive)),
                     SDPLine::Attribute(Attribute::FMTP(FMTP {
                         payload_number: expected_payload_number,
                         format_capability: streamer_session.capabilities.clone(),
@@ -1896,10 +1923,12 @@ mod tests {
                     SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                         ssrc: expected_ssrc,
                     })),
+                    SDPLine::Attribute(Attribute::Setup(Setup::ActivePassive)),
                     SDPLine::Attribute(Attribute::RTPMap(RTPMap {
                         codec: MediaCodec::Unsupported,
                         payload_number: expected_payload_number,
                     })),
+                    SDPLine::Attribute(Attribute::Setup(Setup::ActivePassive)),
                     SDPLine::Attribute(Attribute::FMTP(FMTP {
                         payload_number: expected_payload_number,
                         format_capability: streamer_session.capabilities.clone(),
@@ -1927,6 +1956,7 @@ mod tests {
                         codec: MediaCodec::Video(streamer_session.codec.clone()),
                         payload_number: expected_payload_number,
                     })),
+                    SDPLine::Attribute(Attribute::Setup(Setup::ActivePassive)),
                     SDPLine::Attribute(Attribute::FMTP(FMTP {
                         payload_number: expected_payload_number,
                         format_capability: HashSet::from(["unsupported-fmtp".to_string()]),
@@ -1946,6 +1976,7 @@ mod tests {
                 let video_media = vec![
                     SDPLine::Attribute(Attribute::ReceiveOnly),
                     SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::Setup(Setup::ActivePassive)),
                     SDPLine::Attribute(Attribute::RTPMap(RTPMap {
                         codec: MediaCodec::Video(streamer_session.codec.clone()),
                         payload_number: expected_payload_number,
@@ -1970,6 +2001,7 @@ mod tests {
                 let video_media = vec![
                     SDPLine::Attribute(Attribute::SendOnly),
                     SDPLine::Attribute(Attribute::RTCPMux),
+                    SDPLine::Attribute(Attribute::Setup(Setup::ActivePassive)),
                     SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                         ssrc: expected_ssrc,
                     })),
@@ -1999,6 +2031,7 @@ mod tests {
                     SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                         ssrc: expected_ssrc,
                     })),
+                    SDPLine::Attribute(Attribute::Setup(Setup::ActivePassive)),
                     SDPLine::Attribute(Attribute::RTPMap(RTPMap {
                         codec: MediaCodec::Video(streamer_session.codec.clone()),
                         payload_number: expected_payload_number,
