@@ -30,12 +30,18 @@ mod streamer_offer {
         // AudioSession should match offer audio media
         assert_eq!(negotiated_session.audio_session.codec, AudioCodec::Opus);
         assert_eq!(negotiated_session.audio_session.payload_number, 111);
-        assert_eq!(negotiated_session.audio_session.remote_ssrc, 1349455989);
+        assert_eq!(
+            negotiated_session.audio_session.remote_ssrc,
+            Some(1349455989)
+        );
 
         // VideoSession should match offer video media
         assert_eq!(negotiated_session.video_session.codec, VideoCodec::H264);
         assert_eq!(negotiated_session.video_session.payload_number, 96);
-        assert_eq!(negotiated_session.video_session.remote_ssrc, 1349455990);
+        assert_eq!(
+            negotiated_session.video_session.remote_ssrc,
+            Some(1349455990)
+        );
         assert_eq!(
             negotiated_session.video_session.capabilities,
             HashSet::from([
@@ -237,9 +243,12 @@ mod streamer_offer {
     a=fmtp:96 profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1\r\n";
 
         let sdp_resolver = init_sdp_resolver();
-        sdp_resolver
+        let negotiated_session = sdp_resolver
             .accept_stream_offer(sdp_offer)
-            .expect_err("Should reject SDP");
+            .expect("Should resolve SDP");
+
+        assert_eq!(negotiated_session.video_session.remote_ssrc, None);
+        assert_eq!(negotiated_session.audio_session.remote_ssrc, None);
     }
 
     #[test]

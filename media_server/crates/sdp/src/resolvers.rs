@@ -37,7 +37,7 @@ pub struct VideoSession {
     pub codec: VideoCodec,
     pub payload_number: usize,
     pub host_ssrc: u32,
-    pub remote_ssrc: u32,
+    pub remote_ssrc: Option<u32>,
     pub capabilities: HashSet<String>,
 }
 
@@ -46,7 +46,7 @@ pub struct AudioSession {
     pub codec: AudioCodec,
     pub payload_number: usize,
     pub host_ssrc: u32,
-    pub remote_ssrc: u32,
+    pub remote_ssrc: Option<u32>,
 }
 
 pub struct SDPResolver {
@@ -224,16 +224,13 @@ impl SDPResolver {
             return Err(SDPParseError::InvalidStreamDirection);
         }
 
-        let remote_audio_ssrc = audio_media_section
-            .iter()
-            .find_map(|item| match item {
-                SDPLine::Attribute(attr) => match attr {
-                    Attribute::MediaSSRC(media_ssrc) => Some(media_ssrc.ssrc),
-                    _ => None,
-                },
+        let remote_audio_ssrc = audio_media_section.iter().find_map(|item| match item {
+            SDPLine::Attribute(attr) => match attr {
+                Attribute::MediaSSRC(media_ssrc) => Some(media_ssrc.ssrc),
                 _ => None,
-            })
-            .ok_or(SDPParseError::MissingStreamSSRC)?;
+            },
+            _ => None,
+        });
 
         let accepted_codec_payload_number = audio_media_section
             .iter()
@@ -298,16 +295,13 @@ impl SDPResolver {
         }
 
         // Check for stream ssrc
-        let remote_video_ssrc = video_media
-            .iter()
-            .find_map(|item| match item {
-                SDPLine::Attribute(attr) => match attr {
-                    Attribute::MediaSSRC(media_ssrc) => Some(media_ssrc.ssrc),
-                    _ => None,
-                },
+        let remote_video_ssrc = video_media.iter().find_map(|item| match item {
+            SDPLine::Attribute(attr) => match attr {
+                Attribute::MediaSSRC(media_ssrc) => Some(media_ssrc.ssrc),
                 _ => None,
-            })
-            .ok_or(SDPParseError::MissingStreamSSRC)?;
+            },
+            _ => None,
+        });
 
         // Check if supported codec is present
         // todo Pick highest available video capabilities
@@ -621,22 +615,19 @@ impl SDPResolver {
             })
             .ok_or(SDPParseError::UnsupportedMediaCodecs)?;
 
-        let remote_ssrc = audio_media
-            .iter()
-            .find_map(|item| match item {
-                SDPLine::Attribute(attr) => match attr {
-                    Attribute::MediaSSRC(media_ssrc) => Some(media_ssrc),
-                    _ => None,
-                },
+        let remote_ssrc = audio_media.iter().find_map(|item| match item {
+            SDPLine::Attribute(attr) => match attr {
+                Attribute::MediaSSRC(media_ssrc) => Some(media_ssrc.ssrc),
                 _ => None,
-            })
-            .ok_or(SDPParseError::MissingStreamSSRC)?;
+            },
+            _ => None,
+        });
 
         Ok(AudioSession {
             codec: legal_audio_codec.clone(),
             payload_number: resolved_payload_number,
             host_ssrc: get_random_ssrc(),
-            remote_ssrc: remote_ssrc.ssrc,
+            remote_ssrc: remote_ssrc,
         })
     }
 
@@ -747,21 +738,18 @@ impl SDPResolver {
             })
             .ok_or(SDPParseError::UnsupportedMediaCodecs)?;
 
-        let remote_ssrc = video_media
-            .iter()
-            .find_map(|item| match item {
-                SDPLine::Attribute(attr) => match attr {
-                    Attribute::MediaSSRC(media_ssrc) => Some(media_ssrc),
-                    _ => None,
-                },
+        let remote_ssrc = video_media.iter().find_map(|item| match item {
+            SDPLine::Attribute(attr) => match attr {
+                Attribute::MediaSSRC(media_ssrc) => Some(media_ssrc.ssrc),
                 _ => None,
-            })
-            .ok_or(SDPParseError::MissingStreamSSRC)?;
+            },
+            _ => None,
+        });
 
         Ok(VideoSession {
             capabilities: legal_video_fmtp.clone(),
             host_ssrc: get_random_ssrc(),
-            remote_ssrc: remote_ssrc.ssrc,
+            remote_ssrc: remote_ssrc,
             payload_number: resolved_payload_number,
             codec: legal_video_codec.clone(),
         })
@@ -1469,11 +1457,11 @@ mod tests {
 
                 assert_eq!(audio_session.codec, AudioCodec::Opus);
                 assert_eq!(audio_session.payload_number, expected_payload_number);
-                assert_eq!(audio_session.remote_ssrc, expected_ssrc);
+                assert_eq!(audio_session.remote_ssrc, Some(expected_ssrc));
             }
 
             #[test]
-            fn reject_media_with_missing_ssrc() {
+            fn resolves_media_with_missing_ssrc() {
                 let expected_payload_number: usize = 96;
                 let audio_media = vec![
                     SDPLine::Attribute(Attribute::SendOnly),
@@ -1488,8 +1476,10 @@ mod tests {
                     })),
                 ];
 
-                SDPResolver::get_streamer_audio_session(&audio_media)
-                    .expect_err("Should reject audio media");
+                let audio_session = SDPResolver::get_streamer_audio_session(&audio_media)
+                    .expect("Should resolve audio media");
+
+                assert_eq!(audio_session.remote_ssrc, None)
             }
 
             #[test]
@@ -1595,12 +1585,12 @@ mod tests {
 
                 assert_eq!(video_session.codec, VideoCodec::H264);
                 assert_eq!(video_session.payload_number, expected_payload_number);
-                assert_eq!(video_session.remote_ssrc, expected_ssrc);
+                assert_eq!(video_session.remote_ssrc, Some(expected_ssrc));
                 assert_eq!(video_session.capabilities, expected_capabilities);
             }
 
             #[test]
-            fn rejects_media_with_missing_ssrc() {
+            fn resolves_media_with_missing_ssrc() {
                 let expected_payload_number: usize = 96;
                 let expected_capabilities = HashSet::from(["profile-tests".to_string()]);
                 let video_media = vec![
@@ -1617,8 +1607,9 @@ mod tests {
                     })),
                 ];
 
-                SDPResolver::get_streamer_video_session(&video_media)
-                    .expect_err("Should reject media");
+                let video_session = SDPResolver::get_streamer_video_session(&video_media)
+                    .expect("Should resolve media");
+                assert_eq!(video_session.remote_ssrc, None)
             }
             #[test]
             fn rejects_media_with_unsupported_codec() {
@@ -1730,7 +1721,7 @@ mod tests {
             fn init_streamer_session() -> AudioSession {
                 let audio_session = AudioSession {
                     codec: AudioCodec::Opus,
-                    remote_ssrc: 2,
+                    remote_ssrc: Some(2),
                     host_ssrc: 1,
                     payload_number: 111,
                 };
@@ -1764,7 +1755,7 @@ mod tests {
 
                 assert_eq!(audio_session.codec, streamer_session.codec);
                 assert_eq!(audio_session.payload_number, expected_payload_number);
-                assert_eq!(audio_session.remote_ssrc, expected_ssrc)
+                assert_eq!(audio_session.remote_ssrc, Some(expected_ssrc))
             }
 
             #[test]
@@ -1868,7 +1859,7 @@ mod tests {
                 let video_session = VideoSession {
                     codec: VideoCodec::H264,
                     capabilities: HashSet::from(["profile-tests".to_string()]),
-                    remote_ssrc: 2,
+                    remote_ssrc: Some(2),
                     host_ssrc: 1,
                     payload_number: 111,
                 };
@@ -1906,7 +1897,7 @@ mod tests {
 
                 assert_eq!(video_session.codec, streamer_session.codec);
                 assert_eq!(video_session.payload_number, expected_payload_number);
-                assert_eq!(video_session.remote_ssrc, expected_ssrc);
+                assert_eq!(video_session.remote_ssrc, Some(expected_ssrc));
                 assert_eq!(video_session.capabilities, streamer_session.capabilities)
             }
 
@@ -1968,7 +1959,7 @@ mod tests {
             }
 
             #[test]
-            fn rejects_media_with_missing_ssrc() {
+            fn resolves_media_with_missing_ssrc() {
                 let streamer_session = init_streamer_session();
 
                 let expected_payload_number = 96;
@@ -1987,8 +1978,11 @@ mod tests {
                     })),
                 ];
 
-                SDPResolver::get_viewer_video_session(&video_media, &streamer_session)
-                    .expect_err("Should reject media");
+                let video_session =
+                    SDPResolver::get_viewer_video_session(&video_media, &streamer_session)
+                        .expect("Should resolve media");
+
+                assert_eq!(video_session.remote_ssrc, None)
             }
 
             #[test]

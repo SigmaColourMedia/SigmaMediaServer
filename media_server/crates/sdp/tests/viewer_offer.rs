@@ -139,7 +139,7 @@ mod viewer_offer {
         );
         assert_eq!(
             viewer_session.audio_session.remote_ssrc,
-            expected_audio_ssrc
+            Some(expected_audio_ssrc)
         );
         assert_eq!(
             viewer_session.audio_session.payload_number,
@@ -157,7 +157,7 @@ mod viewer_offer {
         );
         assert_eq!(
             viewer_session.video_session.remote_ssrc,
-            expected_video_ssrc
+            Some(expected_video_ssrc)
         );
         assert_eq!(
             viewer_session.video_session.payload_number,
@@ -698,9 +698,12 @@ mod viewer_offer {
 
         let (sdp_resolver, streamer_session) = init_tests();
 
-        sdp_resolver
+        let negotiated_session = sdp_resolver
             .accept_viewer_offer(&offer, &streamer_session)
-            .expect_err("Should reject offer");
+            .expect("Should resolve offer");
+
+        assert_eq!(negotiated_session.audio_session.remote_ssrc, None);
+        assert_eq!(negotiated_session.video_session.remote_ssrc, None)
     }
 
     #[test]
