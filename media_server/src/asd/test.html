@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<script>
+
+    async function get_rooms() {
+        const res = await fetch("http://localhost:8080/rooms").then(res => res.json());
+
+        return res.rooms[0]
+    }
+
+    async function get_sdp() {
+        const conn = new RTCPeerConnection();
+        conn.addTransceiver("audio", {direction: "recvonly"})
+        conn.addTransceiver("video", {direction: "recvonly"})
+        const offer = await conn.createOffer()
+        await conn.setLocalDescription(offer)
+        console.log(offer.sdp)
+        return [offer.sdp, conn]
+    }
+
+    async function test() {
+        const room_id = await get_rooms();
+        const [sdp, conn] = await get_sdp();
+
+        const res = await fetch(`http://localhost:8080/whep?target_id=${room_id}`, {
+            method: "POST",
+            body: sdp,
+            mode: "cors"
+        }).then(res => res.text());
+        await conn.setRemoteDescription({sdp: res, type: "answer"});
+
+
+        console.log(res)
+    }
+
+    test()
+</script>
+</body>
+</html>
