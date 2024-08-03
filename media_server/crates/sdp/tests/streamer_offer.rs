@@ -56,8 +56,8 @@ mod streamer_offer {
         // The SDP answer structure & order should remain deterministic
         let expected_answer = format!(
             "v=0\r\n\
-    o=smid 3767197920 0 IN IP4 127.0.0.1\r\n\
-    s=smid\r\n\
+    o=SMID 3767197920 0 IN IP4 127.0.0.1\r\n\
+    s=SMID\r\n\
     t=0 0\r\n\
     a=group:BUNDLE 0 1\r\n\
     a=ice-ufrag:{ice_username}\r\n\
@@ -74,14 +74,14 @@ mod streamer_offer {
     a=candidate:1 1 UDP 2015363327 127.0.0.1 52000 typ host\r\n\
     a=end-of-candidates\r\n\
     a=rtpmap:111 opus/48000/2\r\n\
-    a=ssrc:{audio_ssrc} cname:smid\r\n\
+    a=ssrc:{audio_ssrc} cname:SMID\r\n\
     m=video 52000 UDP/TLS/RTP/SAVPF 96\r\n\
     c=IN IP4 127.0.0.1\r\n\
     a=recvonly\r\n\
     a=rtcp-mux\r\n\
     a=mid:1\r\n\
     a=rtpmap:96 h264/90000\r\n\
-    a=ssrc:{video_ssrc} cname:smid\r\n\
+    a=ssrc:{video_ssrc} cname:SMID\r\n\
     a=fmtp:96 {video_fmtp}\r\n",
             ice_username = negotiated_session.ice_credentials.host_username,
             ice_password = negotiated_session.ice_credentials.host_password,

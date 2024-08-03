@@ -167,8 +167,8 @@ mod viewer_offer {
         // The SDP answer structure & order should remain deterministic
         let expected_answer = format!(
             "v=0\r\n\
-    o=smid 3767197920 0 IN IP4 127.0.0.1\r\n\
-    s=smid\r\n\
+    o=SMID 3767197920 0 IN IP4 127.0.0.1\r\n\
+    s=SMID\r\n\
     t=0 0\r\n\
     a=group:BUNDLE 0 1\r\n\
     a=ice-ufrag:{ice_username}\r\n\
@@ -185,14 +185,14 @@ mod viewer_offer {
     a=candidate:1 1 UDP 2015363327 127.0.0.1 52000 typ host\r\n\
     a=end-of-candidates\r\n\
     a=rtpmap:{audio_codec_number} opus/48000/2\r\n\
-    a=ssrc:{audio_ssrc} cname:smid\r\n\
+    a=ssrc:{audio_ssrc} cname:SMID\r\n\
     m=video 52000 UDP/TLS/RTP/SAVPF {video_codec_number}\r\n\
     c=IN IP4 127.0.0.1\r\n\
     a=sendonly\r\n\
     a=rtcp-mux\r\n\
     a=mid:1\r\n\
     a=rtpmap:{video_codec_number} h264/90000\r\n\
-    a=ssrc:{video_ssrc} cname:smid\r\n\
+    a=ssrc:{video_ssrc} cname:SMID\r\n\
     a=fmtp:{video_codec_number} {video_fmtp}\r\n",
             ice_username = viewer_session.ice_credentials.host_username,
             ice_password = viewer_session.ice_credentials.host_password,
