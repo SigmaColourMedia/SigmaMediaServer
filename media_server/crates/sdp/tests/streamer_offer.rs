@@ -74,14 +74,14 @@ mod streamer_offer {
     a=candidate:1 1 UDP 2015363327 127.0.0.1 52000 typ host\r\n\
     a=end-of-candidates\r\n\
     a=rtpmap:111 opus/48000/2\r\n\
-    a=ssrc:{audio_ssrc}\r\n\
+    a=ssrc:{audio_ssrc} cname:smid\r\n\
     m=video 52000 UDP/TLS/RTP/SAVPF 96\r\n\
     c=IN IP4 127.0.0.1\r\n\
     a=recvonly\r\n\
     a=rtcp-mux\r\n\
     a=mid:1\r\n\
     a=rtpmap:96 h264/90000\r\n\
-    a=ssrc:{video_ssrc}\r\n\
+    a=ssrc:{video_ssrc} cname:smid\r\n\
     a=fmtp:96 {video_fmtp}\r\n",
             ice_username = negotiated_session.ice_credentials.host_username,
             ice_password = negotiated_session.ice_credentials.host_password,
@@ -157,7 +157,7 @@ mod streamer_offer {
     a=candidate:1 1 UDP 2015363327 127.0.0.1 52000 typ host\r\n\
     a=end-of-candidates\r\n\
     a=rtpmap:111 opus/48000/2\r\n\
-    a=ssrc:2\r\n\
+    a=ssrc:2 cname:my-cname\r\n\
     m=video 52000 UDP/TLS/RTP/SAVPF 96 97\r\n\
     c=IN IP4 127.0.0.1\r\n\
     a=sendonly\r\n\
@@ -165,7 +165,7 @@ mod streamer_offer {
     a=mid:1\r\n\
     a=rtpmap:96 h264/90000\r\n\
     a=rtpmap:97 v9/90000\r\n\
-    a=ssrc:1\r\n\
+    a=ssrc:1 cname:my-cname\r\n\
     a=fmtp:96 profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1\r\n";
 
         let sdp_resolver = init_sdp_resolver();

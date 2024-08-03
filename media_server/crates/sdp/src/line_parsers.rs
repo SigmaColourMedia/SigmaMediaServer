@@ -2,6 +2,8 @@ use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 
+use crate::SDPParseError::MalformedAttribute;
+
 #[derive(Debug)]
 pub enum SDPParseError {
     SequenceError,
@@ -140,6 +142,13 @@ pub enum AudioCodec {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct MediaSSRC {
     pub(crate) ssrc: u32,
+    pub(crate) source_attribute: SourceAttribute,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum SourceAttribute {
+    CNAME(String),
+    Unsupported,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -421,7 +430,22 @@ impl From<AudioCodec> for String {
 
 impl From<MediaSSRC> for String {
     fn from(value: MediaSSRC) -> Self {
-        format!("ssrc:{}", value.ssrc)
+        format!(
+            "ssrc:{} {}",
+            value.ssrc,
+            String::from(value.source_attribute)
+        )
+    }
+}
+
+impl From<SourceAttribute> for String {
+    fn from(value: SourceAttribute) -> Self {
+        match value {
+            SourceAttribute::CNAME(cname) => format!("cname:{}", cname),
+            SourceAttribute::Unsupported => {
+                panic!("Cannot cast unsupported SourceAttribute to String")
+            }
+        }
     }
 }
 
@@ -807,16 +831,38 @@ impl TryFrom<&str> for MediaSSRC {
         let (_, value) = value
             .split_once("ssrc:")
             .ok_or(Self::Error::MalformedAttribute)?;
-        let ssrc = value
-            .split(" ")
+
+        let mut split = value.split(" ");
+
+        let ssrc = split
             .next()
-            .ok_or(SDPParseError::MalformedSDPLine)?;
+            .ok_or(SDPParseError::MalformedAttribute)?
+            .parse::<u32>()
+            .map_err(|_| Self::Error::MalformedAttribute)?;
+        let attribute = split.next().ok_or(SDPParseError::MalformedAttribute)?;
 
         Ok(MediaSSRC {
-            ssrc: ssrc
-                .parse::<u32>()
-                .map_err(|_| Self::Error::MalformedAttribute)?,
+            ssrc,
+            source_attribute: SourceAttribute::try_from(attribute)?,
         })
+    }
+}
+
+impl TryFrom<&str> for SourceAttribute {
+    type Error = SDPParseError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let mut split = value.split(":");
+
+        let key = split.next().ok_or(Self::Error::MalformedAttribute)?;
+
+        match key {
+            "cname" => {
+                let cname_value = split.next().ok_or(MalformedAttribute)?.to_string();
+                Ok(Self::CNAME(cname_value))
+            }
+            _ => Ok(Self::Unsupported),
+        }
     }
 }
 

@@ -58,7 +58,7 @@ mod viewer_offer {
         a=rtpmap:8 PCMA/8000\r\n\
         a=rtpmap:101 telephone-event/8000/1\r\n\
         a=setup:actpass\r\n\
-        a=ssrc:{audio_ssrc}\r\n\
+        a=ssrc:{audio_ssrc} cname:my-cname\r\n\
         m=video 9 UDP/TLS/RTP/SAVPF {video_codec_number} 127 120 124 121 125 123 122 119\r\n\
         c=IN IP4 0.0.0.0\r\n\
         a=recvonly\r\n\
@@ -114,7 +114,7 @@ mod viewer_offer {
         a=rtpmap:122 red/90000\r\n\
         a=rtpmap:119 rtx/90000\r\n\
         a=setup:actpass\r\n\
-        a=ssrc:{video_ssrc}\r\n", ice_username = expected_username, ice_password = expected_password, audio_ssrc = expected_audio_ssrc, video_ssrc = expected_video_ssrc, audio_codec_number = expected_audio_codec_payload_number, video_codec_number = expected_video_codec_payload_number);
+        a=ssrc:{video_ssrc} cname:my-cname\r\n", ice_username = expected_username, ice_password = expected_password, audio_ssrc = expected_audio_ssrc, video_ssrc = expected_video_ssrc, audio_codec_number = expected_audio_codec_payload_number, video_codec_number = expected_video_codec_payload_number);
 
         let (sdp_resolver, streamer_session) = init_tests();
 
@@ -185,14 +185,14 @@ mod viewer_offer {
     a=candidate:1 1 UDP 2015363327 127.0.0.1 52000 typ host\r\n\
     a=end-of-candidates\r\n\
     a=rtpmap:{audio_codec_number} opus/48000/2\r\n\
-    a=ssrc:{audio_ssrc}\r\n\
+    a=ssrc:{audio_ssrc} cname:smid\r\n\
     m=video 52000 UDP/TLS/RTP/SAVPF {video_codec_number}\r\n\
     c=IN IP4 127.0.0.1\r\n\
     a=sendonly\r\n\
     a=rtcp-mux\r\n\
     a=mid:1\r\n\
     a=rtpmap:{video_codec_number} h264/90000\r\n\
-    a=ssrc:{video_ssrc}\r\n\
+    a=ssrc:{video_ssrc} cname:smid\r\n\
     a=fmtp:{video_codec_number} {video_fmtp}\r\n",
             ice_username = viewer_session.ice_credentials.host_username,
             ice_password = viewer_session.ice_credentials.host_password,

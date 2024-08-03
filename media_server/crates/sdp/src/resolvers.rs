@@ -8,7 +8,7 @@ use crate::line_parsers::{
     Attribute, AudioCodec, Candidate, ConnectionData, Fingerprint, FMTP, ICEOption,
     ICEOptions, ICEPassword, ICEUsername, MediaCodec, MediaDescription, MediaGroup, MediaID,
     MediaSSRC, MediaTransportProtocol, MediaType, Originator, RTPMap, SDPLine, SDPParseError,
-    SessionTime, Setup, VideoCodec,
+    SessionTime, Setup, SourceAttribute, VideoCodec,
 };
 
 #[derive(Debug, Clone)]
@@ -497,6 +497,7 @@ impl SDPResolver {
             })),
             SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                 ssrc: audio_session.host_ssrc,
+                source_attribute: SourceAttribute::CNAME("smid".to_string()),
             })),
         ];
 
@@ -519,6 +520,7 @@ impl SDPResolver {
             })),
             SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                 ssrc: video_session.host_ssrc,
+                source_attribute: SourceAttribute::CNAME("smid".to_string()),
             })),
             SDPLine::Attribute(Attribute::FMTP(FMTP {
                 payload_number: video_session.payload_number,
@@ -824,6 +826,7 @@ impl SDPResolver {
             })),
             SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                 ssrc: audio_session.host_ssrc,
+                source_attribute: SourceAttribute::CNAME("smid".to_string()),
             })),
         ];
 
@@ -846,6 +849,7 @@ impl SDPResolver {
             })),
             SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                 ssrc: video_session.host_ssrc,
+                source_attribute: SourceAttribute::CNAME("smid".to_string()),
             })),
             SDPLine::Attribute(Attribute::FMTP(FMTP {
                 payload_number: video_session.payload_number,
@@ -995,7 +999,7 @@ mod tests {
                 Attribute, AudioCodec, Candidate, ConnectionData, Fingerprint, FMTP,
                 HashFunction, ICEOption, ICEOptions, ICEPassword, ICEUsername, MediaCodec,
                 MediaDescription, MediaGroup, MediaID, MediaSSRC, MediaTransportProtocol, MediaType,
-                Originator, RTPMap, SDPLine, SessionTime, Setup, VideoCodec,
+                Originator, RTPMap, SDPLine, SessionTime, Setup, SourceAttribute, VideoCodec,
             };
             use crate::resolvers::SDPResolver;
 
@@ -1057,8 +1061,14 @@ mod tests {
                         id: "0".to_string(),
                     })),
                     SDPLine::Attribute(Attribute::SendOnly),
-                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC { ssrc: 1349455989 })),
-                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC { ssrc: 1349455989 })),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: 1349455989,
+                        source_attribute: SourceAttribute::CNAME("0X2NGAsK9XcmnsuZ".to_string()),
+                    })),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: 1349455989,
+                        source_attribute: SourceAttribute::Unsupported,
+                    })),
                     SDPLine::Attribute(Attribute::Unrecognized),
                     SDPLine::Attribute(Attribute::RTCPMux),
                     SDPLine::Attribute(Attribute::RTPMap(RTPMap {
@@ -1109,8 +1119,14 @@ mod tests {
                         id: "1".to_string(),
                     })),
                     SDPLine::Attribute(Attribute::SendOnly),
-                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC { ssrc: 1349455990 })),
-                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC { ssrc: 1349455990 })),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: 1349455990,
+                        source_attribute: SourceAttribute::CNAME("0X2NGAsK9XcmnsuZ".to_string()),
+                    })),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: 1349455990,
+                        source_attribute: SourceAttribute::Unsupported,
+                    })),
                     SDPLine::Attribute(Attribute::Unrecognized),
                     SDPLine::Attribute(Attribute::RTCPMux),
                     SDPLine::Attribute(Attribute::RTPMap(RTPMap {
@@ -1430,6 +1446,7 @@ mod tests {
 
             use crate::line_parsers::{
                 Attribute, AudioCodec, FMTP, MediaCodec, MediaSSRC, RTPMap, SDPLine,
+                SourceAttribute,
             };
             use crate::resolvers::SDPResolver;
 
@@ -1450,6 +1467,7 @@ mod tests {
                     })),
                     SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                         ssrc: expected_ssrc,
+                        source_attribute: SourceAttribute::CNAME("smid".to_string()),
                     })),
                 ];
                 let audio_session = SDPResolver::get_streamer_audio_session(&audio_media)
@@ -1492,7 +1510,10 @@ mod tests {
                         payload_number: expected_payload_number,
                         format_capability: HashSet::new(),
                     })),
-                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC { ssrc: 1 })),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: 1,
+                        source_attribute: SourceAttribute::CNAME("smid".to_string()),
+                    })),
                 ];
 
                 SDPResolver::get_streamer_audio_session(&audio_media)
@@ -1509,7 +1530,10 @@ mod tests {
                         payload_number: expected_payload_number,
                         codec: MediaCodec::Audio(AudioCodec::Opus),
                     })),
-                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC { ssrc: 1 })),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: 1,
+                        source_attribute: SourceAttribute::CNAME("smid".to_string()),
+                    })),
                 ];
 
                 SDPResolver::get_streamer_audio_session(&audio_media)
@@ -1525,7 +1549,10 @@ mod tests {
                         payload_number: expected_payload_number,
                         codec: MediaCodec::Audio(AudioCodec::Opus),
                     })),
-                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC { ssrc: 1 })),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: 1,
+                        source_attribute: SourceAttribute::CNAME("smid".to_string()),
+                    })),
                 ];
 
                 SDPResolver::get_streamer_audio_session(&audio_media)
@@ -1542,7 +1569,10 @@ mod tests {
                         payload_number: expected_payload_number,
                         codec: MediaCodec::Unsupported,
                     })),
-                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC { ssrc: 1 })),
+                    SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
+                        ssrc: 1,
+                        source_attribute: SourceAttribute::CNAME("smid".to_string()),
+                    })),
                 ];
 
                 SDPResolver::get_streamer_audio_session(&audio_media)
@@ -1554,7 +1584,8 @@ mod tests {
             use std::collections::HashSet;
 
             use crate::line_parsers::{
-                Attribute, FMTP, MediaCodec, MediaSSRC, RTPMap, SDPLine, Setup, VideoCodec,
+                Attribute, FMTP, MediaCodec, MediaSSRC, RTPMap, SDPLine, Setup,
+                SourceAttribute, VideoCodec,
             };
             use crate::resolvers::SDPResolver;
 
@@ -1577,6 +1608,7 @@ mod tests {
                     })),
                     SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                         ssrc: expected_ssrc,
+                        source_attribute: SourceAttribute::CNAME("smid".to_string()),
                     })),
                 ];
 
@@ -1630,6 +1662,7 @@ mod tests {
                     })),
                     SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                         ssrc: expected_ssrc,
+                        source_attribute: SourceAttribute::CNAME("smid".to_string()),
                     })),
                 ];
 
@@ -1651,6 +1684,7 @@ mod tests {
                     })),
                     SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                         ssrc: expected_ssrc,
+                        source_attribute: SourceAttribute::CNAME("smid".to_string()),
                     })),
                 ];
 
@@ -1673,6 +1707,7 @@ mod tests {
                     })),
                     SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                         ssrc: expected_ssrc,
+                        source_attribute: SourceAttribute::CNAME("smid".to_string()),
                     })),
                     SDPLine::Attribute(Attribute::FMTP(FMTP {
                         payload_number: expected_payload_number,
@@ -1700,6 +1735,7 @@ mod tests {
                     })),
                     SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                         ssrc: expected_ssrc,
+                        source_attribute: SourceAttribute::CNAME("smid".to_string()),
                     })),
                     SDPLine::Attribute(Attribute::FMTP(FMTP {
                         payload_number: expected_payload_number,
@@ -1715,6 +1751,7 @@ mod tests {
         mod get_viewer_audio_session {
             use crate::line_parsers::{
                 Attribute, AudioCodec, MediaCodec, MediaSSRC, RTPMap, SDPLine, Setup,
+                SourceAttribute,
             };
             use crate::resolvers::{AudioSession, SDPResolver};
 
@@ -1742,6 +1779,7 @@ mod tests {
                     SDPLine::Attribute(Attribute::Setup(Setup::ActivePassive)),
                     SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                         ssrc: expected_ssrc,
+                        source_attribute: SourceAttribute::CNAME("smid".to_string()),
                     })),
                     SDPLine::Attribute(Attribute::RTPMap(RTPMap {
                         codec: MediaCodec::Audio(streamer_session.codec.clone()),
@@ -1770,6 +1808,7 @@ mod tests {
                     SDPLine::Attribute(Attribute::RTCPMux),
                     SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                         ssrc: expected_ssrc,
+                        source_attribute: SourceAttribute::CNAME("smid".to_string()),
                     })),
                     SDPLine::Attribute(Attribute::RTPMap(RTPMap {
                         codec: MediaCodec::Unsupported,
@@ -1812,6 +1851,7 @@ mod tests {
                     SDPLine::Attribute(Attribute::RTCPMux),
                     SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                         ssrc: expected_ssrc,
+                        source_attribute: SourceAttribute::CNAME("smid".to_string()),
                     })),
                     SDPLine::Attribute(Attribute::RTPMap(RTPMap {
                         codec: MediaCodec::Audio(streamer_session.codec.clone()),
@@ -1834,6 +1874,7 @@ mod tests {
                     SDPLine::Attribute(Attribute::ReceiveOnly),
                     SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                         ssrc: expected_ssrc,
+                        source_attribute: SourceAttribute::CNAME("smid".to_string()),
                     })),
                     SDPLine::Attribute(Attribute::Setup(Setup::ActivePassive)),
                     SDPLine::Attribute(Attribute::RTPMap(RTPMap {
@@ -1851,7 +1892,8 @@ mod tests {
             use std::collections::HashSet;
 
             use crate::line_parsers::{
-                Attribute, FMTP, MediaCodec, MediaSSRC, RTPMap, SDPLine, Setup, VideoCodec,
+                Attribute, FMTP, MediaCodec, MediaSSRC, RTPMap, SDPLine, Setup,
+                SourceAttribute, VideoCodec,
             };
             use crate::resolvers::{SDPResolver, VideoSession};
 
@@ -1879,6 +1921,7 @@ mod tests {
                     SDPLine::Attribute(Attribute::RTCPMux),
                     SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                         ssrc: expected_ssrc,
+                        source_attribute: SourceAttribute::CNAME("smid".to_string()),
                     })),
                     SDPLine::Attribute(Attribute::RTPMap(RTPMap {
                         codec: MediaCodec::Video(streamer_session.codec.clone()),
@@ -1913,6 +1956,7 @@ mod tests {
                     SDPLine::Attribute(Attribute::RTCPMux),
                     SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                         ssrc: expected_ssrc,
+                        source_attribute: SourceAttribute::CNAME("smid".to_string()),
                     })),
                     SDPLine::Attribute(Attribute::Setup(Setup::ActivePassive)),
                     SDPLine::Attribute(Attribute::RTPMap(RTPMap {
@@ -1942,6 +1986,7 @@ mod tests {
                     SDPLine::Attribute(Attribute::RTCPMux),
                     SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                         ssrc: expected_ssrc,
+                        source_attribute: SourceAttribute::CNAME("smid".to_string()),
                     })),
                     SDPLine::Attribute(Attribute::RTPMap(RTPMap {
                         codec: MediaCodec::Video(streamer_session.codec.clone()),
@@ -1998,6 +2043,7 @@ mod tests {
                     SDPLine::Attribute(Attribute::Setup(Setup::ActivePassive)),
                     SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                         ssrc: expected_ssrc,
+                        source_attribute: SourceAttribute::CNAME("smid".to_string()),
                     })),
                     SDPLine::Attribute(Attribute::RTPMap(RTPMap {
                         codec: MediaCodec::Video(streamer_session.codec.clone()),
@@ -2024,6 +2070,7 @@ mod tests {
                     SDPLine::Attribute(Attribute::ReceiveOnly),
                     SDPLine::Attribute(Attribute::MediaSSRC(MediaSSRC {
                         ssrc: expected_ssrc,
+                        source_attribute: SourceAttribute::CNAME("smid".to_string()),
                     })),
                     SDPLine::Attribute(Attribute::Setup(Setup::ActivePassive)),
                     SDPLine::Attribute(Attribute::RTPMap(RTPMap {
