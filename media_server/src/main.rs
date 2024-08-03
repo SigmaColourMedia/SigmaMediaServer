@@ -14,7 +14,6 @@ use crate::http::routes::whep::whep_route;
 use crate::http::routes::whip::whip_route;
 use crate::http::server_builder::ServerBuilder;
 use crate::http::ServerCommand;
-use crate::ice_registry::Session;
 use crate::server::UDPServer;
 
 mod acceptor;
@@ -55,13 +54,11 @@ fn main() {
             ServerCommand::AddStreamer(sdp_offer, response_tx) => {
                 let negotiated_session = server.sdp_resolver.accept_stream_offer(&sdp_offer).ok();
 
-                let response = negotiated_session
-                    .map(Session::new_streamer)
-                    .map(|session| {
-                        let sdp_answer = String::from(session.media_session.sdp_answer.clone());
-                        server.session_registry.add_streamer(session);
-                        sdp_answer
-                    });
+                let response = negotiated_session.map(|session| {
+                    let sdp_answer = String::from(session.sdp_answer.clone());
+                    server.session_registry.add_streamer(session);
+                    sdp_answer
+                });
 
                 response_tx
                     .send(response)
@@ -70,8 +67,15 @@ fn main() {
             ServerCommand::AddViewer(sdp_offer, target_id, response_tx) => {
                 let streamer_session = server
                     .session_registry
-                    .get_session(&target_id)
-                    .map(|session| &session.media_session);
+                    .get_room(target_id)
+                    .map(|room| room.owner_id)
+                    .map(|owner_id| {
+                        server
+                            .session_registry
+                            .get_session(owner_id)
+                            .map(|session| &session.media_session)
+                    })
+                    .flatten();
 
                 let viewer_media_session = streamer_session.and_then(|media_session| {
                     server
@@ -81,8 +85,7 @@ fn main() {
                 });
                 let response = viewer_media_session.and_then(|media_session| {
                     let sdp_answer = String::from(media_session.sdp_answer.clone());
-                    let viewer_session = Session::new_viewer(target_id, media_session);
-                    server.session_registry.add_viewer(viewer_session);
+                    server.session_registry.add_viewer(media_session, target_id);
                     Some(sdp_answer)
                 });
 
@@ -104,7 +107,7 @@ fn main() {
 
                 for (id, ttl) in sessions {
                     if ttl.elapsed() > Duration::from_secs(5) {
-                        server.session_registry.remove_session(&id);
+                        server.session_registry.remove_session(id);
                     }
                 }
             }

@@ -5,16 +5,31 @@ use std::time::Instant;
 use sdp2::NegotiatedSession;
 
 use crate::client::Client;
-use crate::rnd::get_random_string;
+use crate::rnd::get_random_id;
 
-type ResourceID = String;
+type RoomID = u32;
+type ResourceID = u32;
 type HostUsername = String;
 
 pub struct SessionRegistry {
     sessions: HashMap<ResourceID, Session>,
     username_map: HashMap<HostUsername, ResourceID>,
     address_map: HashMap<SocketAddr, ResourceID>,
-    rooms: HashSet<ResourceID>,
+    rooms: HashMap<RoomID, Room>,
+}
+
+pub struct Room {
+    pub owner_id: u32,
+    pub viewer_ids: HashSet<u32>,
+}
+
+impl Room {
+    pub fn new(owner_id: u32) -> Self {
+        Self {
+            owner_id,
+            viewer_ids: HashSet::new(),
+        }
+    }
 }
 
 impl SessionRegistry {
@@ -23,12 +38,19 @@ impl SessionRegistry {
             sessions: HashMap::new(),
             username_map: HashMap::new(),
             address_map: HashMap::new(),
-            rooms: HashSet::new(),
+            rooms: HashMap::new(),
         }
     }
 
-    pub fn get_rooms(&self) -> Vec<String> {
-        self.rooms.clone().into_iter().collect::<Vec<String>>()
+    pub fn get_rooms(&self) -> Vec<RoomID> {
+        self.rooms
+            .keys()
+            .map(|val| val.to_owned())
+            .collect::<Vec<_>>()
+    }
+
+    pub fn get_room(&self, room_id: RoomID) -> Option<&Room> {
+        self.rooms.get(&room_id)
     }
 
     pub fn nominate_client(&mut self, client: Client, id: &ResourceID) -> Option<ResourceID> {
@@ -45,27 +67,45 @@ impl SessionRegistry {
         self.sessions.values().collect()
     }
 
-    pub fn remove_session(&mut self, id: &str) {
-        let target_session = self.sessions.get(id);
-        if let Some(session) = target_session {
-            let username = &session.media_session.ice_credentials.host_username;
-            self.username_map.remove(username);
+    pub fn remove_session(&mut self, id: ResourceID) {
+        let session = self
+            .sessions
+            .get(&id)
+            .expect("Session should be established in order to remove it");
 
-            if let Some(remote) = session.client.as_ref().map(|client| client.remote_address) {
-                self.address_map.remove(&remote);
-            }
+        // Clear username map
+        let username = &session.media_session.ice_credentials.host_username;
+        self.username_map.remove(username);
 
-            self.rooms.remove(id);
-            self.sessions.remove(id);
+        // Clear address map if applicable
+        if let Some(remote) = session.client.as_ref().map(|client| client.remote_address) {
+            self.address_map.remove(&remote);
         }
+
+        // Handle Room cleaning
+        match &session.connection_type {
+            // If viewer and room is not orphaned remove viewer from room viewers
+            // Perhaps this should also remove the viewer session? But I don't exactly want this function to modify sessions other than the one pointed by the resource_id
+            ConnectionType::Viewer(viewer) => {
+                if let Some(target_room) = self.rooms.get_mut(&viewer.room_id) {
+                    target_room.viewer_ids.remove(&id);
+                }
+            }
+            // If streamer, remove the room
+            ConnectionType::Streamer(streamer) => {
+                self.rooms.remove(&streamer.owned_room_id);
+            }
+        }
+
+        self.sessions.remove(&id);
     }
 
-    pub fn get_session_mut(&mut self, id: &str) -> Option<&mut Session> {
-        self.sessions.get_mut(id)
+    pub fn get_session_mut(&mut self, id: ResourceID) -> Option<&mut Session> {
+        self.sessions.get_mut(&id)
     }
 
-    pub fn get_session(&self, id: &str) -> Option<&Session> {
-        self.sessions.get(id)
+    pub fn get_session(&self, id: ResourceID) -> Option<&Session> {
+        self.sessions.get(&id)
     }
     pub fn get_session_by_username_mut(
         &mut self,
@@ -86,51 +126,46 @@ impl SessionRegistry {
             .and_then(|id| self.sessions.get_mut(id))
     }
 
-    pub fn add_streamer(&mut self, streamer: Session) -> ResourceID {
-        let id = streamer.id.clone();
+    pub fn add_streamer(&mut self, negotiated_session: NegotiatedSession) -> ResourceID {
+        let room_id = get_random_id();
+
+        let streamer_session = Session::new_streamer(negotiated_session, room_id);
+        let resource_id = streamer_session.id;
+        let host_username = streamer_session
+            .media_session
+            .ice_credentials
+            .host_username
+            .clone();
+
+        let room = Room::new(resource_id);
 
         // Update username map
-        self.username_map.insert(
-            streamer.media_session.ice_credentials.host_username.clone(),
-            id.clone(),
-        );
-        self.sessions.insert(streamer.id.clone(), streamer); // Update sessions map
-        self.rooms.insert(id.clone()); // Update rooms map
+        self.username_map.insert(host_username, resource_id);
+        self.rooms.insert(room_id, room); // Update rooms map
+        self.sessions.insert(resource_id, streamer_session); // Update sessions map
 
-        id
+        resource_id
     }
 
-    pub fn add_viewer(&mut self, viewer: Session) -> Option<ResourceID> {
-        let id = viewer.id.clone();
+    pub fn add_viewer(
+        &mut self,
+        negotiated_session: NegotiatedSession,
+        target_room: RoomID,
+    ) -> ResourceID {
+        let viewer = Session::new_viewer(target_room, negotiated_session);
+        let resource_id = viewer.id;
 
-        match &viewer.connection_type {
-            ConnectionType::Viewer(viewer_session) => {
-                self.sessions
-                    .get_mut(&viewer_session.target_resource)
-                    .and_then(|session| {
-                        match &mut session.connection_type {
-                            ConnectionType::Streamer(streamer) => {
-                                // Add viewer to streamer's room
-                                streamer.viewers_ids.push(id.to_owned());
-                                Some(())
-                            }
-                            ConnectionType::Viewer(_) => None,
-                        }
-                    })
-            }
-            ConnectionType::Streamer(_) => None,
-        }
-        .map(|_| {
-            // Update username map
-            self.username_map.insert(
-                viewer.media_session.ice_credentials.host_username.clone(),
-                id.to_owned(),
-            );
+        let host_username = viewer.media_session.ice_credentials.host_username.clone();
 
-            // Update sessions Hashmap
-            self.sessions.insert(id.to_owned(), viewer);
-            id.clone()
-        })
+        self.username_map.insert(host_username, resource_id);
+        self.sessions.insert(resource_id, viewer);
+        self.rooms
+            .get_mut(&target_room)
+            .expect("Target room should be present")
+            .viewer_ids
+            .insert(resource_id);
+
+        resource_id
     }
 }
 
@@ -144,8 +179,8 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new_streamer(media_session: NegotiatedSession) -> Self {
-        let id = get_random_string(12);
+    pub fn new_streamer(media_session: NegotiatedSession, room_id: RoomID) -> Self {
+        let id = get_random_id();
 
         Session {
             id,
@@ -153,21 +188,19 @@ impl Session {
             client: None,
             media_session,
             connection_type: ConnectionType::Streamer(Streamer {
-                viewers_ids: vec![],
+                owned_room_id: room_id,
             }),
         }
     }
 
-    pub fn new_viewer(target_id: String, media_session: NegotiatedSession) -> Self {
-        let id = get_random_string(12);
+    pub fn new_viewer(target_id: RoomID, media_session: NegotiatedSession) -> Self {
+        let id = get_random_id();
         Session {
             id,
             ttl: Instant::now(),
             client: None,
             media_session,
-            connection_type: ConnectionType::Viewer(Viewer {
-                target_resource: target_id.to_owned(),
-            }),
+            connection_type: ConnectionType::Viewer(Viewer { room_id: target_id }),
         }
     }
 }
@@ -180,12 +213,12 @@ pub enum ConnectionType {
 
 #[derive(Debug, Clone)]
 pub struct Viewer {
-    target_resource: ResourceID,
+    room_id: ResourceID,
 }
 
 #[derive(Debug, Clone)]
 pub struct Streamer {
-    pub viewers_ids: Vec<ResourceID>,
+    pub owned_room_id: u32,
 }
 
 #[derive(Debug)]

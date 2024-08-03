@@ -31,7 +31,9 @@ fn post_handler(
         .search
         .get("target_id")
         .ok_or(HttpError::BadRequest)?
-        .to_string();
+        .to_string()
+        .parse::<u32>()
+        .map_err(|_| HttpError::BadRequest)?;
 
     let (tx, rx) = std::sync::mpsc::channel::<Option<String>>();
 

@@ -80,7 +80,7 @@ impl UDPServer {
                 {
                     let is_new_client = self
                         .session_registry
-                        .get_session_mut(&resource_id)
+                        .get_session_mut(resource_id)
                         .map(|session| session.client.is_none())
                         .unwrap();
 
@@ -93,7 +93,7 @@ impl UDPServer {
 
                     let credentials = &self
                         .session_registry
-                        .get_session_mut(&resource_id)
+                        .get_session_mut(resource_id)
                         .unwrap()
                         .media_session
                         .ice_credentials;
@@ -119,7 +119,7 @@ impl UDPServer {
     }
 
     fn handle_other_packets(&mut self, remote: &SocketAddr) {
-        let mut viewers_to_notify: Option<Vec<String>> = None;
+        let mut streamer_room_id: Option<u32> = None;
 
         if let Some(session) = self
             .session_registry
@@ -156,8 +156,7 @@ impl UDPServer {
                             if let Ok(_) =
                                 ssl_stream.srtp_inbound.unprotect(&mut self.inbound_buffer)
                             {
-                                viewers_to_notify =
-                                    Some(streamer.viewers_ids.iter().map(Clone::clone).collect());
+                                streamer_room_id = Some(streamer.owned_room_id);
                             }
                         }
                         ClientSslState::Shutdown => {}
@@ -166,9 +165,17 @@ impl UDPServer {
             }
         }
 
-        if let Some(viewer_ids) = viewers_to_notify {
+        if let Some(stream_room_id) = streamer_room_id {
+            let viewer_ids = self
+                .session_registry
+                .get_room(stream_room_id)
+                .expect("Streamer room should exist")
+                .viewer_ids
+                .clone()
+                .into_iter();
+
             for id in viewer_ids {
-                let viewer_session = self.session_registry.get_session_mut(&id);
+                let viewer_session = self.session_registry.get_session_mut(id);
                 if let Some(client) = viewer_session.and_then(|session| session.client.as_mut()) {
                     if let ClientSslState::Established(ssl_stream) = &mut client.ssl_state {
                         self.outbound_buffer.clear();
