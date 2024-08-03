@@ -49,7 +49,7 @@ impl UDPServer {
             ICEStunMessageType::LiveCheck(msg) => {
                 if let Some(session) = self
                     .session_registry
-                    .get_session_by_username_mut(&msg.username_attribute.host)
+                    .get_session_by_username_mut(&msg.username_attribute)
                 {
                     session.ttl = Instant::now();
 
@@ -72,7 +72,7 @@ impl UDPServer {
             ICEStunMessageType::Nomination(msg) => {
                 if let Some(resource_id) = self
                     .session_registry
-                    .get_session_by_username_mut(&msg.username_attribute.host)
+                    .get_session_by_username_mut(&msg.username_attribute)
                     .map(|session| {
                         session.ttl = Instant::now();
                         session.id.clone()
@@ -86,7 +86,7 @@ impl UDPServer {
 
                     if is_new_client {
                         let client = Client::new(remote.clone(), self.socket.try_clone().unwrap())
-                            .expect("Failed to create Client");
+                            .expect("Should create a Client");
 
                         self.session_registry.nominate_client(client, &resource_id);
                     }
@@ -107,7 +107,7 @@ impl UDPServer {
                         &remote,
                         &mut buffer,
                     )
-                    .expect("Failed to create STUN success message");
+                    .expect("Should create STUN success response");
 
                     let output_buffer = &buffer[0..bytes_written];
                     if let Err(error) = self.socket.send_to(output_buffer, remote) {

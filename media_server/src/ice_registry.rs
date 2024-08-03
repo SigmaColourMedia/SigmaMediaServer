@@ -13,7 +13,7 @@ type HostUsername = String;
 
 pub struct SessionRegistry {
     sessions: HashMap<ResourceID, Session>,
-    username_map: HashMap<HostUsername, ResourceID>,
+    username_map: HashMap<SessionUsername, ResourceID>,
     address_map: HashMap<SocketAddr, ResourceID>,
     rooms: HashMap<RoomID, Room>,
 }
@@ -74,8 +74,17 @@ impl SessionRegistry {
             .expect("Session should be established in order to remove it");
 
         // Clear username map
-        let username = &session.media_session.ice_credentials.host_username;
-        self.username_map.remove(username);
+        let host_username = session.media_session.ice_credentials.host_username.clone();
+        let remote_username = session
+            .media_session
+            .ice_credentials
+            .remote_username
+            .clone();
+        let session_username = SessionUsername {
+            host: host_username,
+            remote: remote_username,
+        };
+        self.username_map.remove(&session_username);
 
         // Clear address map if applicable
         if let Some(remote) = session.client.as_ref().map(|client| client.remote_address) {
@@ -109,7 +118,7 @@ impl SessionRegistry {
     }
     pub fn get_session_by_username_mut(
         &mut self,
-        session_username: &HostUsername,
+        session_username: &SessionUsername,
     ) -> Option<&mut Session> {
         self.username_map
             .get(session_username)
@@ -136,11 +145,20 @@ impl SessionRegistry {
             .ice_credentials
             .host_username
             .clone();
+        let remote_username = streamer_session
+            .media_session
+            .ice_credentials
+            .remote_username
+            .clone();
 
         let room = Room::new(resource_id);
 
+        let session_username = SessionUsername {
+            host: host_username,
+            remote: remote_username,
+        };
         // Update username map
-        self.username_map.insert(host_username, resource_id);
+        self.username_map.insert(session_username, resource_id);
         self.rooms.insert(room_id, room); // Update rooms map
         self.sessions.insert(resource_id, streamer_session); // Update sessions map
 
@@ -156,8 +174,13 @@ impl SessionRegistry {
         let resource_id = viewer.id;
 
         let host_username = viewer.media_session.ice_credentials.host_username.clone();
+        let remote_username = viewer.media_session.ice_credentials.remote_username.clone();
+        let session_username = SessionUsername {
+            host: host_username,
+            remote: remote_username,
+        };
 
-        self.username_map.insert(host_username, resource_id);
+        self.username_map.insert(session_username, resource_id);
         self.sessions.insert(resource_id, viewer);
         self.rooms
             .get_mut(&target_room)
