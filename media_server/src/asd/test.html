@@ -5,6 +5,7 @@
     <title>Title</title>
 </head>
 <body>
+<video controls height="300" width="400"></video>
 <script>
 
     async function get_rooms() {
@@ -15,6 +16,14 @@
 
     async function get_sdp() {
         const conn = new RTCPeerConnection();
+        conn.ontrack = ({track, streams}) => {
+
+            const video = document.querySelector("video")
+            
+            video.srcObject = streams[0]
+            video.onloadeddata = () => {
+            }
+        }
         conn.addTransceiver("audio", {direction: "recvonly"})
         conn.addTransceiver("video", {direction: "recvonly"})
         const offer = await conn.createOffer()

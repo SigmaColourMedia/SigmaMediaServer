@@ -135,6 +135,12 @@ impl SessionRegistry {
             .and_then(|id| self.sessions.get_mut(id))
     }
 
+    pub fn get_session_by_address(&self, remote_address: &SocketAddr) -> Option<&Session> {
+        self.address_map
+            .get(remote_address)
+            .and_then(|id| self.sessions.get(id))
+    }
+
     pub fn add_streamer(&mut self, negotiated_session: NegotiatedSession) -> ResourceID {
         let room_id = get_random_id();
 

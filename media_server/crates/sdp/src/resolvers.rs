@@ -18,21 +18,21 @@ pub struct SDP {
     audio_section: Vec<SDPLine>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NegotiatedSession {
     pub sdp_answer: SDP,
     pub ice_credentials: ICECredentials,
     pub video_session: VideoSession,
     pub audio_session: AudioSession,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ICECredentials {
     pub host_username: String,
     pub host_password: String,
     pub remote_username: String,
     pub remote_password: String,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VideoSession {
     pub codec: VideoCodec,
     pub payload_number: usize,
@@ -41,7 +41,7 @@ pub struct VideoSession {
     pub capabilities: HashSet<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AudioSession {
     pub codec: AudioCodec,
     pub payload_number: usize,

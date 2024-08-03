@@ -7,6 +7,7 @@ use sdp2::SDPResolver;
 use crate::client::{Client, ClientSslState};
 use crate::config::get_global_config;
 use crate::ice_registry::{ConnectionType, SessionRegistry};
+use crate::rtp::remap_rtp_header;
 use crate::stun::{create_stun_success, get_stun_packet, ICEStunMessageType};
 
 pub struct UDPServer {
@@ -175,18 +176,37 @@ impl UDPServer {
                 .into_iter();
 
             for id in viewer_ids {
+                let streamer_session = self
+                    .session_registry
+                    .get_session_by_address_mut(&remote)
+                    .expect("Streamer session should be established")
+                    .media_session
+                    .clone();
                 let viewer_session = self.session_registry.get_session_mut(id);
-                if let Some(client) = viewer_session.and_then(|session| session.client.as_mut()) {
+                if let Some((client, media_session)) = viewer_session.and_then(|session| {
+                    session
+                        .client
+                        .as_mut()
+                        .map(|client| (client, &session.media_session))
+                }) {
                     if let ClientSslState::Established(ssl_stream) = &mut client.ssl_state {
                         self.outbound_buffer.clear();
                         self.outbound_buffer
                             .write(&self.inbound_buffer)
-                            .expect("Failed writing to outbound buffer");
+                            .expect("Should write to outbound buffer");
 
+                        remap_rtp_header(
+                            &mut self.outbound_buffer,
+                            &streamer_session,
+                            media_session,
+                        );
+
+                        let new_buff = self.outbound_buffer.clone();
                         let send_result = ssl_stream
                             .srtp_outbound
                             .protect(&mut self.outbound_buffer)
-                            .map_err(|_| {
+                            .map_err(|err| {
+                                println!("the err {} at {}", err, new_buff[1]);
                                 std::io::Error::new(
                                     ErrorKind::Other,
                                     "Error encrypting SRTP packet",
