@@ -49,7 +49,7 @@ impl UDPServer {
             ICEStunMessageType::LiveCheck(msg) => {
                 if let Some(session) = self
                     .session_registry
-                    .get_session_by_username(&msg.username_attribute.host)
+                    .get_session_by_username_mut(&msg.username_attribute.host)
                 {
                     session.ttl = Instant::now();
 
@@ -72,7 +72,7 @@ impl UDPServer {
             ICEStunMessageType::Nomination(msg) => {
                 if let Some(resource_id) = self
                     .session_registry
-                    .get_session_by_username(&msg.username_attribute.host)
+                    .get_session_by_username_mut(&msg.username_attribute.host)
                     .map(|session| {
                         session.ttl = Instant::now();
                         session.id.clone()
@@ -123,7 +123,7 @@ impl UDPServer {
 
         if let Some(session) = self
             .session_registry
-            .get_session_by_address(&remote)
+            .get_session_by_address_mut(&remote)
             .and_then(|session| match session.client {
                 None => None,
                 Some(_) => Some(session),

@@ -67,7 +67,7 @@ impl SessionRegistry {
     pub fn get_session(&self, id: &str) -> Option<&Session> {
         self.sessions.get(id)
     }
-    pub fn get_session_by_username(
+    pub fn get_session_by_username_mut(
         &mut self,
         session_username: &HostUsername,
     ) -> Option<&mut Session> {
@@ -77,7 +77,10 @@ impl SessionRegistry {
             .flatten()
     }
 
-    pub fn get_session_by_address(&mut self, remote_address: &SocketAddr) -> Option<&mut Session> {
+    pub fn get_session_by_address_mut(
+        &mut self,
+        remote_address: &SocketAddr,
+    ) -> Option<&mut Session> {
         self.address_map
             .get(remote_address)
             .and_then(|id| self.sessions.get_mut(id))
