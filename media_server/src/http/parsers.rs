@@ -1,13 +1,18 @@
 use std::collections::HashMap;
+use std::io::{BufRead, BufReader, Read};
+use std::net::TcpStream;
 
 use crate::http::{HttpError, HTTPMethod, Request, Response};
 use crate::http::response_builder::ResponseBuilder;
 
-pub fn parse_http(data: &[u8]) -> Option<Request> {
-    let string_data = std::str::from_utf8(data).ok()?;
-    let mut lines = string_data.lines();
+pub fn parse_http(stream: &mut TcpStream) -> Option<Request> {
+    let mut buff_reader =
+        BufReader::new(stream.try_clone().expect("Should clone TCP stream socket")).take(15000);
 
-    let mut request_line = lines.next()?.split(" ");
+    let mut request_line = String::new();
+    buff_reader.read_line(&mut request_line);
+
+    let mut request_line = request_line.split(" ");
 
     let method = request_line.next()?;
     let pathname = request_line.next()?;
@@ -28,24 +33,29 @@ pub fn parse_http(data: &[u8]) -> Option<Request> {
     };
 
     let mut headers: HashMap<String, String> = HashMap::new();
-    while let Some(line) = lines.next() {
-        if line.is_empty() {
-            // END OF HEADERS
+
+    loop {
+        let mut header_line = String::new();
+        buff_reader.read_line(&mut header_line);
+
+        if header_line.trim().is_empty() {
             break;
         }
-        let (key, value) = line.split_once(":")?;
+        let (key, value) = header_line.split_once(":")?;
         let key = key.trim().to_lowercase();
         let value = value.trim().to_string();
         headers.insert(key, value);
     }
 
-    let content_length = headers.get("content-length");
+    let content_length = headers
+        .get("content-length")
+        .map(|length| length.parse::<usize>().ok())
+        .flatten();
 
-    let body = content_length.and_then(|length| {
-        let length = length.parse::<usize>().ok()?;
-        let mut payload = lines.collect::<Vec<&str>>().join("\r\n").into_bytes();
-        payload.resize(length, 0);
-        Some(payload)
+    let mut body = content_length.map(|length| {
+        let mut body = vec![0u8; length];
+        buff_reader.read_exact(&mut body);
+        body
     });
 
     Some(Request {

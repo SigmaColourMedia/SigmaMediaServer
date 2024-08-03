@@ -19,8 +19,9 @@
         conn.addTransceiver("video", {direction: "recvonly"})
         const offer = await conn.createOffer()
         await conn.setLocalDescription(offer)
-        console.log(offer.sdp)
-        return [offer.sdp, conn]
+        const sdp_offer = offer.sdp
+        console.log(sdp_offer)
+        return [sdp_offer, conn]
     }
 
     async function test() {
@@ -30,12 +31,15 @@
         const res = await fetch(`http://localhost:8080/whep?target_id=${room_id}`, {
             method: "POST",
             body: sdp,
-            mode: "cors"
+            headers: {
+                "content-type": "application/sdp"
+            },
         }).then(res => res.text());
+        console.log("response is ", res)
+
         await conn.setRemoteDescription({sdp: res, type: "answer"});
 
 
-        console.log(res)
     }
 
     test()

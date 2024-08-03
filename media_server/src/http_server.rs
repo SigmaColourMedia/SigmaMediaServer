@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc::Sender;
 
@@ -46,11 +46,7 @@ impl HttpServer {
     }
 
     pub fn handle_stream(&self, mut stream: TcpStream) {
-        let mut buffer = [0u8; 12000];
-        stream
-            .read(&mut buffer)
-            .expect("Failed reading from buffer");
-        if let Some(request) = parse_http(&buffer) {
+        if let Some(request) = parse_http(&mut stream) {
             self.handle_request(request, stream);
         }
     }
