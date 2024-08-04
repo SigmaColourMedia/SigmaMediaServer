@@ -18,7 +18,7 @@ fn get_handle(
     request: Request,
     command_sender: Sender<ServerCommand>,
 ) -> Result<Response, HttpError> {
-    let (tx, mut rx) = std::sync::mpsc::channel::<Vec<String>>();
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<u32>>();
     command_sender.send(ServerCommand::GetRooms(tx)).unwrap();
     let rooms = rx.recv().unwrap();
 

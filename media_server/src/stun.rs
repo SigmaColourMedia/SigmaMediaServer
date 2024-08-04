@@ -6,7 +6,9 @@ use openssl::hash::MessageDigest;
 use openssl::pkey::PKey;
 use openssl::sign::Signer;
 
-use crate::ice_registry::{SessionCredentials, SessionUsername};
+use sdp2::ICECredentials;
+
+use crate::ice_registry::SessionUsername;
 
 fn parse_stun_packet(packet: &[u8]) -> Option<StunBindingRequest> {
     if packet.len() < STUN_HEADER_LEN {
@@ -110,7 +112,7 @@ pub fn get_stun_packet(data: &[u8]) -> Option<ICEStunMessageType> {
 }
 
 pub fn create_stun_success(
-    credentials: &SessionCredentials,
+    credentials: &ICECredentials,
     session_username: &SessionUsername,
     transaction_id: [u8; STUN_TRANSACTION_ID_LEN],
     remote: &SocketAddr,

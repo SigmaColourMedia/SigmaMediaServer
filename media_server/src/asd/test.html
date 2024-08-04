@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<video controls height="300" width="400"></video>
+<script>
+
+    async function get_rooms() {
+        const res = await fetch("http://localhost:8080/rooms").then(res => res.json());
+
+        return res.rooms[0]
+    }
+
+    async function get_sdp() {
+        const conn = new RTCPeerConnection();
+        conn.ontrack = ({track, streams}) => {
+
+            const video = document.querySelector("video")
+
+            video.srcObject = streams[0]
+            video.onloadeddata = () => {
+            }
+        }
+        conn.addTransceiver("audio", {direction: "recvonly"})
+        conn.addTransceiver("video", {direction: "recvonly"})
+        const offer = await conn.createOffer()
+        await conn.setLocalDescription(offer)
+        const sdp_offer = offer.sdp
+        console.log(sdp_offer)
+        return [sdp_offer, conn]
+    }
+
+    async function test() {
+        const room_id = await get_rooms();
+        const [sdp, conn] = await get_sdp();
+
+        const res = await fetch(`http://localhost:8080/whep?target_id=${room_id}`, {
+            method: "POST",
+            body: sdp,
+            headers: {
+                "content-type": "application/sdp"
+            },
+        }).then(res => res.text());
+        console.log("response is ", res)
+
+        await conn.setRemoteDescription({sdp: res, type: "answer"});
+
+
+    }
+
+    test()
+</script>
+</body>
+</html>

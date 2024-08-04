@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
-
-use crate::ice_registry::Session;
-use crate::sdp::SDP;
+use std::sync::mpsc::Sender;
 
 pub mod parsers;
 pub mod response_builder;
@@ -55,7 +53,7 @@ pub enum HttpError {
 }
 
 impl Display for HttpError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             HttpError::NotFound => write!(f, "404 Not Found"),
             HttpError::InternalServerError => write!(f, "500 Internal Server Error"),
@@ -68,10 +66,9 @@ impl Display for HttpError {
 
 #[derive(Debug)]
 pub enum ServerCommand {
-    AddStreamer(Session),
-    AddViewer(Session),
-    GetStreamSDP((std::sync::mpsc::Sender<Option<SDP>>, String)),
-    GetRooms(std::sync::mpsc::Sender<Vec<String>>),
+    AddStreamer(String, Sender<Option<String>>),
+    AddViewer(String, u32, Sender<Option<String>>),
+    GetRooms(Sender<Vec<u32>>),
     HandlePacket(Vec<u8>, SocketAddr),
     CheckForTimeout,
 }
