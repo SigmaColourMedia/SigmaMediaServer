@@ -1,4 +1,4 @@
-use std::io::{ErrorKind, Write};
+use std::io::Write;
 use std::net::{SocketAddr, UdpSocket};
 use std::time::Instant;
 
@@ -120,108 +120,101 @@ impl UDPServer {
     }
 
     fn handle_other_packets(&mut self, remote: &SocketAddr) {
-        let mut streamer_room_id: Option<u32> = None;
+        let sender_session = self.session_registry.get_session_by_address_mut(remote);
 
-        if let Some(session) = self
-            .session_registry
-            .get_session_by_address_mut(&remote)
-            .and_then(|session| match session.client {
-                None => None,
-                Some(_) => Some(session),
-            })
-        {
-            session.ttl = Instant::now();
+        let is_client_established = sender_session
+            .as_ref()
+            .and_then(|session| session.client.as_ref())
+            .is_some();
 
-            match &session.connection_type {
-                ConnectionType::Viewer(_) => {
-                    let client = session.client.as_mut().unwrap();
-                    match &mut client.ssl_state {
-                        ClientSslState::Handshake(_) => {
-                            if let Err(e) = client.read_packet(&self.inbound_buffer) {
-                                eprintln!("Error reading packet mid handshake {}", e)
-                            }
-                        }
-                        ClientSslState::Established(_) => {}
-                        ClientSslState::Shutdown => {}
-                    }
-                }
-                ConnectionType::Streamer(streamer) => {
-                    let client = session.client.as_mut().unwrap();
-                    match &mut client.ssl_state {
-                        ClientSslState::Handshake(_) => {
-                            if let Err(e) = client.read_packet(&self.inbound_buffer) {
-                                eprintln!("Error reading packet mid handshake {}", e)
-                            }
-                        }
-                        ClientSslState::Established(ssl_stream) => {
-                            if let Ok(_) =
-                                ssl_stream.srtp_inbound.unprotect(&mut self.inbound_buffer)
-                            {
-                                streamer_room_id = Some(streamer.owned_room_id);
-                            }
-                        }
-                        ClientSslState::Shutdown => {}
-                    }
-                }
-            }
+        // Sender session has not yet established a Client
+        if !is_client_established {
+            return;
         }
 
-        if let Some(stream_room_id) = streamer_room_id {
-            let viewer_ids = self
-                .session_registry
-                .get_room(stream_room_id)
-                .expect("Streamer room should exist")
-                .viewer_ids
-                .clone()
-                .into_iter();
+        let sender_session = sender_session.unwrap();
+        let sender_client = sender_session.client.as_mut().unwrap();
 
-            for id in viewer_ids {
-                let streamer_session = self
-                    .session_registry
-                    .get_session_by_address_mut(&remote)
-                    .expect("Streamer session should be established")
-                    .media_session
-                    .clone();
-                let viewer_session = self.session_registry.get_session_mut(id);
-                if let Some((client, media_session)) = viewer_session.and_then(|session| {
-                    session
-                        .client
-                        .as_mut()
-                        .map(|client| (client, &session.media_session))
-                }) {
-                    if let ClientSslState::Established(ssl_stream) = &mut client.ssl_state {
-                        self.outbound_buffer.clear();
-                        self.outbound_buffer
-                            .write(&self.inbound_buffer)
-                            .expect("Should write to outbound buffer");
+        // Update session TTL
+        sender_session.ttl = Instant::now();
 
-                        remap_rtp_header(
-                            &mut self.outbound_buffer,
-                            &streamer_session,
-                            media_session,
-                        );
-
-                        let new_buff = self.outbound_buffer.clone();
-                        let send_result = ssl_stream
-                            .srtp_outbound
-                            .protect(&mut self.outbound_buffer)
-                            .map_err(|err| {
-                                println!("the err {} at {}", err, new_buff[1]);
-                                std::io::Error::new(
-                                    ErrorKind::Other,
-                                    "Error encrypting SRTP packet",
-                                )
-                            })
-                            .and_then(|_| {
-                                self.socket
-                                    .send_to(&self.outbound_buffer, client.remote_address)
-                            });
-                        if let Err(err) = send_result {
-                            eprintln!("Error forwarding RTP packet {}", err)
-                        }
+        match &sender_session.connection_type {
+            ConnectionType::Viewer(_) => {
+                if let ClientSslState::Handshake(_) = &mut sender_client.ssl_state {
+                    if let Err(err) = sender_client.read_packet(&self.inbound_buffer) {
+                        eprintln!("Failed reading packet from {} with error {}", remote, err)
                     }
                 }
             }
+            ConnectionType::Streamer(streamer) => match &mut sender_client.ssl_state {
+                ClientSslState::Handshake(_) => {
+                    if let Err(e) = sender_client.read_packet(&self.inbound_buffer) {
+                        eprintln!("Error reading packet mid handshake {}", e)
+                    }
+                }
+                ClientSslState::Established(ssl_stream) => {
+                    if let Ok(_) = ssl_stream.srtp_inbound.unprotect(&mut self.inbound_buffer) {
+                        let room_id = streamer.owned_room_id;
+
+                        let viewer_ids = self
+                            .session_registry
+                            .get_room(room_id)
+                            .expect("Streamer room should exist")
+                            .viewer_ids
+                            .clone()
+                            .into_iter();
+
+                        for id in viewer_ids {
+                            let streamer_media = self
+                                .session_registry
+                                .get_session_by_address_mut(&remote)
+                                .expect("Streamer session should be established")
+                                .media_session
+                                .clone();
+                            let viewer_session = self.session_registry.get_session_mut(id).expect("Viewer session should be established if viewer id belongs to a room");
+
+                            // If viewer has yet elected a Client, skip it
+                            if viewer_session.client.is_none() {
+                                continue;
+                            }
+
+                            let viewer_client = viewer_session.client.as_mut().unwrap();
+
+                            if let ClientSslState::Established(ssl_stream) =
+                                &mut viewer_client.ssl_state
+                            {
+                                // Write to temp buffer
+                                self.outbound_buffer.clear();
+                                self.outbound_buffer
+                                    .write(&self.inbound_buffer)
+                                    .expect("Should write to outbound buffer");
+
+                                // Remap Payload Type and SSRC to match negotiated values
+                                remap_rtp_header(
+                                    &mut self.outbound_buffer,
+                                    &streamer_media,
+                                    &viewer_session.media_session,
+                                );
+
+                                // Convert RTP to SRTP and send to remote
+                                if let Ok(_) =
+                                    ssl_stream.srtp_outbound.protect(&mut self.outbound_buffer)
+                                {
+                                    if let Err(err) = self.socket.send_to(
+                                        &self.outbound_buffer,
+                                        viewer_client.remote_address,
+                                    ) {
+                                        eprintln!("Couldn't send RTP data {}", err)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                ClientSslState::Shutdown => {
+                    todo!("Handle shutdown case?")
+                }
+            },
         }
     }
 }

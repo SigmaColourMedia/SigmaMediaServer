@@ -19,7 +19,7 @@
         conn.ontrack = ({track, streams}) => {
 
             const video = document.querySelector("video")
-            
+
             video.srcObject = streams[0]
             video.onloadeddata = () => {
             }
