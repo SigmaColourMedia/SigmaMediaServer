@@ -17,15 +17,17 @@ pub struct SessionRegistry {
     address_map: HashMap<SocketAddr, ResourceID>,
     rooms: HashMap<RoomID, Room>,
 }
-
+#[derive(Clone)]
 pub struct Room {
+    pub id: u32,
     pub owner_id: u32,
     pub viewer_ids: HashSet<u32>,
 }
 
 impl Room {
-    pub fn new(owner_id: u32) -> Self {
+    pub fn new(id: u32, owner_id: u32) -> Self {
         Self {
+            id,
             owner_id,
             viewer_ids: HashSet::new(),
         }
@@ -42,11 +44,15 @@ impl SessionRegistry {
         }
     }
 
-    pub fn get_rooms(&self) -> Vec<RoomID> {
+    pub fn get_room_ids(&self) -> Vec<RoomID> {
         self.rooms
             .keys()
             .map(|val| val.to_owned())
             .collect::<Vec<_>>()
+    }
+
+    pub fn get_rooms(&self) -> Vec<Room> {
+        self.rooms.values().map(Clone::clone).collect()
     }
 
     pub fn get_room(&self, room_id: RoomID) -> Option<&Room> {
@@ -157,7 +163,7 @@ impl SessionRegistry {
             .remote_username
             .clone();
 
-        let room = Room::new(resource_id);
+        let room = Room::new(room_id, resource_id);
 
         let session_username = SessionUsername {
             host: host_username,

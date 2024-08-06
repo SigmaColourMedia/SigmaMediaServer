@@ -1,14 +1,16 @@
 use std::future::Future;
 use std::net::UdpSocket;
-use std::sync::mpsc::Sender;
 use std::sync::Arc;
+use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use openssl::stack::Stackable;
 use threadpool::ThreadPool;
 
-use crate::config::{get_global_config, Config};
+use notification_bus::{Notification, NotificationBusBuilder, Room};
+
+use crate::config::get_global_config;
 use crate::http::routes::rooms::rooms_route;
 use crate::http::routes::whep::whep_route;
 use crate::http::routes::whip::whip_route;
@@ -27,11 +29,15 @@ mod rtp;
 mod sdp;
 mod server;
 mod stun;
-
 fn main() {
     let (tx, rx) = std::sync::mpsc::channel::<ServerCommand>();
     let socket = build_udp_socket();
     let mut server = UDPServer::new(socket.try_clone().unwrap());
+    let notification_bus = NotificationBusBuilder::new()
+        .add_address("127.0.0.1:9090")
+        .add_cors_origin("http://localhost:9000".to_string())
+        .build();
+    let notification_sender = notification_bus.get_sender();
 
     thread::spawn({
         let sender = tx.clone();
@@ -40,11 +46,16 @@ fn main() {
     thread::spawn({
         let sender = tx.clone();
         let socket = socket.try_clone().unwrap();
-        move || listen_on_udp_socket(socket, sender)
+        move || start_udp_server(socket, sender)
     });
     thread::spawn({
         let sender = tx.clone();
         move || start_session_timeout_counter(sender)
+    });
+    thread::spawn(move || notification_bus.startup());
+    thread::spawn(move || {
+        let sender = tx.clone();
+        start_notification_poll(sender)
     });
 
     loop {
@@ -93,8 +104,21 @@ fn main() {
                     .expect("Response channel should remain open")
             }
             ServerCommand::GetRooms(sender) => {
-                let rooms = server.session_registry.get_rooms();
+                let rooms = server.session_registry.get_room_ids();
                 sender.send(rooms).unwrap()
+            }
+            ServerCommand::SendRoomsStatus => {
+                let rooms = server.session_registry.get_rooms();
+                let notification = Notification {
+                    rooms: rooms
+                        .into_iter()
+                        .map(|room| Room {
+                            viewer_count: room.viewer_ids.len(),
+                            id: room.id,
+                        })
+                        .collect::<Vec<_>>(),
+                };
+                notification_sender.send(notification).unwrap();
             }
             ServerCommand::CheckForTimeout => {
                 let sessions: Vec<_> = server
@@ -114,6 +138,18 @@ fn main() {
     }
 }
 
+fn start_notification_poll(sender: Sender<ServerCommand>) {
+    let mut time_reference = Instant::now();
+    loop {
+        if time_reference.elapsed().gt(&Duration::from_secs(1)) {
+            sender
+                .send(ServerCommand::SendRoomsStatus)
+                .expect("Server channel should be open");
+            time_reference = Instant::now()
+        }
+    }
+}
+
 fn start_session_timeout_counter(sender: Sender<ServerCommand>) {
     let mut time_reference = Instant::now();
     loop {
@@ -126,7 +162,7 @@ fn start_session_timeout_counter(sender: Sender<ServerCommand>) {
     }
 }
 
-fn listen_on_udp_socket(socket: UdpSocket, sender: Sender<ServerCommand>) {
+fn start_udp_server(socket: UdpSocket, sender: Sender<ServerCommand>) {
     loop {
         let mut buffer = [0; 3600];
 

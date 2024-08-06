@@ -70,6 +70,7 @@ pub enum ServerCommand {
     AddViewer(String, u32, Sender<Option<String>>),
     GetRooms(Sender<Vec<u32>>),
     HandlePacket(Vec<u8>, SocketAddr),
+    SendRoomsStatus,
     CheckForTimeout,
 }
 

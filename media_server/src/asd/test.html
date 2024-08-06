@@ -51,6 +51,15 @@
 
     }
 
+    function server_events() {
+        const evtSource = new EventSource("http://localhost:9090/rooms");
+        evtSource.onmessage = (msg) => console.log("got msg ", msg)
+
+        evtSource.onopen = (a) => console.log("im open", a)
+    }
+
+    server_events()
+
     test()
 </script>
 </body>
