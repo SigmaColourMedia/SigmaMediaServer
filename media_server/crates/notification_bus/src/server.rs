@@ -72,7 +72,7 @@ impl NotificationBus {
                 if let Ok(mut tcp_stream) = incoming {
                     if let Some(request) = read_request(&mut tcp_stream) {
                         match request.pathname.as_str() {
-                            "/rooms" => {
+                            "/" => {
                                 let response = format!(
                                     "HTTP/1.1 200 OK\r\n\
                                 Connection: keep-alive\r\n\
@@ -104,7 +104,22 @@ impl NotificationBus {
                                     }
                                 }
                             }
-                            _ => {}
+                            _ => {
+                                let response = format!(
+                                    "HTTP/1.1 404 NOT FOUND\r\n\
+                                Connection: keep-alive\r\n\
+                                Cache-Control: no-cache\r\n\
+                                Access-Control-Allow-Origin: {origin}\r\n\
+                                Access-Control-Allow-Method: GET\r\n\r\n"
+                                );
+
+                                if let Err(_) = tcp_stream
+                                    .write_all(response.as_bytes())
+                                    .and_then(|_| tcp_stream.flush())
+                                {
+                                    return;
+                                }
+                            }
                         }
                     }
                 }

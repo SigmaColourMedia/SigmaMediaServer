@@ -30,36 +30,40 @@ mod sdp;
 mod server;
 mod stun;
 fn main() {
-    let (tx, rx) = std::sync::mpsc::channel::<ServerCommand>();
+    let (server_command_sender, server_command_receiver) =
+        std::sync::mpsc::channel::<ServerCommand>();
     let socket = build_udp_socket();
     let mut server = UDPServer::new(socket.try_clone().unwrap());
     let notification_bus = NotificationBusBuilder::new()
-        .add_address("127.0.0.1:9090")
+        .add_address(get_global_config().notification_bus_config.address)
         .add_cors_origin("http://localhost:9000".to_string())
         .build();
     let notification_sender = notification_bus.get_sender();
 
     thread::spawn({
-        let sender = tx.clone();
+        let sender = server_command_sender.clone();
         move || start_http_server(sender)
     });
     thread::spawn({
-        let sender = tx.clone();
+        let sender = server_command_sender.clone();
         let socket = socket.try_clone().unwrap();
         move || start_udp_server(socket, sender)
     });
     thread::spawn({
-        let sender = tx.clone();
+        let sender = server_command_sender.clone();
         move || start_session_timeout_counter(sender)
     });
     thread::spawn(move || notification_bus.startup());
     thread::spawn(move || {
-        let sender = tx.clone();
+        let sender = server_command_sender.clone();
         start_notification_poll(sender)
     });
 
     loop {
-        match rx.recv().expect("Server channel should be open") {
+        match server_command_receiver
+            .recv()
+            .expect("Server channel should be open")
+        {
             ServerCommand::HandlePacket(packet, remote) => server.process_packet(&packet, remote),
             ServerCommand::AddStreamer(sdp_offer, response_tx) => {
                 let negotiated_session = server.sdp_resolver.accept_stream_offer(&sdp_offer).ok();
