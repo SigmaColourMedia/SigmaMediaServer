@@ -8,10 +8,37 @@ fn main() {
     println!("packets {}", rtp_packets.len())
 }
 
+/**
+RTP-dump format:
+- File starts with utf-8 encoded string `#!rtpplay1.0 address/port\n`
+- Followed by RD Header
+
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|             Start of recording GMT seconds                    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|             Start of recording GMT microseconds               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|             Network source                                    |
++=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+|          port                 |            padding            |
++=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+
+- Then each RTP packet is followed by RD_T header
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  RTP packet length + header   |         RTP packet length     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                  Offset                                       |
++=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
+ */
+
 fn get_rtp_packets() -> Vec<Vec<u8>> {
     let rtp_dump = File::open("../../wireshark-dump.rtp").unwrap();
     let mut reader = BufReader::new(rtp_dump);
-    let mut rtp_dump_header = vec![0u8; RTP_DUMP_HEADER_LEN + RD_HEADER_LEN];
+    let mut rtp_dump_header = vec![0u8; RTP_DUMP_HEADER_LEN + RD_HEADER_LEN]; // skip heading string + RT_D header
     reader.read_exact(&mut rtp_dump_header).unwrap();
 
     let mut rt_header_buffer = vec![0u8; 8];
