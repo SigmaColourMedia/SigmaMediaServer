@@ -1,0 +1,8 @@
+[package]
+name = "h264_still_image"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+openh264 = "0.6.2"
+byteorder = "1.5.0"
