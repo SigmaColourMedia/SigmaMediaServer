@@ -2,17 +2,20 @@ use std::io::Read;
 
 use byteorder::ByteOrder;
 
+use crate::nal::get_nal_packet;
 use crate::rtp_dump::get_rtp_packets;
 
+mod nal;
 mod rtp;
 mod rtp_dump;
 
 fn main() {
     let rtp_packets = get_rtp_packets();
 
+    let mut ten = 0;
     for packet in rtp_packets {
-        println!("packet {:?}", packet);
-        break;
+        let a = get_nal_packet(packet.payload.as_slice()).unwrap();
+        println!("received {}", a);
     }
 }
 

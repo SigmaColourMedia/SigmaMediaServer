@@ -30,7 +30,7 @@ pub struct RTPPacket {
     timestamp: u32,
     ssrc: u32,
     csrc: Vec<u32>,
-    payload: Vec<u8>,
+    pub payload: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
