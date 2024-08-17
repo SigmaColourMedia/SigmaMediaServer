@@ -12,6 +12,7 @@ https://datatracker.ietf.org/doc/html/rfc6184#section-5.3
 #[derive(Debug)]
 pub struct NALUnitHeader {
     nri: u8,
+    _inner: u8,
     payload_type: PayloadType,
 }
 #[derive(Debug)]
@@ -64,7 +65,17 @@ impl TryFrom<u8> for NALUnitHeader {
 
         let payload_type = PayloadType::try_from(payload_type_number)?;
 
-        Ok(Self { nri, payload_type })
+        Ok(Self {
+            nri,
+            payload_type,
+            _inner: value,
+        })
+    }
+}
+
+impl From<NALUnitHeader> for u8 {
+    fn from(value: NALUnitHeader) -> Self {
+        value._inner
     }
 }
 
@@ -78,7 +89,7 @@ https://datatracker.ietf.org/doc/html/rfc6184#section-5.8
 */
 #[derive(Debug)]
 pub(crate) struct NALFragmentationHeader {
-    fragmentation_role: FragmentationRole,
+    pub(crate) fragmentation_role: FragmentationRole,
     nal_payload_type: u8,
 }
 #[derive(Debug)]
@@ -156,9 +167,9 @@ impl Display for NALPacket {
 
 #[derive(Debug)]
 pub(crate) struct FragmentationUnit {
-    unit_header: NALUnitHeader,
-    fragmentation_header: NALFragmentationHeader,
-    unit: Vec<u8>,
+    pub(crate) unit_header: NALUnitHeader,
+    pub(crate) fragmentation_header: NALFragmentationHeader,
+    pub(crate) unit: Vec<u8>,
 }
 
 #[derive(Debug)]

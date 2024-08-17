@@ -2,11 +2,11 @@ use std::io::Read;
 
 use byteorder::ByteOrder;
 use openh264::decoder::Decoder;
-use openh264::nal_units;
 
-use crate::nal::{get_nal_packet, NALPacket};
+use crate::depacketizer::NALDecoder;
 use crate::rtp_dump::get_rtp_packets;
 
+mod depacketizer;
 mod nal;
 mod rtp;
 mod rtp_dump;
@@ -14,54 +14,23 @@ mod rtp_dump;
 fn main() {
     let rtp_packets = get_rtp_packets();
 
-    let nal_packets = rtp_packets
-        .iter()
-        .map(|packet| get_nal_packet(packet.payload.as_slice()))
-        .collect::<Option<Vec<NALPacket>>>()
-        .unwrap();
-
-    let units = nal_packets
-        .into_iter()
-        .filter_map(|packet| match packet {
-            NALPacket::NALUnit(mut unit) => {
-                let mut buffer = vec![0u8, 0, 1];
-                buffer.append(&mut unit.unit);
-                Some(buffer)
-            }
-            NALPacket::FragmentationUnit(_) => None,
-        })
-        .flatten()
-        .collect::<Vec<_>>();
-
+    let mut nal_decoder = NALDecoder::new();
     let mut decoder = Decoder::new().unwrap();
-    for packet in nal_units(&units) {
-        // println!("received {:?}", packet);
-        match decoder.decode(&packet) {
-            Ok(decoder) => {
-                println!("yay");
-                if let Some(yuv) = decoder {
-                    println!("got yuvvv")
+
+    for packet in rtp_packets {
+        let packet_num = packet.sequence_number;
+        if let Some(nal) = nal_decoder.decode_nal_unit(packet) {
+            match decoder.decode(&nal) {
+                Ok(item) => {
+                    println!("decoded {}", packet_num);
+                    if let Some(item) = item {
+                        println!("got decoded item")
+                    }
                 }
-            }
-            Err(_) => {
-                // println!("nay")
+                Err(crashed_decoder) => {
+                    println!("crashed {} for {}", crashed_decoder, packet_num)
+                }
             }
         }
     }
 }
-
-// let mut out = fs::read("../../wireshark2.bin").unwrap();
-//
-// let config = DecoderConfig::new().debug(true);
-// let mut decoder = Decoder::with_api_config(OpenH264API::from_source(), config).unwrap();
-//
-// let mut new_buff: Vec<u8> = vec![];
-// new_buff.append(&mut vec![0u8, 0u8, 1u8]);
-// new_buff.append(&mut Vec::from(&out[0..]));
-//
-// for a in nal_units(&new_buff) {
-// println!("hehehe {:?}", a);
-//
-// let maybe_yuv = decoder.decode(&a).unwrap();
-// println!("{:?}", maybe_yuv)
-// }

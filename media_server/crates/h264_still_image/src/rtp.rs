@@ -26,7 +26,7 @@ pub struct RTPPacket {
     extension: bool,
     csrc_count: u8,
     payload_type: u8,
-    sequence_number: u16,
+    pub sequence_number: u16,
     timestamp: u32,
     ssrc: u32,
     csrc: Vec<u32>,
