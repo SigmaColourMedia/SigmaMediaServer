@@ -163,7 +163,7 @@ pub(crate) struct FragmentationUnit {
 
 #[derive(Debug)]
 pub(crate) struct NALUnit {
-    unit: Vec<u8>,
+    pub(crate) unit: Vec<u8>,
 }
 
 pub fn get_nal_packet(input: &[u8]) -> Option<NALPacket> {
@@ -171,7 +171,7 @@ pub fn get_nal_packet(input: &[u8]) -> Option<NALPacket> {
 
     match &nal_unit_header.payload_type {
         PayloadType::NALUnit => {
-            let mut buffer = Vec::from(&input[1..]);
+            let mut buffer = Vec::from(&input[0..]);
             Some(NALPacket::NALUnit(NALUnit { unit: buffer }))
         }
         PayloadType::FU_A => {
