@@ -33,7 +33,7 @@ RTP-dump format:
  */
 
 pub fn get_rtp_packets() -> Vec<RTPPacket> {
-    let rtp_dump = File::open("../../wireshark-dump4.rtp").unwrap();
+    let rtp_dump = File::open("./assets/wireshark-dump-test.rtp").unwrap();
     let mut reader = BufReader::new(rtp_dump);
     let mut rtp_dump_header = vec![0u8; RTP_DUMP_HEADER_LEN + RD_HEADER_LEN]; // skip heading string + RT_D header
     reader.read_exact(&mut rtp_dump_header).unwrap();
