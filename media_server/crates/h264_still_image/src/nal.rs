@@ -90,7 +90,7 @@ https://datatracker.ietf.org/doc/html/rfc6184#section-5.8
 #[derive(Debug)]
 pub(crate) struct NALFragmentationHeader {
     pub(crate) fragmentation_role: FragmentationRole,
-    nal_payload_type: u8,
+    pub(crate) nal_payload_type: u8,
 }
 #[derive(Debug)]
 pub(crate) enum FragmentationRole {

@@ -1,9 +1,12 @@
 use std::io::Read;
 
 use byteorder::ByteOrder;
+use jpeg_encoder::{ColorType, Encoder};
 use openh264::decoder::Decoder;
+use openh264::formats::YUVSource;
+use openh264::nal_units;
 
-use crate::depacketizer::NALDecoder;
+use crate::depacketizer::AccessUnitDecoder;
 use crate::rtp_dump::get_rtp_packets;
 
 mod depacketizer;
@@ -13,22 +16,40 @@ mod rtp_dump;
 
 fn main() {
     let rtp_packets = get_rtp_packets();
+    let mut decoder = AccessUnitDecoder::new();
 
-    let mut nal_decoder = NALDecoder::new();
+    let access_units = rtp_packets
+        .into_iter()
+        .map(|packet| decoder.process_packet(packet))
+        .filter_map(|access_unit| access_unit)
+        .collect::<Vec<_>>();
     let mut decoder = Decoder::new().unwrap();
 
-    for packet in rtp_packets {
-        let packet_num = packet.sequence_number;
-        if let Some(nal) = nal_decoder.decode_nal_unit(packet) {
-            match decoder.decode(&nal) {
-                Ok(item) => {
-                    println!("decoded {}", packet_num);
-                    if let Some(item) = item {
-                        println!("got decoded item")
+    for access_unit in access_units {
+        println!("new access unit\r\n");
+        for nal in nal_units(&access_unit) {
+            match decoder.decode(nal) {
+                Ok(decoded) => {
+                    // println!("ok for {:08b}", &nal[3]);
+                    if let Some(yuv) = decoded {
+                        let dimensions = yuv.dimensions();
+                        let encoder = Encoder::new_file("./some.jpeg", 50).unwrap();
+                        let mut data = vec![0; dimensions.0 * dimensions.1 * 3];
+                        yuv.write_rgb8(&mut data);
+                        encoder
+                            .encode(
+                                &data,
+                                dimensions.0 as u16,
+                                dimensions.1 as u16,
+                                ColorType::Rgb,
+                            )
+                            .unwrap();
+                        println!("got dimensions {:?}", dimensions);
+                        panic!("got aaa hehe")
                     }
                 }
-                Err(crashed_decoder) => {
-                    println!("crashed {} for {}", crashed_decoder, packet_num)
+                Err(err) => {
+                    // println!("error at {:08b}", &nal[3]);
                 }
             }
         }

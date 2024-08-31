@@ -20,14 +20,14 @@ https://datatracker.ietf.org/doc/html/rfc3550#section-5.1
 
 #[derive(Debug, Clone)]
 pub struct RTPPacket {
-    marker: bool,
+    pub marker: bool,
     version: u8,
     padding: bool,
     extension: bool,
     csrc_count: u8,
     payload_type: u8,
     pub sequence_number: u16,
-    timestamp: u32,
+    pub timestamp: u32,
     ssrc: u32,
     csrc: Vec<u32>,
     pub payload: Vec<u8>,
