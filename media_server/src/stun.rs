@@ -6,7 +6,7 @@ use openssl::hash::MessageDigest;
 use openssl::pkey::PKey;
 use openssl::sign::Signer;
 
-use sdp2::ICECredentials;
+use sdp::ICECredentials;
 
 use crate::ice_registry::SessionUsername;
 

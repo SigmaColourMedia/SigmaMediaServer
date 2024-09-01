@@ -583,7 +583,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "sdp2"
+name = "sdp"
 version = "0.1.0"
 dependencies = [
  "rand 0.9.0-alpha.2",
@@ -637,7 +637,7 @@ dependencies = [
  "openh264",
  "openssl",
  "rand 0.8.5",
- "sdp2",
+ "sdp",
  "srtp",
  "threadpool",
  "videoframe_decoder",

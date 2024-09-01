@@ -26,7 +26,6 @@ mod http_server;
 mod ice_registry;
 mod rnd;
 mod rtp;
-mod sdp;
 mod server;
 mod stun;
 mod thumbnail_image;

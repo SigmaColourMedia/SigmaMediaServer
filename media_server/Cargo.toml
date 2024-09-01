@@ -13,12 +13,12 @@ crc32fast = "1.4.0"
 srtp = "0.7.0"
 threadpool = "1.8.1"
 openh264 = "0.6.2"
-sdp2 = { workspace = true }
+sdp = { workspace = true }
 notification_bus = { workspace = true }
 videoframe_decoder = { workspace = true }
 [workspace]
 members = ["crates/videoframe_decoder", "crates/notification_bus", "crates/sdp"]
 [workspace.dependencies]
-sdp2 = { path = "crates/sdp" }
+sdp = { path = "crates/sdp" }
 notification_bus = { path = "crates/notification_bus" }
 videoframe_decoder = { path = "crates/videoframe_decoder" }

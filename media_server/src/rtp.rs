@@ -1,6 +1,6 @@
 use byteorder::{ByteOrder, NetworkEndian};
 
-use sdp2::NegotiatedSession;
+use sdp::NegotiatedSession;
 
 /**
 https://datatracker.ietf.org/doc/html/rfc3550#section-5.1

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Instant;
 
-use sdp2::NegotiatedSession;
+use sdp::NegotiatedSession;
 
 use crate::client::Client;
 use crate::rnd::get_random_id;

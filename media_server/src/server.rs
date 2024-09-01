@@ -2,7 +2,7 @@ use std::io::Write;
 use std::net::{SocketAddr, UdpSocket};
 use std::time::Instant;
 
-use sdp2::SDPResolver;
+use sdp::SDPResolver;
 
 use crate::client::{Client, ClientSslState};
 use crate::config::get_global_config;
