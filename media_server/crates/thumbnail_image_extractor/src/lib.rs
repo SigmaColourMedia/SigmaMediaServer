@@ -1,4 +1,4 @@
-pub use crate::extractor
+pub use crate::extractor::{ImageData, ThumbnailExtractor};
 
 mod access_unit_decoder;
 mod extractor;
