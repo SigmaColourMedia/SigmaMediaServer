@@ -8,7 +8,8 @@ use std::time::{Duration, Instant};
 use openssl::stack::Stackable;
 use threadpool::ThreadPool;
 
-use notification_bus::{Notification, NotificationBusBuilder, Room};
+use file_storage::FileStorageBuilder;
+use notification_bus::{Notification, NotificationBus, NotificationBusBuilder, Room};
 
 use crate::config::get_global_config;
 use crate::http::routes::rooms::rooms_route;
@@ -33,11 +34,11 @@ fn main() {
     let (server_command_sender, server_command_receiver) =
         std::sync::mpsc::channel::<ServerCommand>();
     let socket = build_udp_socket();
-    let mut server = UDPServer::new(socket.try_clone().unwrap());
-    let notification_bus = NotificationBusBuilder::new()
-        .add_address(get_global_config().notification_bus_config.address)
-        .add_cors_origin("http://localhost:9000".to_string())
-        .build();
+
+    let global_config = get_global_config();
+
+    let mut udp_server = UDPServer::new(socket.try_clone().unwrap());
+    let notification_bus = build_notification_bus();
     let notification_sender = notification_bus.get_sender();
 
     thread::spawn({
@@ -54,6 +55,8 @@ fn main() {
         move || start_session_timeout_counter(sender)
     });
     thread::spawn(move || notification_bus.startup());
+    thread::spawn(move || start_file_storage_server());
+
     thread::spawn(move || {
         let sender = server_command_sender.clone();
         start_notification_poll(sender)
@@ -64,13 +67,16 @@ fn main() {
             .recv()
             .expect("Server channel should be open")
         {
-            ServerCommand::HandlePacket(packet, remote) => server.process_packet(&packet, remote),
+            ServerCommand::HandlePacket(packet, remote) => {
+                udp_server.process_packet(&packet, remote)
+            }
             ServerCommand::AddStreamer(sdp_offer, response_tx) => {
-                let negotiated_session = server.sdp_resolver.accept_stream_offer(&sdp_offer).ok();
+                let negotiated_session =
+                    udp_server.sdp_resolver.accept_stream_offer(&sdp_offer).ok();
 
                 let response = negotiated_session.map(|session| {
                     let sdp_answer = String::from(session.sdp_answer.clone());
-                    server.session_registry.add_streamer(session);
+                    udp_server.session_registry.add_streamer(session);
                     sdp_answer
                 });
 
@@ -79,12 +85,12 @@ fn main() {
                     .expect("Response channel should remain open")
             }
             ServerCommand::AddViewer(sdp_offer, target_id, response_tx) => {
-                let streamer_session = server
+                let streamer_session = udp_server
                     .session_registry
                     .get_room(target_id)
                     .map(|room| room.owner_id)
                     .map(|owner_id| {
-                        server
+                        udp_server
                             .session_registry
                             .get_session(owner_id)
                             .map(|session| &session.media_session)
@@ -92,14 +98,16 @@ fn main() {
                     .flatten();
 
                 let viewer_media_session = streamer_session.and_then(|media_session| {
-                    server
+                    udp_server
                         .sdp_resolver
                         .accept_viewer_offer(&sdp_offer, media_session)
                         .ok()
                 });
                 let response = viewer_media_session.and_then(|media_session| {
                     let sdp_answer = String::from(media_session.sdp_answer.clone());
-                    server.session_registry.add_viewer(media_session, target_id);
+                    udp_server
+                        .session_registry
+                        .add_viewer(media_session, target_id);
                     Some(sdp_answer)
                 });
 
@@ -108,11 +116,11 @@ fn main() {
                     .expect("Response channel should remain open")
             }
             ServerCommand::GetRooms(sender) => {
-                let rooms = server.session_registry.get_room_ids();
+                let rooms = udp_server.session_registry.get_room_ids();
                 sender.send(rooms).unwrap()
             }
             ServerCommand::SendRoomsStatus => {
-                let rooms = server.session_registry.get_rooms();
+                let rooms = udp_server.session_registry.get_rooms();
                 let notification = Notification {
                     rooms: rooms
                         .into_iter()
@@ -125,7 +133,7 @@ fn main() {
                 notification_sender.send(notification).unwrap();
             }
             ServerCommand::CheckForTimeout => {
-                let sessions: Vec<_> = server
+                let sessions: Vec<_> = udp_server
                     .session_registry
                     .get_all_sessions()
                     .iter()
@@ -134,12 +142,27 @@ fn main() {
 
                 for (id, ttl) in sessions {
                     if ttl.elapsed() > Duration::from_secs(5) {
-                        server.session_registry.remove_session(id);
+                        udp_server.session_registry.remove_session(id);
                     }
                 }
             }
         }
     }
+}
+
+fn start_file_storage_server() {
+    let global_config = get_global_config();
+    let file_storage = FileStorageBuilder::new()
+        .add_address(global_config.file_storage_config.address)
+        .add_cors_origin(global_config.frontend_url.clone())
+        .add_storage_path("../temp")
+        .build();
+
+    println!(
+        "Running File Storage server at {}",
+        global_config.file_storage_config.address
+    );
+    file_storage.startup();
 }
 
 fn start_notification_poll(sender: Sender<ServerCommand>) {
@@ -200,6 +223,20 @@ fn start_http_server(command_sender: Sender<ServerCommand>) {
             });
         }
     }
+}
+
+fn build_notification_bus() -> NotificationBus {
+    let global_config = get_global_config();
+    let notification_bus = NotificationBusBuilder::new()
+        .add_address(global_config.notification_bus_config.address)
+        .add_cors_origin(global_config.frontend_url.clone())
+        .build();
+
+    println!(
+        "Running Notification Bus server at {}",
+        global_config.notification_bus_config.address
+    );
+    notification_bus
 }
 
 fn build_udp_socket() -> UdpSocket {

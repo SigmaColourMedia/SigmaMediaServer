@@ -9,6 +9,8 @@ pub struct Config {
     pub tcp_server_config: TCPServerConfig,
     pub notification_bus_config: NotificationBusConfig,
     pub udp_server_config: UDPServerConfig,
+    pub file_storage_config: FileStorageConfig,
+    pub frontend_url: String,
 }
 
 const TCP_ADDRESS_ENV: &'static str = "TCP_ADDRESS";
@@ -18,6 +20,9 @@ const UDP_PORT_ENV: &'static str = "UDP_PORT";
 const WHIP_TOKEN_ENV: &'static str = "WHIP_TOKEN";
 const NOTIFICATION_BUS_ADDRESS_ENV: &'static str = "NOTIFICATION_BUS_ADDRESS";
 const NOTIFICATION_BUS_PORT_ENV: &'static str = "NOTIFICATION_BUS_PORT";
+const FILE_STORAGE_ADDRESS_ENV: &'static str = "FILE_STORAGE_ADDRESS";
+const FILE_STORAGE_PORT_ENV: &'static str = "FILE_STORAGE_PORT";
+const FRONTEND_URL_ENV: &'static str = "FRONTEND_URL";
 
 impl Config {
     pub fn initialize() -> Self {
@@ -74,6 +79,26 @@ impl Config {
 
         let notification_bus_address = SocketAddr::new(notification_bus_ip, notification_bus_port);
 
+        // File storage config
+        let file_storage_ip = IpAddr::from_str(
+            &std::env::var(FILE_STORAGE_ADDRESS_ENV)
+                .expect(&format!("{UDP_ADDRESS_ENV} env variable should be present")),
+        )
+        .expect(&format!("${UDP_ADDRESS_ENV} should be valid IPAddr"));
+
+        let file_storage_port = std::env::var(FILE_STORAGE_PORT_ENV)
+            .map(|port| {
+                port.parse::<u16>()
+                    .expect(&format!("{UDP_PORT_ENV} should be u16 integer"))
+            })
+            .expect(&format!("{UDP_PORT_ENV} env variable should be present"));
+
+        let file_storage_address = SocketAddr::new(file_storage_ip, file_storage_port);
+
+        // Frontend URL
+        let frontend_url =
+            std::env::var(FRONTEND_URL_ENV).expect("FRONTEND_URL env should be defined");
+
         Config {
             ssl_config,
             udp_server_config: UDPServerConfig {
@@ -86,6 +111,10 @@ impl Config {
             notification_bus_config: NotificationBusConfig {
                 address: notification_bus_address,
             },
+            file_storage_config: FileStorageConfig {
+                address: file_storage_address,
+            },
+            frontend_url,
         }
     }
 }
@@ -106,5 +135,9 @@ pub struct UDPServerConfig {
 }
 
 pub struct NotificationBusConfig {
+    pub address: SocketAddr,
+}
+
+pub struct FileStorageConfig {
     pub address: SocketAddr,
 }

@@ -16,9 +16,11 @@ openh264 = "0.6.2"
 sdp = { workspace = true }
 notification_bus = { workspace = true }
 thumbnail_image_extractor = { workspace = true }
+file_storage = { workspace = true }
 [workspace]
-members = ["crates/thumbnail_image_extractor", "crates/notification_bus", "crates/sdp"]
+members = ["crates/thumbnail_image_extractor", "crates/notification_bus", "crates/sdp", "crates/file_storage"]
 [workspace.dependencies]
 sdp = { path = "crates/sdp" }
 notification_bus = { path = "crates/notification_bus" }
 thumbnail_image_extractor = { path = "crates/thumbnail_image_extractor" }
+file_storage = { path = "crates/file_storage" }

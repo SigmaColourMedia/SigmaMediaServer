@@ -175,6 +175,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "file_storage"
+version = "0.1.0"
+
+[[package]]
 name = "foreign-types"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -627,6 +631,7 @@ version = "0.1.0"
 dependencies = [
  "byteorder",
  "crc32fast",
+ "file_storage",
  "notification_bus",
  "openh264",
  "openssl",
