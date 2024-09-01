@@ -7,7 +7,7 @@ use sdp2::SDPResolver;
 use crate::client::{Client, ClientSslState};
 use crate::config::get_global_config;
 use crate::ice_registry::{ConnectionType, SessionRegistry};
-use crate::rtp::remap_rtp_header;
+use crate::rtp::{get_rtp_header_data, remap_rtp_header};
 use crate::stun::{create_stun_success, get_stun_packet, ICEStunMessageType};
 
 pub struct UDPServer {
@@ -155,6 +155,12 @@ impl UDPServer {
                 ClientSslState::Established(ssl_stream) => {
                     if let Ok(_) = ssl_stream.srtp_inbound.unprotect(&mut self.inbound_buffer) {
                         let room_id = streamer.owned_room_id;
+                        let rtp_packet = get_rtp_header_data(&self.inbound_buffer);
+                        if rtp_packet.payload_type == 96 {
+                            self.socket
+                                .send_to(&self.inbound_buffer, "127.0.0.1:8080")
+                                .unwrap();
+                        }
 
                         let viewer_ids = self
                             .session_registry

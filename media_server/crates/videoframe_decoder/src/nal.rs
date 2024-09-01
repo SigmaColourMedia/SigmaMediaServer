@@ -195,9 +195,6 @@ pub fn get_nal_packet(input: &[u8]) -> Option<NALPacket> {
                 unit: buffer,
             }))
         }
-        _ => {
-            println!("some other");
-            None
-        }
+        _ => None,
     }
 }

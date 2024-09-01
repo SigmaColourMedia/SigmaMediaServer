@@ -3,7 +3,7 @@ use std::mem;
 use crate::nal::{FragmentationRole, get_nal_packet, NALPacket};
 use crate::rtp::RTPPacket;
 
-type AccessUnitStream = Vec<u8>;
+type AccessUnit = Vec<u8>;
 
 pub struct AccessUnitDecoder {
     last_seq: Option<u16>,
@@ -28,7 +28,7 @@ impl AccessUnitDecoder {
             internal_buffer: vec![],
         }
     }
-    pub fn process_packet(&mut self, packet: RTPPacket) -> Option<AccessUnitStream> {
+    pub fn process_packet(&mut self, packet: RTPPacket) -> Option<AccessUnit> {
         if packet.marker & self.timestamp.is_none() {
             self.last_seq = Some(packet.sequence_number);
             self._is_loopback = true;

@@ -29,6 +29,8 @@ mod rtp;
 mod sdp;
 mod server;
 mod stun;
+mod thumbnail_image;
+
 fn main() {
     let (server_command_sender, server_command_receiver) =
         std::sync::mpsc::channel::<ServerCommand>();

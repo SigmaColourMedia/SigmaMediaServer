@@ -1,5 +1,5 @@
 [package]
-name = "h264_still_image"
+name = "videoframe_decoder"
 version = "0.1.0"
 edition = "2021"
 

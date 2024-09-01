@@ -6,10 +6,10 @@ use openh264::decoder::Decoder;
 use openh264::formats::YUVSource;
 use openh264::nal_units;
 
-use crate::depacketizer::AccessUnitDecoder;
+use crate::access_unit_decoder::AccessUnitDecoder;
 use crate::rtp_dump::get_rtp_packets;
 
-mod depacketizer;
+mod access_unit_decoder;
 mod nal;
 mod rtp;
 mod rtp_dump;
@@ -26,11 +26,9 @@ fn main() {
     let mut decoder = Decoder::new().unwrap();
 
     for access_unit in access_units {
-        println!("new access unit\r\n");
         for nal in nal_units(&access_unit) {
             match decoder.decode(nal) {
                 Ok(decoded) => {
-                    // println!("ok for {:08b}", &nal[3]);
                     if let Some(yuv) = decoded {
                         let dimensions = yuv.dimensions();
                         let encoder = Encoder::new_file("./some.jpeg", 50).unwrap();
@@ -44,13 +42,10 @@ fn main() {
                                 ColorType::Rgb,
                             )
                             .unwrap();
-                        println!("got dimensions {:?}", dimensions);
                         panic!("got aaa hehe")
                     }
                 }
-                Err(err) => {
-                    // println!("error at {:08b}", &nal[3]);
-                }
+                Err(err) => {}
             }
         }
     }
