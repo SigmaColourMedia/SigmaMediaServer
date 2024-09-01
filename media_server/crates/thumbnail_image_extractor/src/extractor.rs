@@ -1,17 +1,26 @@
 use openh264::formats::YUVSource;
 use openh264::nal_units;
 
-use videoframe_decoder::{AccessUnitDecoder, RTPPacket};
+use crate::access_unit_decoder::AccessUnitDecoder;
+use crate::rtp::RTPPacket;
 
-struct ThumbnailExtractor {
+pub struct ThumbnailExtractor {
     last_picture: Option<ImageData>,
     au_decoder: AccessUnitDecoder,
     h264_decoder: openh264::decoder::Decoder,
 }
 
 impl ThumbnailExtractor {
+    pub fn new() -> Self {
+        ThumbnailExtractor {
+            au_decoder: AccessUnitDecoder::new(),
+            last_picture: None,
+            h264_decoder: openh264::decoder::Decoder::new()
+                .expect("OpenH264 decoder should initialize"),
+        }
+    }
     // Returns Some if new thumbnail image is available
-    fn try_extract_thumbnail(&mut self, packet: &[u8]) -> Option<()> {
+    pub fn try_extract_thumbnail(&mut self, packet: &[u8]) -> Option<()> {
         let rtp_packet = RTPPacket::try_from(packet).ok()?;
 
         let access_unit = self.au_decoder.process_packet(rtp_packet)?;
@@ -33,8 +42,8 @@ impl ThumbnailExtractor {
     }
 }
 
-struct ImageData {
-    data_buffer: Vec<u8>,
-    width: u16,
-    height: u16,
+pub struct ImageData {
+    pub data_buffer: Vec<u8>,
+    pub width: u16,
+    pub height: u16,
 }

@@ -15,10 +15,10 @@ threadpool = "1.8.1"
 openh264 = "0.6.2"
 sdp = { workspace = true }
 notification_bus = { workspace = true }
-videoframe_decoder = { workspace = true }
+thumbnail_image_extractor = { workspace = true }
 [workspace]
-members = ["crates/videoframe_decoder", "crates/notification_bus", "crates/sdp"]
+members = ["crates/thumbnail_image_extractor", "crates/notification_bus", "crates/sdp"]
 [workspace.dependencies]
 sdp = { path = "crates/sdp" }
 notification_bus = { path = "crates/notification_bus" }
-videoframe_decoder = { path = "crates/videoframe_decoder" }
+thumbnail_image_extractor = { path = "crates/thumbnail_image_extractor" }

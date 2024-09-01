@@ -1,9 +1,9 @@
 [package]
-name = "videoframe_decoder"
+name = "thumbnail_image_extractor"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 openh264 = "0.6.2"
 byteorder = "1.5.0"
-jpeg-encoder = "0.6.0"
+

@@ -160,8 +160,3 @@ struct Request {
     pathname: String,
     headers: HashMap<String, String>,
 }
-
-mod tests {
-    #[test]
-    fn it_should_pass() {}
-}

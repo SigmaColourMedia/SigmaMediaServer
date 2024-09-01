@@ -28,7 +28,6 @@ mod rnd;
 mod rtp;
 mod server;
 mod stun;
-mod thumbnail_image;
 
 fn main() {
     let (server_command_sender, server_command_receiver) =
