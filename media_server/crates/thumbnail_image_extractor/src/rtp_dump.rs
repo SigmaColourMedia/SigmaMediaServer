@@ -56,6 +56,29 @@ pub fn get_rtp_packets() -> Vec<RTPPacket> {
 
     rtp_packets
 }
+pub fn get_rtp_packets_raw() -> Vec<Vec<u8>> {
+    let rtp_dump = File::open("./assets/wireshark-dump-test.rtp").unwrap();
+    let mut reader = BufReader::new(rtp_dump);
+    let mut rtp_dump_header = vec![0u8; RTP_DUMP_HEADER_LEN + RD_HEADER_LEN]; // skip heading string + RT_D header
+    reader.read_exact(&mut rtp_dump_header).unwrap();
+
+    let mut rt_header_buffer = vec![0u8; 8];
+    let mut rtp_buffer = vec![0u8; 3000];
+
+    let mut rtp_packets = Vec::with_capacity(3000);
+
+    while let Ok(_) = reader.read_exact(&mut rt_header_buffer) {
+        let rt_header = get_rt_header(&rt_header_buffer);
+        rtp_buffer.resize(rt_header.rtp_length as usize, 0);
+
+        reader.read_exact(&mut rtp_buffer).unwrap();
+
+        let buffer: &[u8] = &rtp_buffer;
+        rtp_packets.push(buffer.to_vec())
+    }
+
+    rtp_packets
+}
 
 fn get_rt_header(buffer: &[u8]) -> RTHeader {
     let rtp_length = NetworkEndian::read_u16(&buffer[2..4]);

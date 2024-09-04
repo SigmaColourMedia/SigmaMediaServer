@@ -5,6 +5,7 @@ use crate::rtp::RTPPacket;
 
 type AccessUnit = Vec<u8>;
 
+#[derive(Clone, Debug)]
 pub struct AccessUnitDecoder {
     last_seq: Option<u16>,
     timestamp: Option<u32>,
@@ -59,7 +60,6 @@ impl AccessUnitDecoder {
 
                 let is_last_packet = packet.marker;
                 if is_last_packet {
-                    println!("producing packet {}", self.last_seq.unwrap());
                     Some(mem::replace(&mut self.internal_buffer, vec![]))
                 } else {
                     None
@@ -109,6 +109,7 @@ impl AccessUnitDecoder {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct NALDecoder {
     fragmentation_buffer: Vec<u8>,
 }
