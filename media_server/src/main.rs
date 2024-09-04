@@ -17,7 +17,9 @@ use crate::http::routes::whep::whep_route;
 use crate::http::routes::whip::whip_route;
 use crate::http::server_builder::ServerBuilder;
 use crate::http::ServerCommand;
+use crate::ice_registry::ConnectionType;
 use crate::server::UDPServer;
+use crate::thumbnail::save_thumbnail_to_storage;
 
 mod acceptor;
 mod client;
@@ -29,13 +31,12 @@ mod rnd;
 mod rtp;
 mod server;
 mod stun;
+mod thumbnail;
 
 fn main() {
     let (server_command_sender, server_command_receiver) =
         std::sync::mpsc::channel::<ServerCommand>();
     let socket = build_udp_socket();
-
-    let global_config = get_global_config();
 
     let mut udp_server = UDPServer::new(socket.try_clone().unwrap());
     let notification_bus = build_notification_bus();
@@ -133,6 +134,45 @@ fn main() {
                 notification_sender.send(notification).unwrap();
             }
             ServerCommand::CheckForTimeout => {
+                // Get all ImageData of streamers that:
+                // - Have an ImageData ready
+                // - Have no thumbnail or enough time has elapsed for the thumbnail to be updated
+                let thumbnails_to_update = udp_server
+                    .session_registry
+                    .get_all_sessions_mut()
+                    .into_iter()
+                    .filter_map(|session| match &mut session.connection_type {
+                        ConnectionType::Viewer(_) => None,
+                        ConnectionType::Streamer(streamer) => {
+                            let should_update_thumbnail = streamer.image_timestamp.is_none()
+                                || streamer
+                                    .image_timestamp
+                                    .unwrap()
+                                    .elapsed()
+                                    .gt(&Duration::from_secs(30));
+
+                            if should_update_thumbnail
+                                && streamer.thumbnail_extractor.last_picture.is_some()
+                            {
+                                // Update new thumbnail timestamp
+                                streamer.image_timestamp = Some(Instant::now());
+                                let last_picture = streamer
+                                    .thumbnail_extractor
+                                    .last_picture
+                                    .as_ref()
+                                    .unwrap()
+                                    .clone();
+                                return Some((session.id, last_picture));
+                            }
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+
+                for (thumbnail_id, thumbnail_data) in thumbnails_to_update {
+                    thread::spawn(move || save_thumbnail_to_storage(thumbnail_id, thumbnail_data));
+                }
+
                 let sessions: Vec<_> = udp_server
                     .session_registry
                     .get_all_sessions()

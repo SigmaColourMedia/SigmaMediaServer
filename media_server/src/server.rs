@@ -138,7 +138,7 @@ impl UDPServer {
         // Update session TTL
         sender_session.ttl = Instant::now();
 
-        match &sender_session.connection_type {
+        match &mut sender_session.connection_type {
             ConnectionType::Viewer(_) => {
                 if let ClientSslState::Handshake(_) = &mut sender_client.ssl_state {
                     if let Err(err) = sender_client.read_packet(&self.inbound_buffer) {
@@ -157,9 +157,9 @@ impl UDPServer {
                         let room_id = streamer.owned_room_id;
                         let rtp_packet = get_rtp_header_data(&self.inbound_buffer);
                         if rtp_packet.payload_type == 96 {
-                            self.socket
-                                .send_to(&self.inbound_buffer, "127.0.0.1:8080")
-                                .unwrap();
+                            streamer
+                                .thumbnail_extractor
+                                .try_extract_thumbnail(&self.inbound_buffer);
                         }
 
                         let viewer_ids = self
