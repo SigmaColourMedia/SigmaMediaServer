@@ -71,7 +71,7 @@ pub enum ServerCommand {
     GetRooms(Sender<Vec<u32>>),
     HandlePacket(Vec<u8>, SocketAddr),
     SendRoomsStatus,
-    CheckForTimeout,
+    RunPeriodicChecks,
 }
 
 pub struct Response {

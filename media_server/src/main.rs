@@ -133,10 +133,14 @@ fn main() {
                 };
                 notification_sender.send(notification).unwrap();
             }
-            ServerCommand::CheckForTimeout => {
+            ServerCommand::RunPeriodicChecks => {
+                // todo Move these into separate functions
+
+                // *** Save thumbnails ***
+
                 // Get all ImageData of streamers that:
                 // - Have an ImageData ready
-                // - Have no thumbnail or enough time has elapsed for the thumbnail to be updated
+                // - Have no thumbnail or enough time has passed for the thumbnail to be updated
                 let thumbnails_to_update = udp_server
                     .session_registry
                     .get_all_sessions_mut()
@@ -149,7 +153,7 @@ fn main() {
                                     .image_timestamp
                                     .unwrap()
                                     .elapsed()
-                                    .gt(&Duration::from_secs(30));
+                                    .gt(&Duration::from_secs(120));
 
                             if should_update_thumbnail
                                 && streamer.thumbnail_extractor.last_picture.is_some()
@@ -173,6 +177,7 @@ fn main() {
                     thread::spawn(move || save_thumbnail_to_storage(thumbnail_id, thumbnail_data));
                 }
 
+                // *** Remove stale sessions ***
                 let sessions: Vec<_> = udp_server
                     .session_registry
                     .get_all_sessions()
@@ -222,7 +227,7 @@ fn start_session_timeout_counter(sender: Sender<ServerCommand>) {
     loop {
         if time_reference.elapsed().gt(&Duration::from_secs(3)) {
             sender
-                .send(ServerCommand::CheckForTimeout)
+                .send(ServerCommand::RunPeriodicChecks)
                 .expect("Server channel should be open");
             time_reference = Instant::now()
         }

@@ -1,9 +1,10 @@
+use std::{fs, thread};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::thread;
+use std::time::{Duration, Instant};
 
 pub struct FileStorageBuilder {
     tcp_listener: Option<TcpListener>,
@@ -53,12 +54,25 @@ pub struct FileStorage {
 impl FileStorage {
     pub fn startup(&self) {
         let origin = Arc::new(self.cors_origin.clone());
-        let path = Arc::new(self.storage_path.clone());
+        let storage_path = Arc::new(self.storage_path.clone());
+
+        // Check for stale files in interval and remove them
+        // todo Fix this disaster. Maybe a daemon could handle this?
+        let storage_path_clone = storage_path.clone();
+        thread::spawn(move || {
+            let mut time_reference = Instant::now();
+            loop {
+                if time_reference.elapsed().gt(&Duration::from_secs(1)) {
+                    remove_stale_files(storage_path_clone.as_path());
+                    time_reference = Instant::now()
+                }
+            }
+        });
 
         for stream in self.tcp_listener.incoming() {
             if let Ok(mut stream) = stream {
                 let origin = origin.clone();
-                let path = path.clone();
+                let path = storage_path.clone();
                 // todo This can spiral out of control for large number of clients. Better use event loop or some thread-pool
                 thread::spawn(move || {
                     if let Some(request) = read_request(&mut stream) {
@@ -116,6 +130,25 @@ impl FileStorage {
                     }
                 });
             }
+        }
+    }
+}
+
+fn remove_stale_files(path: &Path) {
+    let files = fs::read_dir(path).expect("Should read files directory");
+    for entry in files {
+        let entry = entry.expect("Should read entry");
+        let is_stale_file = entry
+            .metadata()
+            .expect("Should read entry's metadata")
+            .accessed()
+            .expect("Should read access time")
+            .elapsed()
+            .expect("File should have correct last access time")
+            .gt(&Duration::from_secs(300));
+
+        if is_stale_file {
+            fs::remove_file(entry.path()).expect("Should remove file")
         }
     }
 }
