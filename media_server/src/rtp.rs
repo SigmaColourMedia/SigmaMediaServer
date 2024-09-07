@@ -64,6 +64,7 @@ fn get_mapped_header(
     }
 }
 
+// todo We could use a common struct (like RTPPacket from thumbnail_image_extractor) for this.
 pub struct RTPHeader {
     marker_set: bool,
     pub payload_type: u8,
