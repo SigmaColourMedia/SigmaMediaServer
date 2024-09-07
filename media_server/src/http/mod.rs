@@ -68,7 +68,7 @@ impl Display for HttpError {
 pub enum ServerCommand {
     AddStreamer(String, Sender<Option<String>>),
     AddViewer(String, u32, Sender<Option<String>>),
-    GetRooms(Sender<Vec<u32>>),
+    GetRooms(Sender<String>),
     HandlePacket(Vec<u8>, SocketAddr),
     SendRoomsStatus,
     RunPeriodicChecks,

@@ -117,8 +117,18 @@ fn main() {
                     .expect("Response channel should remain open")
             }
             ServerCommand::GetRooms(sender) => {
-                let rooms = udp_server.session_registry.get_room_ids();
-                sender.send(rooms).unwrap()
+                let rooms = udp_server.session_registry.get_rooms();
+                let notification = Notification {
+                    rooms: rooms
+                        .into_iter()
+                        .map(|room| Room {
+                            viewer_count: room.viewer_ids.len(),
+                            id: room.id,
+                        })
+                        .collect::<Vec<_>>(),
+                };
+                let json = serde_json::to_string(&notification).unwrap();
+                sender.send(json).expect("Channel should remain open")
             }
             ServerCommand::SendRoomsStatus => {
                 let rooms = udp_server.session_registry.get_rooms();
@@ -166,7 +176,7 @@ fn main() {
                                     .as_ref()
                                     .unwrap()
                                     .clone();
-                                return Some((session.id, last_picture));
+                                return Some((streamer.owned_room_id, last_picture));
                             }
                             None
                         }
