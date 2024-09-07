@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::config::get_global_config;
 use crate::http::Response;
 
 pub struct ResponseBuilder {
@@ -53,6 +54,11 @@ impl ResponseBuilder {
                 .map(|(key, value)| format!("{}: {}\r\n", key, value))
                 .collect::<String>()
         };
+
+        self.headers.insert(
+            "Access-Control-Allow-Origin".to_string(),
+            get_global_config().frontend_url.clone(),
+        );
 
         match self.body {
             None => {
