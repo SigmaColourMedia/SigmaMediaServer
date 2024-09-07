@@ -684,6 +684,7 @@ dependencies = [
  "openssl",
  "rand 0.8.5",
  "sdp",
+ "serde_json",
  "srtp",
  "threadpool",
  "thumbnail_image_extractor",
