@@ -52,7 +52,7 @@ pub fn parse_http(stream: &mut TcpStream) -> Option<Request> {
         .map(|length| length.parse::<usize>().ok())
         .flatten();
 
-    let mut body = content_length.map(|length| {
+    let body = content_length.map(|length| {
         let mut body = vec![0u8; length];
         buff_reader.read_exact(&mut body);
         body

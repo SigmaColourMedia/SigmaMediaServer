@@ -1,4 +1,3 @@
-use std::future::IntoFuture;
 use std::sync::mpsc::Sender;
 
 use crate::config::get_global_config;
