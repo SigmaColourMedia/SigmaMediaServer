@@ -10,7 +10,6 @@ use crate::rnd::get_random_id;
 
 type RoomID = u32;
 type ResourceID = u32;
-type HostUsername = String;
 
 pub struct SessionRegistry {
     sessions: HashMap<ResourceID, Session>,
@@ -43,13 +42,6 @@ impl SessionRegistry {
             address_map: HashMap::new(),
             rooms: HashMap::new(),
         }
-    }
-
-    pub fn get_room_ids(&self) -> Vec<RoomID> {
-        self.rooms
-            .keys()
-            .map(|val| val.to_owned())
-            .collect::<Vec<_>>()
     }
 
     pub fn get_rooms(&self) -> Vec<Room> {
@@ -145,6 +137,7 @@ impl SessionRegistry {
             .and_then(|id| self.sessions.get_mut(id))
     }
 
+    #[allow(dead_code)]
     pub fn get_session_by_address(&self, remote_address: &SocketAddr) -> Option<&Session> {
         self.address_map
             .get(remote_address)
@@ -262,12 +255,6 @@ pub struct Streamer {
     pub owned_room_id: u32,
     pub thumbnail_extractor: ThumbnailExtractor,
     pub image_timestamp: Option<Instant>,
-}
-
-#[derive(Debug)]
-pub struct SessionCredentials {
-    pub host_username: String,
-    pub host_password: String,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug)]

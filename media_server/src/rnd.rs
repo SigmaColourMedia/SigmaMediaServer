@@ -1,13 +1,4 @@
-use rand::{Rng, RngCore, thread_rng};
-use rand::distributions::Alphanumeric;
-
-pub fn get_random_string(size: usize) -> String {
-    thread_rng()
-        .sample_iter(Alphanumeric)
-        .take(size)
-        .map(char::from)
-        .collect()
-}
+use rand::{RngCore, thread_rng};
 
 pub fn get_random_id() -> u32 {
     thread_rng().next_u32()

@@ -1,6 +1,6 @@
 use std::{fs, thread};
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -185,18 +185,4 @@ fn read_request(stream: &mut TcpStream) -> Option<Request> {
     }
 
     Some(Request { headers, pathname })
-}
-
-mod tests {
-    use std::ffi::OsStr;
-    use std::path::Path;
-
-    #[test]
-    fn parses_pathname() {
-        let pathname = "/test";
-        let path = Path::new(pathname);
-        assert_eq!(path.has_root(), true);
-        assert_eq!(path.parent(), Some(Path::new("/images")));
-        assert_eq!(path.file_name(), Some(OsStr::new("imagename")));
-    }
 }

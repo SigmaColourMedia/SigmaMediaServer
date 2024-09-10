@@ -43,6 +43,7 @@ impl Display for HTTPMethod {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum HttpError {
     NotFound,
@@ -74,6 +75,7 @@ pub enum ServerCommand {
     RunPeriodicChecks,
 }
 
+#[allow(dead_code)]
 pub struct Response {
     _inner: Vec<u8>,
     pub status: usize,

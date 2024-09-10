@@ -1,4 +1,3 @@
-use std::future::IntoFuture;
 use std::sync::mpsc::Sender;
 
 use crate::config::get_global_config;
@@ -15,10 +14,7 @@ pub fn rooms_route(request: Request, command_sender: Sender<ServerCommand>) -> R
     }
 }
 
-fn get_handle(
-    request: Request,
-    command_sender: Sender<ServerCommand>,
-) -> Result<Response, HttpError> {
+fn get_handle(_: Request, command_sender: Sender<ServerCommand>) -> Result<Response, HttpError> {
     let (tx, rx) = std::sync::mpsc::channel::<String>();
     command_sender.send(ServerCommand::GetRooms(tx)).unwrap();
     let rooms = rx.recv().unwrap();

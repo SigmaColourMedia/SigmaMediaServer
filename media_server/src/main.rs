@@ -1,11 +1,9 @@
-use std::future::Future;
 use std::net::UdpSocket;
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use openssl::stack::Stackable;
 use threadpool::ThreadPool;
 
 use file_storage::FileStorageBuilder;

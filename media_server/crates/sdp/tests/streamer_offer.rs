@@ -2,7 +2,7 @@ mod streamer_offer {
     use std::collections::HashSet;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-    use sdp2::{AudioCodec, SDPResolver, VideoCodec};
+    use sdp::{AudioCodec, SDPResolver, VideoCodec};
 
     const EXPECTED_FINGERPRINT: &str = "sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B";
     fn init_sdp_resolver() -> SDPResolver {

@@ -10,7 +10,7 @@ pub fn parse_http(stream: &mut TcpStream) -> Option<Request> {
         BufReader::new(stream.try_clone().expect("Should clone TCP stream socket")).take(15000);
 
     let mut request_line = String::new();
-    buff_reader.read_line(&mut request_line);
+    buff_reader.read_line(&mut request_line).ok()?;
 
     let mut request_line = request_line.split(" ");
 
@@ -36,7 +36,7 @@ pub fn parse_http(stream: &mut TcpStream) -> Option<Request> {
 
     loop {
         let mut header_line = String::new();
-        buff_reader.read_line(&mut header_line);
+        buff_reader.read_line(&mut header_line).ok()?;
 
         if header_line.trim().is_empty() {
             break;
@@ -52,10 +52,10 @@ pub fn parse_http(stream: &mut TcpStream) -> Option<Request> {
         .map(|length| length.parse::<usize>().ok())
         .flatten();
 
-    let mut body = content_length.map(|length| {
+    let body = content_length.and_then(|length| {
         let mut body = vec![0u8; length];
-        buff_reader.read_exact(&mut body);
-        body
+        buff_reader.read_exact(&mut body).ok()?;
+        Some(body)
     });
 
     Some(Request {

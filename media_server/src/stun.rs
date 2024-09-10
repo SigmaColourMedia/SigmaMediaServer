@@ -311,6 +311,7 @@ pub enum ICEStunMessageType {
     Nomination(ICEStunPacket),
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct ICEStunPacket {
     pub username_attribute: SessionUsername,

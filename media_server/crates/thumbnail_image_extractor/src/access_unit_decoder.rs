@@ -125,7 +125,7 @@ impl NALDecoder {
         let nal_packet = get_nal_packet(rtp_packet.payload.as_slice())?;
 
         match nal_packet {
-            NALPacket::NALUnit(mut unit_packet) => Some(unit_packet.unit),
+            NALPacket::NALUnit(unit_packet) => Some(unit_packet.unit),
             NALPacket::FragmentationUnit(mut frag) => {
                 match frag.fragmentation_header.fragmentation_role {
                     FragmentationRole::Start => {

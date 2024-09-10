@@ -48,7 +48,7 @@ impl TryFrom<&[u8]> for RTPPacket {
         let version = (first_octet & 0b1100_0000) >> 6;
         let is_padding_set = (first_octet & 0b0010_0000) == 0b0010_0000;
         let is_extension_set = (first_octet & 0b0001_0000) == 0b0001_0000;
-        let csrc_count = (first_octet & 0b0000_1111);
+        let csrc_count = first_octet & 0b0000_1111;
 
         let second_octet = reader.read_u8().map_err(|_| Self::Error::PacketShort)?;
         let marker = (second_octet & 0b1000_0000) == 0b1000_0000;

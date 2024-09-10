@@ -59,7 +59,7 @@ impl ThumbnailExtractor {
                         return Some(());
                     }
                 }
-                Err(err) => {}
+                Err(_) => {}
             }
         }
         None

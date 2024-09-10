@@ -1,4 +1,4 @@
-use std::fmt::{Display, Formatter, Pointer};
+use std::fmt::{Display, Formatter};
 
 /**
 https://datatracker.ietf.org/doc/html/rfc6184#section-5.3
@@ -15,6 +15,7 @@ pub struct NALUnitHeader {
     _inner: u8,
     payload_type: PayloadType,
 }
+#[allow(non_camel_case_types)]
 #[derive(Debug)]
 pub enum PayloadType {
     NALUnit,
@@ -182,12 +183,12 @@ pub fn get_nal_packet(input: &[u8]) -> Option<NALPacket> {
 
     match &nal_unit_header.payload_type {
         PayloadType::NALUnit => {
-            let mut buffer = Vec::from(&input[0..]);
+            let buffer = Vec::from(&input[0..]);
             Some(NALPacket::NALUnit(NALUnit { unit: buffer }))
         }
         PayloadType::FU_A => {
             let fragmentation_header = NALFragmentationHeader::try_from(input[1]).ok()?;
-            let mut buffer = Vec::from(&input[2..]);
+            let buffer = Vec::from(&input[2..]);
 
             Some(NALPacket::FragmentationUnit(FragmentationUnit {
                 unit_header: nal_unit_header,

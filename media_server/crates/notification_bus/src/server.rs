@@ -157,6 +157,7 @@ fn read_request(stream: &mut TcpStream) -> Option<Request> {
     Some(Request { headers, pathname })
 }
 
+#[allow(dead_code)]
 struct Request {
     pathname: String,
     headers: HashMap<String, String>,
