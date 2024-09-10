@@ -2,7 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Instant;
 
-use sdp2::NegotiatedSession;
+use sdp::NegotiatedSession;
+use thumbnail_image_extractor::ThumbnailExtractor;
 
 use crate::client::Client;
 use crate::rnd::get_random_id;
@@ -71,6 +72,9 @@ impl SessionRegistry {
     }
     pub fn get_all_sessions(&self) -> Vec<&Session> {
         self.sessions.values().collect()
+    }
+    pub fn get_all_sessions_mut(&mut self) -> Vec<&mut Session> {
+        self.sessions.values_mut().collect()
     }
 
     pub fn remove_session(&mut self, id: ResourceID) {
@@ -224,6 +228,8 @@ impl Session {
             media_session,
             connection_type: ConnectionType::Streamer(Streamer {
                 owned_room_id: room_id,
+                thumbnail_extractor: ThumbnailExtractor::new(),
+                image_timestamp: None,
             }),
         }
     }
@@ -254,6 +260,8 @@ pub struct Viewer {
 #[derive(Debug, Clone)]
 pub struct Streamer {
     pub owned_room_id: u32,
+    pub thumbnail_extractor: ThumbnailExtractor,
+    pub image_timestamp: Option<Instant>,
 }
 
 #[derive(Debug)]

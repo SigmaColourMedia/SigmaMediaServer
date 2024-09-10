@@ -1,5 +1,6 @@
 use std::sync::mpsc::Sender;
 
+use crate::config::get_global_config;
 use crate::http::{HttpError, HTTPMethod, Request, Response, ServerCommand};
 use crate::http::parsers::map_http_err_to_response;
 use crate::http::response_builder::ResponseBuilder;
@@ -18,7 +19,6 @@ fn options_handler() -> Response {
     ResponseBuilder::new()
         .set_status(204)
         .set_header("Access-Control-Allow-Method", "POST")
-        .set_header("Access-Control-Allow-Origin", "http://localhost:9000")
         .set_header("Access-Control-Allow-Headers", "content-type")
         .build()
 }
@@ -49,14 +49,14 @@ fn post_handler(
     // todo Handle unsupported codecs
     let sdp_answer = rx.recv().unwrap().ok_or(HttpError::BadRequest)?;
 
-    println!("answer {}", sdp_answer);
+    let cors_origin = &get_global_config().frontend_url;
 
     let response_builder = ResponseBuilder::new();
     let response = response_builder
         .set_status(200)
         .set_header("content-type", "application/sdp")
         .set_header("Access-Control-Allow-Method", "POST")
-        .set_header("Access-Control-Allow-Origin", "http://localhost:9000")
+        .set_header("Access-Control-Allow-Origin", cors_origin)
         .set_header("location", "http://localhost:8080/whep")
         .set_body(sdp_answer.as_bytes())
         .build();

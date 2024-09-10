@@ -12,10 +12,16 @@ byteorder = "1.5.0"
 crc32fast = "1.4.0"
 srtp = "0.7.0"
 threadpool = "1.8.1"
-sdp2 = { workspace = true }
+webp = "0.3.0"
+sdp = { workspace = true }
 notification_bus = { workspace = true }
+thumbnail_image_extractor = { workspace = true }
+file_storage = { workspace = true }
+serde_json = "1.0.122"
 [workspace]
-members = ["crates/notification_bus", "crates/sdp"]
+members = ["crates/thumbnail_image_extractor", "crates/notification_bus", "crates/sdp", "crates/file_storage"]
 [workspace.dependencies]
-sdp2 = { path = "crates/sdp" }
+sdp = { path = "crates/sdp" }
 notification_bus = { path = "crates/notification_bus" }
+thumbnail_image_extractor = { path = "crates/thumbnail_image_extractor" }
+file_storage = { path = "crates/file_storage" }

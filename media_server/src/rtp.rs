@@ -1,6 +1,6 @@
 use byteorder::{ByteOrder, NetworkEndian};
 
-use sdp2::NegotiatedSession;
+use sdp::NegotiatedSession;
 
 /**
 https://datatracker.ietf.org/doc/html/rfc3550#section-5.1
@@ -64,16 +64,17 @@ fn get_mapped_header(
     }
 }
 
-struct RTPHeader {
+// todo We could use a common struct (like RTPPacket from thumbnail_image_extractor) for this.
+pub struct RTPHeader {
     marker_set: bool,
-    payload_type: u8,
+    pub payload_type: u8,
     ssrc: u32,
 }
-fn get_rtp_header_data(buffer: &[u8]) -> RTPHeader {
+pub fn get_rtp_header_data(buffer: &[u8]) -> RTPHeader {
     let first_byte = buffer[1];
 
     let marker_set = (first_byte & 0b1000_0000) == 0b1000_0000;
-    let payload_type = first_byte ^ 0b0000_0000;
+    let payload_type = first_byte & 0b0111_1111;
     let ssrc = NetworkEndian::read_u32(&buffer[8..12]);
 
     RTPHeader {

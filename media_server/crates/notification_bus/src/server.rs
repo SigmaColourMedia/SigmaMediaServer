@@ -68,6 +68,7 @@ impl NotificationBus {
         for incoming in self.tcp_listener.incoming() {
             let receiver = self.notification_channel.1.clone();
             let origin = origin.clone();
+            // todo This can spiral out of control for large number of clients. Better use event loop or some thread-pool
             thread::spawn(move || {
                 if let Ok(mut tcp_stream) = incoming {
                     if let Some(request) = read_request(&mut tcp_stream) {
@@ -159,9 +160,4 @@ fn read_request(stream: &mut TcpStream) -> Option<Request> {
 struct Request {
     pathname: String,
     headers: HashMap<String, String>,
-}
-
-mod tests {
-    #[test]
-    fn it_should_pass() {}
 }

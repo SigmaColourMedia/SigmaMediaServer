@@ -2,12 +2,12 @@ use std::io::Write;
 use std::net::{SocketAddr, UdpSocket};
 use std::time::Instant;
 
-use sdp2::SDPResolver;
+use sdp::SDPResolver;
 
 use crate::client::{Client, ClientSslState};
 use crate::config::get_global_config;
 use crate::ice_registry::{ConnectionType, SessionRegistry};
-use crate::rtp::remap_rtp_header;
+use crate::rtp::{get_rtp_header_data, remap_rtp_header};
 use crate::stun::{create_stun_success, get_stun_packet, ICEStunMessageType};
 
 pub struct UDPServer {
@@ -138,7 +138,7 @@ impl UDPServer {
         // Update session TTL
         sender_session.ttl = Instant::now();
 
-        match &sender_session.connection_type {
+        match &mut sender_session.connection_type {
             ConnectionType::Viewer(_) => {
                 if let ClientSslState::Handshake(_) = &mut sender_client.ssl_state {
                     if let Err(err) = sender_client.read_packet(&self.inbound_buffer) {
@@ -155,6 +155,16 @@ impl UDPServer {
                 ClientSslState::Established(ssl_stream) => {
                     if let Ok(_) = ssl_stream.srtp_inbound.unprotect(&mut self.inbound_buffer) {
                         let room_id = streamer.owned_room_id;
+
+                        let is_video_packet = get_rtp_header_data(&self.inbound_buffer)
+                            .payload_type
+                            .eq(&(sender_session.media_session.video_session.payload_number as u8));
+
+                        if is_video_packet {
+                            streamer
+                                .thumbnail_extractor
+                                .try_extract_thumbnail(&self.inbound_buffer);
+                        }
 
                         let viewer_ids = self
                             .session_registry
