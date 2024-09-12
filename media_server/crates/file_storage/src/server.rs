@@ -4,6 +4,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 pub struct FileStorageBuilder {
@@ -62,10 +63,9 @@ impl FileStorage {
         thread::spawn(move || {
             let mut time_reference = Instant::now();
             loop {
-                if time_reference.elapsed().gt(&Duration::from_secs(1)) {
-                    remove_stale_files(storage_path_clone.as_path());
-                    time_reference = Instant::now()
-                }
+                sleep(Duration::from_secs(1));
+                remove_stale_files(storage_path_clone.as_path());
+                time_reference = Instant::now()
             }
         });
 

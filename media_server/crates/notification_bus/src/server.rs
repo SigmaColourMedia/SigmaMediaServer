@@ -3,6 +3,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
 use std::thread;
+use std::thread::sleep;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -143,6 +145,8 @@ fn read_request(stream: &mut TcpStream) -> Option<Request> {
     let pathname = heading_split.next()?.to_string();
     let mut headers = HashMap::new();
     loop {
+        sleep(Duration::from_millis(5));
+
         let mut header = String::new();
         reader.read_line(&mut header).ok()?;
 

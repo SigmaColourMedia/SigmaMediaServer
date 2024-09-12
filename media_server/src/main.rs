@@ -2,6 +2,7 @@ use std::net::UdpSocket;
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
 use std::thread;
+use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use threadpool::ThreadPool;
@@ -62,6 +63,7 @@ fn main() {
     });
 
     loop {
+        sleep(Duration::from_millis(1));
         match server_command_receiver
             .recv()
             .expect("Server channel should be open")
@@ -219,34 +221,29 @@ fn start_file_storage_server() {
 }
 
 fn start_notification_poll(sender: Sender<ServerCommand>) {
-    let mut time_reference = Instant::now();
     loop {
-        if time_reference.elapsed().gt(&Duration::from_secs(1)) {
-            sender
-                .send(ServerCommand::SendRoomsStatus)
-                .expect("Server channel should be open");
-            time_reference = Instant::now()
-        }
+        sleep(Duration::from_secs(1));
+        sender
+            .send(ServerCommand::SendRoomsStatus)
+            .expect("Server channel should be open");
     }
 }
 
 fn start_session_timeout_counter(sender: Sender<ServerCommand>) {
-    let mut time_reference = Instant::now();
     loop {
-        if time_reference.elapsed().gt(&Duration::from_secs(3)) {
-            sender
-                .send(ServerCommand::RunPeriodicChecks)
-                .expect("Server channel should be open");
-            time_reference = Instant::now()
-        }
+        sleep(Duration::from_secs(3));
+        sender
+            .send(ServerCommand::RunPeriodicChecks)
+            .expect("Server channel should be open");
     }
 }
 
 fn start_udp_server(socket: UdpSocket, sender: Sender<ServerCommand>) {
     loop {
-        let mut buffer = [0; 3600];
+        sleep(Duration::from_millis(1));
 
-        if let Ok((bytes_read, remote)) = socket.recv_from(&mut buffer) {
+        let mut buffer = [0; 3600];
+        for (bytes_read, remote) in socket.recv_from(&mut buffer) {
             sender
                 .send(ServerCommand::HandlePacket(
                     Vec::from(&buffer[..bytes_read]),
@@ -269,6 +266,8 @@ fn start_http_server(command_sender: Sender<ServerCommand>) {
     let server = Arc::new(server_builder.build());
 
     loop {
+        sleep(Duration::from_millis(5));
+
         let server = server.clone();
         if let Ok(stream) = server.read_stream() {
             pool.execute(move || {
