@@ -33,6 +33,11 @@ impl ResponseBuilder {
         self
     }
 
+    pub fn add_body(mut self, body: Vec<u8>) -> Self {
+        self.body = Some(Vec::from(body));
+        self
+    }
+
     pub fn build(mut self) -> Response {
         let status = self.status.expect("No status provided for response");
 

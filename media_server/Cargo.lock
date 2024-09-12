@@ -679,11 +679,13 @@ version = "0.1.0"
 dependencies = [
  "byteorder",
  "crc32fast",
+ "crossbeam-channel",
  "file_storage",
  "notification_bus",
  "openssl",
  "rand 0.8.5",
  "sdp",
+ "serde",
  "serde_json",
  "srtp",
  "threadpool",

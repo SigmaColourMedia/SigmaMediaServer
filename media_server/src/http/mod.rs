@@ -5,8 +5,7 @@ use std::sync::mpsc::Sender;
 
 pub mod parsers;
 pub mod response_builder;
-pub mod routes;
-pub mod server_builder;
+pub mod server;
 
 #[derive(Debug)]
 pub struct Request {
@@ -68,7 +67,6 @@ impl Display for HttpError {
 pub enum ServerCommand {
     AddStreamer(String, Sender<Option<String>>),
     AddViewer(String, u32, Sender<Option<String>>),
-    GetRooms(Sender<String>),
     HandlePacket(Vec<u8>, SocketAddr),
     SendRoomsStatus,
     RunPeriodicChecks,
