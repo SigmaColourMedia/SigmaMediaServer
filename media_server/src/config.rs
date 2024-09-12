@@ -1,4 +1,5 @@
 use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::OnceLock;
 
@@ -9,20 +10,20 @@ pub struct Config {
     pub tcp_server_config: TCPServerConfig,
     pub udp_server_config: UDPServerConfig,
     pub frontend_url: String,
+    pub storage_dir: PathBuf,
 }
 
 const TCP_IP_ENV: &'static str = "TCP_ADDRESS";
 const TCP_PORT_ENV: &'static str = "TCP_PORT";
 const UDP_IP_ENV: &'static str = "UDP_ADDRESS";
-
 const UDP_PORT_ENV: &'static str = "UDP_PORT";
 const WHIP_TOKEN_ENV: &'static str = "WHIP_TOKEN";
 const FRONTEND_URL_ENV: &'static str = "FRONTEND_URL";
+const STORAGE_DIR: &'static str = "STORAGE_DIR";
+const CERTS_DIR: &'static str = "CERTS_DIR";
 
 impl Config {
     pub fn initialize() -> Self {
-        let ssl_config = SSLConfig::new();
-
         // TCP server config
         let tcp_ip = IpAddr::from_str(
             &std::env::var(TCP_IP_ENV)
@@ -61,6 +62,12 @@ impl Config {
         let frontend_url =
             std::env::var(FRONTEND_URL_ENV).expect("FRONTEND_URL env should be defined");
 
+        // Configurable directories
+        let storage_dir = PathBuf::from(std::env::var(STORAGE_DIR).unwrap());
+        let certs_dir = PathBuf::from(std::env::var(CERTS_DIR).unwrap());
+
+        let ssl_config = SSLConfig::new(certs_dir);
+
         Config {
             ssl_config,
             udp_server_config: UDPServerConfig {
@@ -71,6 +78,7 @@ impl Config {
                 address: tcp_address,
             },
             frontend_url,
+            storage_dir,
         }
     }
 }
@@ -87,13 +95,5 @@ pub struct TCPServerConfig {
 }
 
 pub struct UDPServerConfig {
-    pub address: SocketAddr,
-}
-
-pub struct NotificationBusConfig {
-    pub address: SocketAddr,
-}
-
-pub struct FileStorageConfig {
     pub address: SocketAddr,
 }

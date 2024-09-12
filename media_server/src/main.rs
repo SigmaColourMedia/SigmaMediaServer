@@ -42,12 +42,7 @@ fn main() {
     });
     thread::spawn({
         let sender = server_command_sender.clone();
-        move || start_session_timeout_counter(sender)
-    });
-
-    thread::spawn({
-        let sender = server_command_sender.clone();
-        move || start_notification_poll(sender)
+        move || start_timeout_interval(sender)
     });
 
     loop {
@@ -168,26 +163,25 @@ fn main() {
                     .map(|&session| (session.id.clone(), session.ttl))
                     .collect();
 
+                let mut is_any_room_modified = false;
                 for (id, ttl) in sessions {
                     if ttl.elapsed() > Duration::from_secs(5) {
                         udp_server.session_registry.remove_session(id);
+                        is_any_room_modified = true;
                     }
+                }
+                // If rooms were modified, notify listeners
+                if is_any_room_modified {
+                    server_command_sender
+                        .send(ServerCommand::SendRoomsStatus)
+                        .expect("ServerCommand Channel should remain open")
                 }
             }
         }
     }
 }
 
-fn start_notification_poll(sender: Sender<ServerCommand>) {
-    loop {
-        sleep(Duration::from_secs(1));
-        sender
-            .send(ServerCommand::SendRoomsStatus)
-            .expect("Server channel should be open");
-    }
-}
-
-fn start_session_timeout_counter(sender: Sender<ServerCommand>) {
+fn start_timeout_interval(sender: Sender<ServerCommand>) {
     loop {
         sleep(Duration::from_secs(3));
         sender

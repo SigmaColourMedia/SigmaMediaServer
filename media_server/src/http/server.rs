@@ -1,7 +1,7 @@
 use std::fs;
 use std::io::Write;
 use std::net::TcpListener;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::mpsc::{channel, Sender};
 
 use serde::{Deserialize, Serialize};
@@ -197,7 +197,7 @@ fn images_route(request: Request) -> Result<Response, HttpError> {
     let parsed_name = Path::new(file_name)
         .file_name()
         .ok_or(HttpError::BadRequest)?;
-    let mut file_pathname = PathBuf::from("../temp");
+    let mut file_pathname = get_global_config().storage_dir.clone();
     file_pathname.push(parsed_name);
     let target_file = fs::read(file_pathname).map_err(|_| HttpError::NotFound)?;
 
