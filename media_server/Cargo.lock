@@ -193,10 +193,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "file_storage"
-version = "0.1.0"
-
-[[package]]
 name = "foreign-types"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -375,15 +371,6 @@ checksum = "08959a387a676302eebf4ddbcbc611da04285579f76f88ee0506c63b1a61dd4b"
 dependencies = [
  "memchr",
  "version_check",
-]
-
-[[package]]
-name = "notification_bus"
-version = "0.1.0"
-dependencies = [
- "crossbeam-channel",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -679,11 +666,11 @@ version = "0.1.0"
 dependencies = [
  "byteorder",
  "crc32fast",
- "file_storage",
- "notification_bus",
+ "crossbeam-channel",
  "openssl",
  "rand 0.8.5",
  "sdp",
+ "serde",
  "serde_json",
  "srtp",
  "threadpool",

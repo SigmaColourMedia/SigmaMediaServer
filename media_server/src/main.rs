@@ -1,20 +1,11 @@
 use std::net::UdpSocket;
-use std::sync::Arc;
 use std::sync::mpsc::Sender;
 use std::thread;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use threadpool::ThreadPool;
-
-use file_storage::FileStorageBuilder;
-use notification_bus::{Notification, NotificationBus, NotificationBusBuilder, Room};
-
 use crate::config::get_global_config;
-use crate::http::routes::rooms::rooms_route;
-use crate::http::routes::whep::whep_route;
-use crate::http::routes::whip::whip_route;
-use crate::http::server_builder::ServerBuilder;
+use crate::http::server::{Notification, Room, start_http_server};
 use crate::http::ServerCommand;
 use crate::ice_registry::ConnectionType;
 use crate::server::UDPServer;
@@ -24,7 +15,6 @@ mod acceptor;
 mod client;
 mod config;
 mod http;
-mod http_server;
 mod ice_registry;
 mod rnd;
 mod rtp;
@@ -35,15 +25,15 @@ mod thumbnail;
 fn main() {
     let (server_command_sender, server_command_receiver) =
         std::sync::mpsc::channel::<ServerCommand>();
-    let socket = build_udp_socket();
+    let (notification_sender, notification_receiver) =
+        crossbeam_channel::unbounded::<Notification>();
 
+    let socket = build_udp_socket();
     let mut udp_server = UDPServer::new(socket.try_clone().unwrap());
-    let notification_bus = build_notification_bus();
-    let notification_sender = notification_bus.get_sender();
 
     thread::spawn({
-        let sender = server_command_sender.clone();
-        move || start_http_server(sender)
+        let server_command_sender = server_command_sender.clone();
+        move || start_http_server(server_command_sender, notification_receiver)
     });
     thread::spawn({
         let sender = server_command_sender.clone();
@@ -52,18 +42,10 @@ fn main() {
     });
     thread::spawn({
         let sender = server_command_sender.clone();
-        move || start_session_timeout_counter(sender)
-    });
-    thread::spawn(move || notification_bus.startup());
-    thread::spawn(move || start_file_storage_server());
-
-    thread::spawn(move || {
-        let sender = server_command_sender.clone();
-        start_notification_poll(sender)
+        move || start_timeout_interval(sender)
     });
 
     loop {
-        sleep(Duration::from_millis(1));
         match server_command_receiver
             .recv()
             .expect("Server channel should be open")
@@ -116,20 +98,6 @@ fn main() {
                     .send(response)
                     .expect("Response channel should remain open")
             }
-            ServerCommand::GetRooms(sender) => {
-                let rooms = udp_server.session_registry.get_rooms();
-                let notification = Notification {
-                    rooms: rooms
-                        .into_iter()
-                        .map(|room| Room {
-                            viewer_count: room.viewer_ids.len(),
-                            id: room.id,
-                        })
-                        .collect::<Vec<_>>(),
-                };
-                let json = serde_json::to_string(&notification).unwrap();
-                sender.send(json).expect("Channel should remain open")
-            }
             ServerCommand::SendRoomsStatus => {
                 let rooms = udp_server.session_registry.get_rooms();
                 let notification = Notification {
@@ -141,7 +109,7 @@ fn main() {
                         })
                         .collect::<Vec<_>>(),
                 };
-                notification_sender.send(notification).unwrap();
+                notification_sender.send(notification);
             }
             ServerCommand::RunPeriodicChecks => {
                 // todo Move these into separate functions
@@ -195,41 +163,25 @@ fn main() {
                     .map(|&session| (session.id.clone(), session.ttl))
                     .collect();
 
+                let mut is_any_room_modified = false;
                 for (id, ttl) in sessions {
                     if ttl.elapsed() > Duration::from_secs(5) {
                         udp_server.session_registry.remove_session(id);
+                        is_any_room_modified = true;
                     }
+                }
+                // If rooms were modified, notify listeners
+                if is_any_room_modified {
+                    server_command_sender
+                        .send(ServerCommand::SendRoomsStatus)
+                        .expect("ServerCommand Channel should remain open")
                 }
             }
         }
     }
 }
 
-fn start_file_storage_server() {
-    let global_config = get_global_config();
-    let file_storage = FileStorageBuilder::new()
-        .add_address(global_config.file_storage_config.address)
-        .add_cors_origin(global_config.frontend_url.clone())
-        .add_storage_path("../temp")
-        .build();
-
-    println!(
-        "Running File Storage server at {}",
-        global_config.file_storage_config.address
-    );
-    file_storage.startup();
-}
-
-fn start_notification_poll(sender: Sender<ServerCommand>) {
-    loop {
-        sleep(Duration::from_secs(1));
-        sender
-            .send(ServerCommand::SendRoomsStatus)
-            .expect("Server channel should be open");
-    }
-}
-
-fn start_session_timeout_counter(sender: Sender<ServerCommand>) {
+fn start_timeout_interval(sender: Sender<ServerCommand>) {
     loop {
         sleep(Duration::from_secs(3));
         sender
@@ -243,7 +195,7 @@ fn start_udp_server(socket: UdpSocket, sender: Sender<ServerCommand>) {
         sleep(Duration::from_millis(1));
 
         let mut buffer = [0; 3600];
-        for (bytes_read, remote) in socket.recv_from(&mut buffer) {
+        if let Ok((bytes_read, remote)) = socket.recv_from(&mut buffer) {
             sender
                 .send(ServerCommand::HandlePacket(
                     Vec::from(&buffer[..bytes_read]),
@@ -252,43 +204,6 @@ fn start_udp_server(socket: UdpSocket, sender: Sender<ServerCommand>) {
                 .expect("Command channel should be open")
         }
     }
-}
-
-fn start_http_server(command_sender: Sender<ServerCommand>) {
-    let mut server_builder = ServerBuilder::new();
-    server_builder.add_handler("/whip", |req, sender| whip_route(req, sender));
-    server_builder.add_handler("/rooms", |req, sender| rooms_route(req, sender));
-    server_builder.add_handler("/whep", |req, sender| whep_route(req, sender));
-    server_builder.add_sender(command_sender);
-
-    let pool = ThreadPool::new(4);
-
-    let server = Arc::new(server_builder.build());
-
-    loop {
-        sleep(Duration::from_millis(5));
-
-        let server = server.clone();
-        if let Ok(stream) = server.read_stream() {
-            pool.execute(move || {
-                server.handle_stream(stream);
-            });
-        }
-    }
-}
-
-fn build_notification_bus() -> NotificationBus {
-    let global_config = get_global_config();
-    let notification_bus = NotificationBusBuilder::new()
-        .add_address(global_config.notification_bus_config.address)
-        .add_cors_origin(global_config.frontend_url.clone())
-        .build();
-
-    println!(
-        "Running Notification Bus server at {}",
-        global_config.notification_bus_config.address
-    );
-    notification_bus
 }
 
 fn build_udp_socket() -> UdpSocket {
