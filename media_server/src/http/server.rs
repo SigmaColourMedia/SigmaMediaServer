@@ -25,6 +25,10 @@ pub fn start_http_server(
 ) {
     let pool = ThreadPool::new(60);
     let listener = TcpListener::bind(get_global_config().tcp_server_config.address).unwrap();
+    println!(
+        "Running TCP server at {}",
+        get_global_config().tcp_server_config.address
+    );
     for mut stream in listener.incoming() {
         let sender = sender.clone();
         let receiver = receiver.clone();
@@ -56,24 +60,19 @@ pub fn start_http_server(
                         stream.write_all(response.as_bytes());
                     }
                     "/notifications" => {
-                        sender
-                            .clone()
-                            .send(ServerCommand::SendRoomsStatus)
-                            .expect("ServerCommand channel should remain open");
-                        let rooms = receiver.recv().unwrap();
-
-                        let message =
-                            format!("data: {}\r\n\r\n", serde_json::to_string(&rooms).unwrap());
                         let response = ResponseBuilder::new()
                             .set_status(200)
                             .set_header("Connection", "keep-alive")
                             .set_header("Cache-control", "no-cache")
                             .set_header("content-type", "text/event-stream")
-                            .set_body(message.as_bytes())
                             .build();
                         if let Err(_) = stream.write_all(response.as_bytes()) {
                             return; // broken pipe
                         }
+                        sender
+                            .clone()
+                            .send(ServerCommand::SendRoomsStatus)
+                            .expect("ServerCommand channel should remain open");
 
                         loop {
                             if let Ok(notification) = receiver.recv() {
