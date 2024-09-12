@@ -4,10 +4,8 @@ use std::thread;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use notification_bus::{Notification, Room};
-
 use crate::config::get_global_config;
-use crate::http::server::start_http_server;
+use crate::http::server::{Notification, Room, start_http_server};
 use crate::http::ServerCommand;
 use crate::ice_registry::ConnectionType;
 use crate::server::UDPServer;

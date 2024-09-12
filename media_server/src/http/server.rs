@@ -4,9 +4,8 @@ use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Sender};
 
+use serde::{Deserialize, Serialize};
 use threadpool::ThreadPool;
-
-use notification_bus::Notification;
 
 use crate::config::get_global_config;
 use crate::http::{HttpError, HTTPMethod, Request, Response, ServerCommand};
@@ -208,4 +207,15 @@ fn images_route(request: Request) -> Result<Response, HttpError> {
         .set_header("Content-Type", "image/webp")
         .add_body(target_file)
         .build())
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Notification {
+    pub rooms: Vec<Room>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Room {
+    pub viewer_count: usize,
+    pub id: u32,
 }
