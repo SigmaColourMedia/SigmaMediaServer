@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, thread};
 use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
@@ -24,7 +24,7 @@ pub fn start_http_server(sender: Sender<ServerCommand>) {
     for mut stream in listener.incoming() {
         let sender = sender.clone();
 
-        pool.execute(move || {
+        thread::spawn(move || {
             let mut stream = stream.unwrap();
             if let Some(request) = parse_http(&mut stream) {
                 match request.path.as_str() {
@@ -47,34 +47,40 @@ pub fn start_http_server(sender: Sender<ServerCommand>) {
                             images_route(request).unwrap_or_else(map_http_err_to_response);
                         stream.write_all(response.as_bytes());
                     }
-                    "/notifications" => notification_route(&mut stream, sender.clone()),
+                    "/notifications" => {
+                        notification_route(&mut stream, sender.clone());
+                    }
                     _ => {
                         let response = map_http_err_to_response(HttpError::NotFound);
                         stream.write_all(response.as_bytes());
                     }
                 }
             }
-        })
+        });
     }
 }
 
 fn notification_route(stream: &mut TcpStream, sender: Sender<ServerCommand>) {
     let notification_channel = channel::<Notification>();
-    let response = ResponseBuilder::new()
-        .set_status(200)
-        .set_header("Connection", "keep-alive")
-        .set_header("Cache-control", "no-cache")
-        .set_header("content-type", "text/event-stream")
-        .build();
-    if let Err(_) = stream.write_all(response.as_bytes()) {
-        return; // broken pipe
-    }
     sender
         .clone()
         .send(ServerCommand::SendRoomsStatus(
             notification_channel.0.clone(),
         ))
         .expect("ServerCommand channel should remain open");
+
+    let response = ResponseBuilder::new()
+        .set_status(200)
+        .set_header("Connection", "keep-alive")
+        .set_header("Cache-control", "no-cache")
+        .set_header("content-type", "text/event-stream")
+        .build();
+    if let Err(_) = stream
+        .write_all(response.as_bytes())
+        .and_then(|_| stream.flush())
+    {
+        return; // broken pipe
+    }
 
     loop {
         if let Ok(notification) = notification_channel.1.recv() {
