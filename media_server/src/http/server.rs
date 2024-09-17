@@ -47,6 +47,11 @@ pub fn start_http_server(sender: Sender<ServerCommand>) {
                             images_route(request).unwrap_or_else(map_http_err_to_response);
                         stream.write_all(response.as_bytes());
                     }
+                    "/rooms" => {
+                        let response =
+                            rooms_route(sender.clone()).unwrap_or_else(map_http_err_to_response);
+                        stream.write_all(response.as_bytes());
+                    }
                     "/notifications" => {
                         notification_route(&mut stream, sender.clone());
                     }
@@ -60,7 +65,7 @@ pub fn start_http_server(sender: Sender<ServerCommand>) {
     }
 }
 
-fn notification_route(stream: &mut TcpStream, sender: Sender<ServerCommand>) {
+fn rooms_route(sender: Sender<ServerCommand>) -> Result<Response, HttpError> {
     let notification_channel = channel::<Notification>();
     sender
         .clone()
@@ -69,6 +74,28 @@ fn notification_route(stream: &mut TcpStream, sender: Sender<ServerCommand>) {
         ))
         .expect("ServerCommand channel should remain open");
 
+    let notification = notification_channel
+        .1
+        .recv()
+        .map_err(|_| HttpError::InternalServerError)?;
+
+    let payload = format_notification_to_string(notification);
+
+    Ok(ResponseBuilder::new()
+        .set_status(200)
+        .set_header("content-type", "application/json")
+        .set_body(payload.as_bytes())
+        .build())
+}
+
+fn notification_route(stream: &mut TcpStream, sender: Sender<ServerCommand>) {
+    let notification_channel = channel::<Notification>();
+    sender
+        .clone()
+        .send(ServerCommand::SendRoomsStatus(
+            notification_channel.0.clone(),
+        ))
+        .expect("ServerCommand channel should remain open");
     let response = ResponseBuilder::new()
         .set_status(200)
         .set_header("Connection", "keep-alive")
@@ -103,10 +130,7 @@ fn notification_route(stream: &mut TcpStream, sender: Sender<ServerCommand>) {
 }
 
 fn format_notification_to_string(notification: Notification) -> String {
-    format!(
-        "data: {}\r\n\r\n",
-        serde_json::to_string(&notification).unwrap()
-    )
+    serde_json::to_string(&notification).unwrap()
 }
 
 fn whip_route(
