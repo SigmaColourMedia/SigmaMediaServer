@@ -1,4 +1,4 @@
-use std::{fs, thread};
+use std::fs;
 use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
@@ -24,7 +24,7 @@ pub fn start_http_server(sender: Sender<ServerCommand>) {
     for mut stream in listener.incoming() {
         let sender = sender.clone();
 
-        thread::spawn(move || {
+        pool.execute(move || {
             let mut stream = stream.unwrap();
             if let Some(request) = parse_http(&mut stream) {
                 match request.path.as_str() {
