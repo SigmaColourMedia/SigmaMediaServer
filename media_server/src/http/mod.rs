@@ -3,6 +3,8 @@ use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
 use std::sync::mpsc::Sender;
 
+use crate::http::server::Notification;
+
 pub mod parsers;
 pub mod response_builder;
 pub mod server;
@@ -68,7 +70,7 @@ pub enum ServerCommand {
     AddStreamer(String, Sender<Option<String>>),
     AddViewer(String, u32, Sender<Option<String>>),
     HandlePacket(Vec<u8>, SocketAddr),
-    SendRoomsStatus,
+    SendRoomsStatus(Sender<Notification>),
     RunPeriodicChecks,
 }
 

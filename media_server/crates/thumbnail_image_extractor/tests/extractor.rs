@@ -47,7 +47,6 @@ fn find_yuv_in_extract() {
             oks.push(true)
         }
     }
-    println!("{}", oks.len());
 
     assert_eq!(oks.is_empty(), false);
 }

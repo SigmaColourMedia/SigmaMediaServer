@@ -25,15 +25,12 @@ mod thumbnail;
 fn main() {
     let (server_command_sender, server_command_receiver) =
         std::sync::mpsc::channel::<ServerCommand>();
-    let (notification_sender, notification_receiver) =
-        crossbeam_channel::unbounded::<Notification>();
-
     let socket = build_udp_socket();
     let mut udp_server = UDPServer::new(socket.try_clone().unwrap());
 
     thread::spawn({
         let server_command_sender = server_command_sender.clone();
-        move || start_http_server(server_command_sender, notification_receiver)
+        move || start_http_server(server_command_sender)
     });
     thread::spawn({
         let sender = server_command_sender.clone();
@@ -98,7 +95,7 @@ fn main() {
                     .send(response)
                     .expect("Response channel should remain open")
             }
-            ServerCommand::SendRoomsStatus => {
+            ServerCommand::SendRoomsStatus(reply_channel) => {
                 let rooms = udp_server.session_registry.get_rooms();
                 let notification = Notification {
                     rooms: rooms
@@ -109,7 +106,7 @@ fn main() {
                         })
                         .collect::<Vec<_>>(),
                 };
-                notification_sender.send(notification);
+                reply_channel.send(notification);
             }
             ServerCommand::RunPeriodicChecks => {
                 // todo Move these into separate functions
@@ -163,18 +160,10 @@ fn main() {
                     .map(|&session| (session.id.clone(), session.ttl))
                     .collect();
 
-                let mut is_any_room_modified = false;
                 for (id, ttl) in sessions {
                     if ttl.elapsed() > Duration::from_secs(5) {
                         udp_server.session_registry.remove_session(id);
-                        is_any_room_modified = true;
                     }
-                }
-                // If rooms were modified, notify listeners
-                if is_any_room_modified {
-                    server_command_sender
-                        .send(ServerCommand::SendRoomsStatus)
-                        .expect("ServerCommand Channel should remain open")
                 }
             }
         }

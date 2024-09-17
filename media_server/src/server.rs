@@ -52,7 +52,6 @@ impl UDPServer {
                     .session_registry
                     .get_session_by_username_mut(&msg.username_attribute)
                 {
-                    println!("live check");
                     session.ttl = Instant::now();
 
                     let mut buffer: [u8; 200] = [0; 200];

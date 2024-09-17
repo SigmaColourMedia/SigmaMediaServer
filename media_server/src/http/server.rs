@@ -1,8 +1,10 @@
 use std::fs;
 use std::io::Write;
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::sync::mpsc::{channel, Sender};
+use std::thread::sleep;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use threadpool::ThreadPool;
@@ -12,17 +14,7 @@ use crate::http::{HttpError, HTTPMethod, Request, Response, ServerCommand};
 use crate::http::parsers::{map_http_err_to_response, parse_http};
 use crate::http::response_builder::ResponseBuilder;
 
-struct HttpServer {
-    tcp_listener: TcpListener,
-    server_command_sender: Sender<ServerCommand>,
-    notification_bus_receiver: crossbeam_channel::Receiver<Notification>,
-    pool: ThreadPool,
-}
-
-pub fn start_http_server(
-    sender: Sender<ServerCommand>,
-    receiver: crossbeam_channel::Receiver<Notification>,
-) {
+pub fn start_http_server(sender: Sender<ServerCommand>) {
     let pool = ThreadPool::new(60);
     let listener = TcpListener::bind(get_global_config().tcp_server_config.address).unwrap();
     println!(
@@ -31,7 +23,7 @@ pub fn start_http_server(
     );
     for mut stream in listener.incoming() {
         let sender = sender.clone();
-        let receiver = receiver.clone();
+
         pool.execute(move || {
             let mut stream = stream.unwrap();
             if let Some(request) = parse_http(&mut stream) {
@@ -39,10 +31,6 @@ pub fn start_http_server(
                     "/whip" => {
                         let response = whip_route(request, sender.clone())
                             .unwrap_or_else(map_http_err_to_response);
-                        println!(
-                            "response is {}",
-                            String::from_utf8_lossy(response.as_bytes())
-                        );
                         stream.write_all(response.as_bytes()).unwrap()
                     }
                     "/whep" => {
@@ -59,36 +47,7 @@ pub fn start_http_server(
                             images_route(request).unwrap_or_else(map_http_err_to_response);
                         stream.write_all(response.as_bytes());
                     }
-                    "/notifications" => {
-                        let response = ResponseBuilder::new()
-                            .set_status(200)
-                            .set_header("Connection", "keep-alive")
-                            .set_header("Cache-control", "no-cache")
-                            .set_header("content-type", "text/event-stream")
-                            .build();
-                        if let Err(_) = stream.write_all(response.as_bytes()) {
-                            return; // broken pipe
-                        }
-                        sender
-                            .clone()
-                            .send(ServerCommand::SendRoomsStatus)
-                            .expect("ServerCommand channel should remain open");
-
-                        loop {
-                            if let Ok(notification) = receiver.recv() {
-                                let message = format!(
-                                    "data: {}\r\n\r\n",
-                                    serde_json::to_string(&notification).unwrap()
-                                );
-                                if let Err(_) = stream
-                                    .write_all(message.as_bytes())
-                                    .and_then(|_| stream.flush())
-                                {
-                                    return; // broken pipe
-                                }
-                            }
-                        }
-                    }
+                    "/notifications" => notification_route(&mut stream, sender.clone()),
                     _ => {
                         let response = map_http_err_to_response(HttpError::NotFound);
                         stream.write_all(response.as_bytes());
@@ -97,6 +56,51 @@ pub fn start_http_server(
             }
         })
     }
+}
+
+fn notification_route(stream: &mut TcpStream, sender: Sender<ServerCommand>) {
+    let notification_channel = channel::<Notification>();
+    let response = ResponseBuilder::new()
+        .set_status(200)
+        .set_header("Connection", "keep-alive")
+        .set_header("Cache-control", "no-cache")
+        .set_header("content-type", "text/event-stream")
+        .build();
+    if let Err(_) = stream.write_all(response.as_bytes()) {
+        return; // broken pipe
+    }
+    sender
+        .clone()
+        .send(ServerCommand::SendRoomsStatus(
+            notification_channel.0.clone(),
+        ))
+        .expect("ServerCommand channel should remain open");
+
+    loop {
+        if let Ok(notification) = notification_channel.1.recv() {
+            if let Err(_) = stream
+                .write_all(format_notification_to_string(notification).as_bytes())
+                .and_then(|_| stream.flush())
+            {
+                return; // broken pipe
+            }
+
+            sleep(Duration::from_secs(1));
+            sender
+                .clone()
+                .send(ServerCommand::SendRoomsStatus(
+                    notification_channel.0.clone(),
+                ))
+                .expect("ServerCommand channel should remain open");
+        }
+    }
+}
+
+fn format_notification_to_string(notification: Notification) -> String {
+    format!(
+        "data: {}\r\n\r\n",
+        serde_json::to_string(&notification).unwrap()
+    )
 }
 
 fn whip_route(
