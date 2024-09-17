@@ -79,7 +79,7 @@ fn rooms_route(sender: Sender<ServerCommand>) -> Result<Response, HttpError> {
         .recv()
         .map_err(|_| HttpError::InternalServerError)?;
 
-    let payload = format_notification_to_string(notification);
+    let payload = serde_json::to_string(&notification).unwrap();
 
     Ok(ResponseBuilder::new()
         .set_status(200)
@@ -130,7 +130,8 @@ fn notification_route(stream: &mut TcpStream, sender: Sender<ServerCommand>) {
 }
 
 fn format_notification_to_string(notification: Notification) -> String {
-    serde_json::to_string(&notification).unwrap()
+    let payload = serde_json::to_string(&notification).unwrap();
+    format!("data: {}\r\n\r\n", payload)
 }
 
 fn whip_route(
