@@ -1,10 +1,10 @@
-use std::{fmt::Write as _, sync::Arc};
+use std::{fmt::Write, sync::Arc};
 use std::fs::read;
+use std::path::PathBuf;
 
 use openssl::hash::MessageDigest;
 use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod, SslVerifyMode};
 use openssl::x509::X509;
-use crate::{CERT_KEY_PATH, CERT_PATH};
 
 pub struct SSLConfig {
     pub acceptor: Arc<SslAcceptor>,
@@ -12,22 +12,24 @@ pub struct SSLConfig {
 }
 
 impl SSLConfig {
-    pub fn new() -> SSLConfig {
+    pub fn new(cert_dir: PathBuf) -> SSLConfig {
+        let cert_path = cert_dir.join("cert.pem");
+        let cert_key_path = cert_dir.join("key.pem");
         let mut acceptor_builder = SslAcceptor::mozilla_intermediate(SslMethod::dtls()).unwrap();
         acceptor_builder
-            .set_private_key_file(CERT_KEY_PATH, SslFiletype::PEM)
-            .unwrap();
+            .set_private_key_file(cert_key_path, SslFiletype::PEM)
+            .expect("Missing private key file");
         acceptor_builder
-            .set_certificate_chain_file(CERT_PATH)
-            .unwrap();
+            .set_certificate_chain_file(cert_path.as_path())
+            .expect("Missing cert file");
         acceptor_builder.set_verify(SslVerifyMode::NONE);
         acceptor_builder
             .set_tlsext_use_srtp("SRTP_AES128_CM_SHA1_80")
-            .unwrap();
+            .expect("Failed enabling DTLS extension");
 
         let acceptor = Arc::new(acceptor_builder.build());
 
-        let cert_file = read(CERT_PATH).unwrap();
+        let cert_file = read(cert_path).expect("Failed to read cert file");
 
         let x509 = X509::from_pem(&cert_file).unwrap();
         let x509_digest = x509.digest(MessageDigest::sha256()).unwrap();

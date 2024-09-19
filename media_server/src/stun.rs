@@ -6,7 +6,11 @@ use openssl::hash::MessageDigest;
 use openssl::pkey::PKey;
 use openssl::sign::Signer;
 
-use crate::ice_registry::{SessionCredentials, SessionUsername};
+use sdp::ICECredentials;
+
+use crate::ice_registry::SessionUsername;
+
+// todo Refactor this and move into internal crate
 
 fn parse_stun_packet(packet: &[u8]) -> Option<StunBindingRequest> {
     if packet.len() < STUN_HEADER_LEN {
@@ -110,8 +114,7 @@ pub fn get_stun_packet(data: &[u8]) -> Option<ICEStunMessageType> {
 }
 
 pub fn create_stun_success(
-    credentials: &SessionCredentials,
-    session_username: &SessionUsername,
+    credentials: &ICECredentials,
     transaction_id: [u8; STUN_TRANSACTION_ID_LEN],
     remote: &SocketAddr,
     buffer: &mut [u8],
@@ -119,7 +122,7 @@ pub fn create_stun_success(
     let (header, attributes) = buffer.split_at_mut(20);
 
     let mut username_attribute = [0u8; 120];
-    let username_attr_length = write_username_attribute(&mut username_attribute, session_username);
+    let username_attr_length = write_username_attribute(&mut username_attribute, credentials);
     let username_attribute = &username_attribute[..username_attr_length];
 
     let xor_attr = compute_xor_mapped_address(remote, transaction_id)?;
@@ -193,12 +196,15 @@ fn write_message_integrity_attribute(
     signer.sign(&mut buffer).unwrap()
 }
 
-fn write_username_attribute(buffer: &mut [u8], credentials: &SessionUsername) -> usize {
+fn write_username_attribute(buffer: &mut [u8], credentials: &ICECredentials) -> usize {
     let mut writer = BufWriter::new(buffer);
     writer
         .write_u16::<BigEndian>(StunAttributeType::Username as u16)
         .unwrap();
-    let mut username = format!("{}:{}", credentials.host, credentials.remote);
+    let mut username = format!(
+        "{}:{}",
+        credentials.host_username, credentials.remote_username
+    );
     writer
         .write_u16::<BigEndian>(username.len() as u16)
         .unwrap();
