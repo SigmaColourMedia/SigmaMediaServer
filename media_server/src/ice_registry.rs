@@ -2,11 +2,12 @@ use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Instant;
 
+use rand::{RngCore, thread_rng};
+
 use sdp::NegotiatedSession;
 use thumbnail_image_extractor::ThumbnailExtractor;
 
 use crate::client::Client;
-use crate::rnd::get_random_id;
 
 type RoomID = u32;
 type ResourceID = u32;
@@ -267,4 +268,8 @@ pub struct Streamer {
 pub struct SessionUsername {
     pub remote: String,
     pub host: String,
+}
+
+fn get_random_id() -> u32 {
+    thread_rng().next_u32()
 }

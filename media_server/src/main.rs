@@ -16,7 +16,6 @@ mod client;
 mod config;
 mod http;
 mod ice_registry;
-mod rnd;
 mod rtp;
 mod server;
 mod stun;

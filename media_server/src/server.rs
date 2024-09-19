@@ -57,7 +57,6 @@ impl UDPServer {
                     let mut buffer: [u8; 200] = [0; 200];
                     let bytes_written = create_stun_success(
                         &session.media_session.ice_credentials,
-                        &msg.username_attribute,
                         msg.transaction_id,
                         &remote,
                         &mut buffer,
@@ -101,14 +100,9 @@ impl UDPServer {
 
                     // Send OK response
                     let mut buffer: [u8; 200] = [0; 200];
-                    let bytes_written = create_stun_success(
-                        credentials,
-                        &msg.username_attribute,
-                        msg.transaction_id,
-                        &remote,
-                        &mut buffer,
-                    )
-                    .expect("Should create STUN success response");
+                    let bytes_written =
+                        create_stun_success(credentials, msg.transaction_id, &remote, &mut buffer)
+                            .expect("Should create STUN success response");
 
                     let output_buffer = &buffer[0..bytes_written];
                     if let Err(error) = self.socket.send_to(output_buffer, remote) {
