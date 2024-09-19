@@ -10,6 +10,8 @@ use sdp::ICECredentials;
 
 use crate::ice_registry::SessionUsername;
 
+// todo Refactor this and move into internal crate
+
 fn parse_stun_packet(packet: &[u8]) -> Option<StunBindingRequest> {
     if packet.len() < STUN_HEADER_LEN {
         return None;
