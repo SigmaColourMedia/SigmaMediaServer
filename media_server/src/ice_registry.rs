@@ -10,7 +10,6 @@ use crate::rnd::get_random_id;
 
 type RoomID = u32;
 type ResourceID = u32;
-type HostUsername = String;
 
 pub struct SessionRegistry {
     sessions: HashMap<ResourceID, Session>,
@@ -262,12 +261,6 @@ pub struct Streamer {
     pub owned_room_id: u32,
     pub thumbnail_extractor: ThumbnailExtractor,
     pub image_timestamp: Option<Instant>,
-}
-
-#[derive(Debug)]
-pub struct SessionCredentials {
-    pub host_username: String,
-    pub host_password: String,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug)]

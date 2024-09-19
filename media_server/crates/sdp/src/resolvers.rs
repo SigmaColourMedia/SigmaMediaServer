@@ -629,7 +629,7 @@ impl SDPResolver {
             codec: legal_audio_codec.clone(),
             payload_number: resolved_payload_number,
             host_ssrc: get_random_ssrc(),
-            remote_ssrc: remote_ssrc,
+            remote_ssrc,
         })
     }
 
@@ -751,7 +751,7 @@ impl SDPResolver {
         Ok(VideoSession {
             capabilities: legal_video_fmtp.clone(),
             host_ssrc: get_random_ssrc(),
-            remote_ssrc: remote_ssrc,
+            remote_ssrc,
             payload_number: resolved_payload_number,
             codec: legal_video_codec.clone(),
         })

@@ -572,7 +572,7 @@ impl TryFrom<&str> for Originator {
     type Error = SDPParseError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let (key, value) = value
+        let (_key, value) = value
             .split_once("o=")
             .ok_or(Self::Error::MalformedSDPLine)?;
         let mut split = value.split(" ");
