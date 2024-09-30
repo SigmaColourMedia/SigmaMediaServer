@@ -150,15 +150,15 @@ impl UDPServer {
                     if let Ok(_) = ssl_stream.srtp_inbound.unprotect(&mut self.inbound_buffer) {
                         let room_id = streamer.owned_room_id;
 
-                        let is_video_packet = get_rtp_header_data(&self.inbound_buffer)
-                            .payload_type
-                            .eq(&(sender_session.media_session.video_session.payload_number as u8));
-
-                        if is_video_packet {
-                            streamer
-                                .thumbnail_extractor
-                                .try_extract_thumbnail(&self.inbound_buffer);
-                        }
+                        // let is_video_packet = get_rtp_header_data(&self.inbound_buffer)
+                        //     .payload_type
+                        //     .eq(&(sender_session.media_session.video_session.payload_number as u8));
+                        //
+                        // if is_video_packet {
+                        //     streamer
+                        //         .thumbnail_extractor
+                        //         .try_extract_thumbnail(&self.inbound_buffer);
+                        // }
 
                         let viewer_ids = self
                             .session_registry
