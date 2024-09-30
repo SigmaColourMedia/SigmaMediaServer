@@ -115,7 +115,6 @@ impl UDPServer {
 
     fn handle_other_packets(&mut self, remote: &SocketAddr) {
         let sender_session = self.session_registry.get_session_by_address_mut(remote);
-        panic!("panikuje");
 
         let is_client_established = sender_session
             .as_ref()
