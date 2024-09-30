@@ -180,8 +180,6 @@ fn start_timeout_interval(sender: Sender<ServerCommand>) {
 
 fn start_udp_server(socket: UdpSocket, sender: Sender<ServerCommand>) {
     loop {
-        sleep(Duration::from_micros(50));
-
         let mut buffer = [0; 3600];
         if let Ok((bytes_read, remote)) = socket.recv_from(&mut buffer) {
             sender
