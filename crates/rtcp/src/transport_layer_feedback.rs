@@ -2,21 +2,43 @@ use std::io::{BufRead, Read};
 use byteorder::{BigEndian, ReadBytesExt};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use crate::{Marshall, MarshallError, Unmarshall, UnmarshallError};
-use crate::header::Header;
+use crate::header::{Header, PayloadType};
 
 
 #[derive(Debug, PartialEq)]
-pub(crate) struct TransportLayerNACK {
-    pub(crate) header: Header,
-    pub(crate) sender_ssrc: u32,
-    pub(crate) media_ssrc: u32,
-    pub(crate) nacks: Vec<GenericNACK>,
+pub struct TransportLayerNACK {
+    pub header: Header,
+    pub sender_ssrc: u32,
+    pub media_ssrc: u32,
+    pub nacks: Vec<GenericNACK>,
 }
 
 #[derive(Debug, PartialEq)]
-pub(crate) struct GenericNACK {
-    pub(crate) pid: u16,
-    pub(crate) blp: u16,
+pub struct GenericNACK {
+    pub pid: u16,
+    pub blp: u16,
+}
+
+impl TransportLayerNACK {
+    pub fn new(nacks: Vec<GenericNACK>, sender_ssrc: u32, media_ssrc: u32) -> Self {
+        if nacks.len() < 1 {
+            panic!("Packet must contain at least one Generic NACK")
+        };
+
+        let header = Header {
+            feedback_message_type: 1,
+            payload_type: PayloadType::TransportLayerFeedbackMessage,
+            padding: false,
+            length: nacks.len() as u16 + 2,
+        };
+
+        Self {
+            header,
+            nacks,
+            media_ssrc,
+            sender_ssrc,
+        }
+    }
 }
 
 impl Unmarshall for TransportLayerNACK {

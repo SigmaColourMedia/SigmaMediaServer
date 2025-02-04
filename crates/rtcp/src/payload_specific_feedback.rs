@@ -1,15 +1,32 @@
 use byteorder::{BigEndian, ReadBytesExt};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use crate::{Marshall, MarshallError, Unmarshall, UnmarshallError};
-use crate::header::Header;
+use crate::header::{Header, PayloadType};
 
 #[derive(Debug, PartialEq)]
-pub(crate) enum PayloadSpecificFeedback {
+pub enum PayloadSpecificFeedback {
     PictureLossIndication(PictureLossIndication)
 }
 
+impl PictureLossIndication {
+    pub fn new(sender_ssrc: u32, media_ssrc: u32) -> Self {
+        let header = Header {
+            length: 2,
+            padding: false,
+            feedback_message_type: 1,
+            payload_type: PayloadType::PayloadSpecificFeedbackMessage,
+        };
+
+        Self {
+            sender_ssrc,
+            media_ssrc,
+            header,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
-pub(crate) struct PictureLossIndication {
+pub struct PictureLossIndication {
     pub(crate) sender_ssrc: u32,
     pub(crate) media_ssrc: u32,
     pub(crate) header: Header,

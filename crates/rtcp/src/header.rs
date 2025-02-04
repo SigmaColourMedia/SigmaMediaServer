@@ -3,7 +3,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use crate::{Marshall, MarshallError, Unmarshall, UnmarshallError};
 
 #[derive(Debug, PartialEq, Clone)]
-pub(crate) struct Header {
+pub struct Header {
     pub(crate) payload_type: PayloadType,
     pub(crate) length: u16,
     pub(crate) feedback_message_type: u8,
@@ -14,6 +14,7 @@ pub(crate) struct Header {
 pub(crate) enum PayloadType {
     TransportLayerFeedbackMessage,
     PayloadSpecificFeedbackMessage,
+    Unsupported,
 }
 
 impl Unmarshall for Header {
@@ -36,7 +37,7 @@ impl Unmarshall for Header {
         let payload_type = match value.read_u8().or(Err(UnmarshallError::UnexpectedFrame))? {
             205 => PayloadType::TransportLayerFeedbackMessage,
             206 => PayloadType::PayloadSpecificFeedbackMessage,
-            _ => return Err(UnmarshallError::UnexpectedFrame),
+            _ => PayloadType::Unsupported
         };
         let length = value
             .read_u16::<BigEndian>().or(Err(UnmarshallError::UnexpectedFrame))?;
@@ -62,6 +63,9 @@ impl Marshall for Header {
         let second_octet = match &self.payload_type {
             PayloadType::TransportLayerFeedbackMessage => TRANSPORT_LAYER_PT,
             PayloadType::PayloadSpecificFeedbackMessage => PAYLOAD_SPECIFIC_PT,
+            PayloadType::Unsupported => {
+                return Err(MarshallError::UnsupportedFormat)
+            }
         };
         bytes.put_u8(first_octet);
         bytes.put_u8(second_octet);
@@ -124,6 +128,20 @@ mod marshall_tests {
         assert_eq!(output, Bytes::from_static(&[
             161, 205, 0, 2
         ]))
+    }
+
+    fn rejects_marshalling_unsupported_payload_types() {
+        let input = Header {
+            length: 2,
+            payload_type: PayloadType::Unsupported,
+            padding: true,
+            feedback_message_type: 1,
+        };
+
+
+        let output = input.marshall().unwrap_err();
+
+        assert_eq!(output, MarshallError::UnsupportedFormat)
     }
 }
 

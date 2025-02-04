@@ -5,7 +5,7 @@ use crate::{Marshall, MarshallError, Unmarshall, UnmarshallError};
 use crate::header::{Header, PayloadType};
 
 #[derive(Debug, PartialEq)]
-enum RtcpPacket {
+pub enum RtcpPacket {
     TransportLayerFeedbackMessage(TransportLayerNACK),
     PayloadSpecificFeedbackMessage(PayloadSpecificFeedback),
 }
