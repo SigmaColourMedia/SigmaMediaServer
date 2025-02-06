@@ -18,6 +18,7 @@ pub struct SessionRegistry {
     address_map: HashMap<SocketAddr, ResourceID>,
     rooms: HashMap<RoomID, Room>,
 }
+
 #[derive(Clone)]
 pub struct Room {
     pub id: u32,
@@ -254,7 +255,7 @@ pub enum ConnectionType {
 
 #[derive(Debug, Clone)]
 pub struct Viewer {
-    room_id: ResourceID,
+    pub room_id: ResourceID,
 }
 
 #[derive(Debug, Clone)]
