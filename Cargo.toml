@@ -15,10 +15,14 @@ threadpool = "1.8.1"
 webp = "0.3.0"
 serde = { version = "1.0.204", features = ["derive"] }
 serde_json = "1.0.122"
+bytes = "1.9.0"
+rtcp = { workspace = true }
 sdp = { workspace = true }
 thumbnail_image_extractor = { workspace = true }
 [workspace]
-members = ["crates/thumbnail_image_extractor", "crates/sdp"]
+members = ["crates/thumbnail_image_extractor", "crates/sdp", "crates/rtcp"]
 [workspace.dependencies]
 sdp = { path = "crates/sdp" }
 thumbnail_image_extractor = { path = "crates/thumbnail_image_extractor" }
+rtcp = { path = "crates/rtcp" }
+
