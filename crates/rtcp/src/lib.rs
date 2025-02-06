@@ -10,13 +10,13 @@ use crate::header::Header;
 use crate::rtcp::RtcpPacket;
 
 
-trait Unmarshall {
+pub trait Unmarshall {
     fn unmarshall(bytes: bytes::Bytes) -> Result<Self, UnmarshallError>
     where
         Self: Sized;
 }
 
-trait Marshall {
+pub trait Marshall {
     fn marshall(self) -> Result<Bytes, MarshallError>
     where
         Self: Sized;
