@@ -23,6 +23,7 @@ pub enum SDPParseError {
     MalformedMediaDescriptor,
     MalformedSDPLine,
 }
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum SDPLine {
     ProtocolVersion(String),
@@ -45,6 +46,7 @@ pub(crate) enum Attribute {
     Unrecognized,
     EndOfCandidates,
     ICELite,
+    Feedback(Feedback),
     ICEOptions(ICEOptions),
     SendOnly,
     ReceiveOnly,
@@ -60,6 +62,7 @@ pub(crate) enum Attribute {
     Setup(Setup),
     Candidate(Candidate),
 }
+
 
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) struct MediaDescription {
@@ -100,6 +103,7 @@ pub(crate) struct SessionTime {
     pub(crate) start_time: usize,
     pub(crate) end_time: usize,
 }
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ICEOptions {
     pub(crate) options: Vec<ICEOption>,
@@ -114,6 +118,19 @@ pub(crate) struct MediaID {
 pub(crate) struct Fingerprint {
     pub(crate) hash_function: HashFunction,
     pub(crate) hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Feedback {
+    pub(crate) payload_type: usize,
+    pub(crate) feedback_type: FeedbackType,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum FeedbackType {
+    NACK,
+    PLI,
+    Unsupported,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -242,15 +259,28 @@ impl From<Attribute> for String {
             Attribute::ICELite => "ice-lite".to_string(),
             Attribute::EndOfCandidates => "end-of-candidates".to_string(),
             Attribute::ICEOptions(ice_options) => String::from(ice_options),
+            Attribute::Feedback(feedback) => String::from(feedback)
         };
         format!("a={attribute_name}")
     }
 }
+
+impl From<Feedback> for String {
+    fn from(value: Feedback) -> Self {
+        match value.feedback_type {
+            FeedbackType::NACK => format!("rtcp-fb:{} nack", value.payload_type),
+            FeedbackType::PLI => format!("rtcp-fb:{} nack pli", value.payload_type),
+            FeedbackType::Unsupported => panic!("Attempted to map unsupported FeedbackType to String")
+        }
+    }
+}
+
 impl From<SessionTime> for String {
     fn from(value: SessionTime) -> Self {
         format!("t={} {}", value.start_time, value.end_time)
     }
 }
+
 impl From<ICEUsername> for String {
     fn from(value: ICEUsername) -> Self {
         format!("ice-ufrag:{}", value.username)
@@ -524,6 +554,7 @@ impl TryFrom<&str> for Attribute {
             "ice-options" => Ok(Attribute::ICEOptions(ICEOptions::try_from(value)?)),
             "end-of-candidates" => Ok(Attribute::EndOfCandidates),
             "setup" => Ok(Attribute::Setup(Setup::try_from(value)?)),
+            "rtcp-fb" => Ok(Attribute::Feedback(Feedback::try_from(value)?)),
             _ => Ok(Attribute::Unrecognized),
         }
     }
@@ -783,6 +814,27 @@ impl TryFrom<&str> for Fingerprint {
         Ok(Fingerprint {
             hash_function,
             hash: hash.to_string(),
+        })
+    }
+}
+
+impl TryFrom<&str> for Feedback {
+    type Error = SDPParseError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let (_, value) = value
+            .split_once("rtcp-fb:")
+            .ok_or(Self::Error::MalformedAttribute)?;
+        let (payload_type, feedback_type) = value
+            .split_once(" ")
+            .ok_or(SDPParseError::MalformedAttribute)?;
+        Ok(Feedback {
+            payload_type: payload_type.parse::<usize>().or(Err(SDPParseError::MalformedAttribute))?,
+            feedback_type: match feedback_type {
+                "nack" => FeedbackType::NACK,
+                "nack pli" => FeedbackType::PLI,
+                _ => FeedbackType::Unsupported
+            },
         })
     }
 }

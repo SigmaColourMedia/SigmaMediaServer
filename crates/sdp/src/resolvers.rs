@@ -4,12 +4,7 @@ use std::net::SocketAddr;
 use rand::{Rng, RngCore, thread_rng};
 use rand::distr::Alphanumeric;
 
-use crate::line_parsers::{
-    Attribute, AudioCodec, Candidate, ConnectionData, Fingerprint, FMTP, ICEOption,
-    ICEOptions, ICEPassword, ICEUsername, MediaCodec, MediaDescription, MediaGroup, MediaID,
-    MediaSSRC, MediaTransportProtocol, MediaType, Originator, RTPMap, SDPLine, SDPParseError,
-    SessionTime, Setup, SourceAttribute, VideoCodec,
-};
+use crate::line_parsers::{Attribute, AudioCodec, Candidate, ConnectionData, Feedback, FeedbackType, Fingerprint, FMTP, ICEOption, ICEOptions, ICEPassword, ICEUsername, MediaCodec, MediaDescription, MediaGroup, MediaID, MediaSSRC, MediaTransportProtocol, MediaType, Originator, RTPMap, SDPLine, SDPParseError, SessionTime, Setup, SourceAttribute, VideoCodec};
 
 #[derive(Debug, Clone)]
 pub struct SDP {
@@ -25,6 +20,7 @@ pub struct NegotiatedSession {
     pub video_session: VideoSession,
     pub audio_session: AudioSession,
 }
+
 #[derive(Debug, Clone)]
 pub struct ICECredentials {
     pub host_username: String,
@@ -32,13 +28,21 @@ pub struct ICECredentials {
     pub remote_username: String,
     pub remote_password: String,
 }
+
 #[derive(Debug, Clone)]
 pub struct VideoSession {
     pub codec: VideoCodec,
     pub payload_number: usize,
     pub host_ssrc: u32,
+    pub feedback_support: FeedbackSupport,
     pub remote_ssrc: Option<u32>,
     pub capabilities: HashSet<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FeedbackSupport {
+    supports_nack: bool,
+    supports_pli: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -126,8 +130,8 @@ impl SDPResolver {
     }
 
     /** Gets ICE credentials from the SDP. Uses session-level credentials if no media-level credentials were provided.
-    If media-level credentials were provided, check if they match across media-streams and if so resolve to ICECredentials.
-    */
+                                                                                                                               If media-level credentials were provided, check if they match across media-streams and if so resolve to ICECredentials.
+     */
     fn get_ice_credentials(sdp: &SDP) -> Option<ICECredentials> {
         let get_ice_username = |section: &Vec<SDPLine>| {
             section.iter().find_map(|line| match line {
@@ -341,10 +345,26 @@ impl SDPResolver {
             })
             .ok_or(SDPParseError::MissingVideoCapabilities)?;
 
+        let supports_nack = video_media.iter().find(|&item| item == &SDPLine::Attribute(Attribute::Feedback(Feedback {
+            payload_type: accepted_codec_payload_number,
+            feedback_type: FeedbackType::NACK,
+        }))
+        ).is_some();
+
+        let supports_pli = video_media.iter().find(|&item| item == &SDPLine::Attribute(Attribute::Feedback(Feedback {
+            payload_type: accepted_codec_payload_number,
+            feedback_type: FeedbackType::PLI,
+        }))
+        ).is_some();
+
         Ok(VideoSession {
             codec: Self::ACCEPTED_VIDEO_CODEC,
             capabilities: video_capabilities,
             payload_number: accepted_codec_payload_number,
+            feedback_support: FeedbackSupport {
+                supports_pli,
+                supports_nack,
+            },
             remote_ssrc: remote_video_ssrc,
             host_ssrc: get_random_ssrc(),
         })
@@ -501,7 +521,7 @@ impl SDPResolver {
             })),
         ];
 
-        let video_section = vec![
+        let mut video_section = vec![
             SDPLine::MediaDescription(MediaDescription {
                 transport_port: self.candidate.port as usize,
                 media_type: MediaType::Video,
@@ -527,6 +547,19 @@ impl SDPResolver {
                 format_capability: video_session.capabilities.clone(),
             })),
         ];
+
+        if video_session.feedback_support.supports_nack {
+            video_section.push(SDPLine::Attribute(Attribute::Feedback(Feedback {
+                payload_type: video_session.payload_number,
+                feedback_type: FeedbackType::NACK,
+            })))
+        }
+        if video_session.feedback_support.supports_pli {
+            video_section.push(SDPLine::Attribute(Attribute::Feedback(Feedback {
+                payload_type: video_session.payload_number,
+                feedback_type: FeedbackType::PLI,
+            })))
+        }
 
         let sdp_answer = SDP {
             session_section,
@@ -748,10 +781,27 @@ impl SDPResolver {
             _ => None,
         });
 
+
+        let supports_nack = video_media.iter().find(|&item| item == &SDPLine::Attribute(Attribute::Feedback(Feedback {
+            payload_type: resolved_payload_number,
+            feedback_type: FeedbackType::NACK,
+        }))
+        ).is_some() && streamer_session.feedback_support.supports_nack;
+
+        let supports_pli = video_media.iter().find(|&item| item == &SDPLine::Attribute(Attribute::Feedback(Feedback {
+            payload_type: resolved_payload_number,
+            feedback_type: FeedbackType::PLI,
+        }))
+        ).is_some() && streamer_session.feedback_support.supports_pli;
+
         Ok(VideoSession {
             capabilities: legal_video_fmtp.clone(),
             host_ssrc: get_random_ssrc(),
             remote_ssrc,
+            feedback_support: FeedbackSupport {
+                supports_pli,
+                supports_nack,
+            },
             payload_number: resolved_payload_number,
             codec: legal_video_codec.clone(),
         })
@@ -830,7 +880,7 @@ impl SDPResolver {
             })),
         ];
 
-        let video_section = vec![
+        let mut video_section = vec![
             SDPLine::MediaDescription(MediaDescription {
                 transport_port: self.candidate.port as usize,
                 media_type: MediaType::Video,
@@ -856,6 +906,18 @@ impl SDPResolver {
                 format_capability: video_session.capabilities.clone(),
             })),
         ];
+        if video_session.feedback_support.supports_nack {
+            video_section.push(SDPLine::Attribute(Attribute::Feedback(Feedback {
+                payload_type: video_session.payload_number,
+                feedback_type: FeedbackType::NACK,
+            })))
+        }
+        if video_session.feedback_support.supports_pli {
+            video_section.push(SDPLine::Attribute(Attribute::Feedback(Feedback {
+                payload_type: video_session.payload_number,
+                feedback_type: FeedbackType::PLI,
+            })))
+        }
 
         let sdp_answer = SDP {
             session_section,
@@ -876,7 +938,7 @@ impl SDPResolver {
     Check if session section is properly formatted.
     Only two media sections are legal and the first one needs to be audio. This is a completely arbitrary decision
     that serves to ease parser implementations.
-        */
+     */
     fn get_sdp(raw_data: &str) -> Result<SDP, SDPParseError> {
         let sdp_lines = raw_data
             .lines()
@@ -995,12 +1057,7 @@ mod tests {
             use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
             use std::str::FromStr;
 
-            use crate::line_parsers::{
-                Attribute, AudioCodec, Candidate, ConnectionData, Fingerprint, FMTP,
-                HashFunction, ICEOption, ICEOptions, ICEPassword, ICEUsername, MediaCodec,
-                MediaDescription, MediaGroup, MediaID, MediaSSRC, MediaTransportProtocol, MediaType,
-                Originator, RTPMap, SDPLine, SessionTime, Setup, SourceAttribute, VideoCodec,
-            };
+            use crate::line_parsers::{Attribute, AudioCodec, Candidate, ConnectionData, Feedback, FeedbackType, Fingerprint, FMTP, HashFunction, ICEOption, ICEOptions, ICEPassword, ICEUsername, MediaCodec, MediaDescription, MediaGroup, MediaID, MediaSSRC, MediaTransportProtocol, MediaType, Originator, RTPMap, SDPLine, SessionTime, Setup, SourceAttribute, VideoCodec};
             use crate::resolvers::SDPResolver;
 
             const VALID_SDP: &str = "v=0\r\no=rtc 3767197920 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=group:LS 0 1\r\na=msid-semantic:WMS *\r\na=setup:actpass\r\na=ice-ufrag:E2Fr\r\na=ice-pwd:OpQzg1PAwUdeOB244chlgd\r\na=ice-options:trickle\r\na=fingerprint:sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B\r\nm=audio 4557 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 192.168.0.198\r\na=mid:0\r\na=sendonly\r\na=ssrc:1349455989 cname:0X2NGAsK9XcmnsuZ\r\na=ssrc:1349455989 msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-audio\r\na=msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-audio\r\na=rtcp-mux\r\na=rtpmap:111 opus/48000/2\r\na=fmtp:111 minptime=10;maxaveragebitrate=96000;stereo=1;sprop-stereo=1;useinbandfec=1\r\na=candidate:1 1 UDP 2015363327 192.168.0.198 4557 typ host\r\na=candidate:2 1 UDP 2015363583 fe80::6c3d:5b42:1532:2f9a 10007 typ host\r\na=end-of-candidates\r\nm=video 4557 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 192.168.0.198\r\na=mid:1\r\na=sendonly\r\na=ssrc:1349455990 cname:0X2NGAsK9XcmnsuZ\r\na=ssrc:1349455990 msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-video\r\na=msid:qUVEoh7TF9nLCrk4 qUVEoh7TF9nLCrk4-video\r\na=rtcp-mux\r\na=rtpmap:96 H264/90000\r\na=rtcp-fb:96 nack\r\na=rtcp-fb:96 nack pli\r\na=rtcp-fb:96 goog-remb\r\na=fmtp:96 profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1\r\n";
@@ -1041,9 +1098,9 @@ mod tests {
                     SDPLine::Attribute(Attribute::ICEOptions(ICEOptions {
                         options: vec![ICEOption::Trickle],
                     })),
-                    SDPLine::Attribute(Attribute::Fingerprint(Fingerprint{
+                    SDPLine::Attribute(Attribute::Fingerprint(Fingerprint {
                         hash_function: HashFunction::SHA256,
-                        hash: "EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B".to_string()
+                        hash: "EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B".to_string(),
                     })),
                 ];
 
@@ -1133,9 +1190,18 @@ mod tests {
                         codec: MediaCodec::Video(VideoCodec::H264),
                         payload_number: 96,
                     })),
-                    SDPLine::Attribute(Attribute::Unrecognized),
-                    SDPLine::Attribute(Attribute::Unrecognized),
-                    SDPLine::Attribute(Attribute::Unrecognized),
+                    SDPLine::Attribute(Attribute::Feedback(Feedback {
+                        feedback_type: FeedbackType::NACK,
+                        payload_type: 96,
+                    })),
+                    SDPLine::Attribute(Attribute::Feedback(Feedback {
+                        payload_type: 96,
+                        feedback_type: FeedbackType::PLI,
+                    })),
+                    SDPLine::Attribute(Attribute::Feedback(Feedback {
+                        payload_type: 96,
+                        feedback_type: FeedbackType::Unsupported,
+                    })),
                     SDPLine::Attribute(Attribute::FMTP(FMTP {
                         payload_number: 96,
                         format_capability: HashSet::from([
@@ -1426,6 +1492,7 @@ mod tests {
 
                 SDPResolver::get_media_ids(&sdp).expect_err("Should reject SDP");
             }
+
             #[test]
             fn rejects_if_missing_bundle() {
                 let sdp = SDP {
@@ -1441,6 +1508,7 @@ mod tests {
                 SDPResolver::get_media_ids(&sdp).expect_err("Should reject SDP");
             }
         }
+
         mod get_streamer_audio_session {
             use std::collections::HashSet;
 
@@ -1583,11 +1651,8 @@ mod tests {
         mod get_streamer_video_session {
             use std::collections::HashSet;
 
-            use crate::line_parsers::{
-                Attribute, FMTP, MediaCodec, MediaSSRC, RTPMap, SDPLine, Setup,
-                SourceAttribute, VideoCodec,
-            };
-            use crate::resolvers::{HOST_CNAME, SDPResolver};
+            use crate::line_parsers::{Attribute, Feedback, FeedbackType, FMTP, MediaCodec, MediaSSRC, RTPMap, SDPLine, Setup, SourceAttribute, VideoCodec};
+            use crate::resolvers::{FeedbackSupport, HOST_CNAME, SDPResolver};
 
             #[test]
             fn resolves_valid_media() {
@@ -1610,6 +1675,11 @@ mod tests {
                         ssrc: expected_ssrc,
                         source_attribute: SourceAttribute::CNAME(HOST_CNAME.to_string()),
                     })),
+                    SDPLine::Attribute(Attribute::Feedback(Feedback {
+                        payload_type: expected_payload_number,
+                        feedback_type: FeedbackType::NACK,
+                    }))
+                    ,
                 ];
 
                 let video_session = SDPResolver::get_streamer_video_session(&video_media)
@@ -1619,6 +1689,10 @@ mod tests {
                 assert_eq!(video_session.payload_number, expected_payload_number);
                 assert_eq!(video_session.remote_ssrc, Some(expected_ssrc));
                 assert_eq!(video_session.capabilities, expected_capabilities);
+                assert_eq!(video_session.feedback_support, FeedbackSupport {
+                    supports_pli: false,
+                    supports_nack: true,
+                });
             }
 
             #[test]
@@ -1643,6 +1717,7 @@ mod tests {
                     .expect("Should resolve media");
                 assert_eq!(video_session.remote_ssrc, None)
             }
+
             #[test]
             fn rejects_media_with_unsupported_codec() {
                 let expected_payload_number: usize = 96;
@@ -1891,11 +1966,8 @@ mod tests {
         mod get_viewer_video_session {
             use std::collections::HashSet;
 
-            use crate::line_parsers::{
-                Attribute, FMTP, MediaCodec, MediaSSRC, RTPMap, SDPLine, Setup,
-                SourceAttribute, VideoCodec,
-            };
-            use crate::resolvers::{HOST_CNAME, SDPResolver, VideoSession};
+            use crate::line_parsers::{Attribute, Feedback, FeedbackType, FMTP, MediaCodec, MediaSSRC, RTPMap, SDPLine, Setup, SourceAttribute, VideoCodec};
+            use crate::resolvers::{FeedbackSupport, HOST_CNAME, SDPResolver, VideoSession};
 
             fn init_streamer_session() -> VideoSession {
                 let video_session = VideoSession {
@@ -1904,6 +1976,7 @@ mod tests {
                     remote_ssrc: Some(2),
                     host_ssrc: 1,
                     payload_number: 111,
+                    feedback_support: FeedbackSupport { supports_nack: true, supports_pli: false },
                 };
 
                 video_session
@@ -1932,6 +2005,10 @@ mod tests {
                         payload_number: expected_payload_number,
                         format_capability: streamer_session.capabilities.clone(),
                     })),
+                    SDPLine::Attribute(Attribute::Feedback(Feedback {
+                        payload_type: expected_payload_number,
+                        feedback_type: FeedbackType::NACK,
+                    })),
                 ];
 
                 let video_session =
@@ -1941,7 +2018,8 @@ mod tests {
                 assert_eq!(video_session.codec, streamer_session.codec);
                 assert_eq!(video_session.payload_number, expected_payload_number);
                 assert_eq!(video_session.remote_ssrc, Some(expected_ssrc));
-                assert_eq!(video_session.capabilities, streamer_session.capabilities)
+                assert_eq!(video_session.capabilities, streamer_session.capabilities);
+                assert_eq!(video_session.feedback_support, streamer_session.feedback_support)
             }
 
             #[test]
@@ -2089,4 +2167,5 @@ mod tests {
         }
     }
 }
+
 pub(crate) static HOST_CNAME: &str = "SMID";
