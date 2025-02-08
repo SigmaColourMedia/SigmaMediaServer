@@ -5,7 +5,7 @@ use crate::{Marshall, MarshallError, Unmarshall, UnmarshallError};
 use crate::header::{Header, PayloadType};
 
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct TransportLayerNACK {
     pub header: Header,
     pub sender_ssrc: u32,
@@ -13,7 +13,7 @@ pub struct TransportLayerNACK {
     pub nacks: Vec<GenericNACK>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct GenericNACK {
     pub pid: u16,
     pub blp: u16,
