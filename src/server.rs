@@ -1,12 +1,21 @@
 use std::io::Write;
+use std::mem;
 use std::net::{SocketAddr, UdpSocket};
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use byteorder::{BigEndian, ReadBytesExt};
+
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use rand::{Rng, thread_rng};
+use rtcp::rtcp::RtcpPacket;
+use rtcp::{Marshall, Unmarshall, unmarshall_compound_rtcp};
+use rtcp::payload_specific_feedback::PictureLossIndication;
+use rtcp::transport_layer_feedback::{GenericNACK, TransportLayerNACK};
 
 use sdp::SDPResolver;
 
 use crate::client::{Client, ClientSslState};
 use crate::config::get_global_config;
-use crate::ice_registry::{ConnectionType, SessionRegistry};
+use crate::ice_registry::{ConnectionType, RTPStash, Session, SessionRegistry, Streamer};
 use crate::rtp::{get_rtp_header_data, remap_rtp_header};
 use crate::stun::{create_stun_success, get_stun_packet, ICEStunMessageType};
 
@@ -61,7 +70,7 @@ impl UDPServer {
                         &remote,
                         &mut buffer,
                     )
-                    .expect("Failed to create STUN success response");
+                        .expect("Failed to create STUN success response");
 
                     let output_buffer = &buffer[0..bytes_written];
                     if let Err(error) = self.socket.send_to(output_buffer, remote) {
@@ -106,7 +115,7 @@ impl UDPServer {
 
                     let output_buffer = &buffer[0..bytes_written];
                     if let Err(error) = self.socket.send_to(output_buffer, remote) {
-                        eprintln!("Error writing to remote {}", error)
+                        eprintln!("Error writing to remote")
                     }
                 };
             }
@@ -125,19 +134,85 @@ impl UDPServer {
         if !is_client_established {
             return;
         }
+        let dummy_session = Session::default();
+        let mut sender_session = mem::replace(sender_session.unwrap(), dummy_session);
 
-        let sender_session = sender_session.unwrap();
         let sender_client = sender_session.client.as_mut().unwrap();
-
+        let sender_remote = sender_client.remote_address;
         // Update session TTL
         sender_session.ttl = Instant::now();
 
+
         match &mut sender_session.connection_type {
-            ConnectionType::Viewer(_) => {
-                if let ClientSslState::Handshake(_) = &mut sender_client.ssl_state {
-                    if let Err(err) = sender_client.read_packet(&self.inbound_buffer) {
-                        eprintln!("Failed reading packet from {} with error {}", remote, err)
+            ConnectionType::Viewer(viewer) => match &mut sender_client.ssl_state {
+                ClientSslState::Handshake(_) => {
+                    if let Err(e) = sender_client.read_packet(&self.inbound_buffer) {
+                        eprintln!("Error reading packet mid handshake {}", e)
                     }
+                }
+                ClientSslState::Established(viewer_ssl) => {
+                    let mut inbound_buffer_copy = self.inbound_buffer.clone();
+                    if let Ok(_) = viewer_ssl.srtp_inbound.unprotect_rtcp(&mut inbound_buffer_copy) {
+                        let data = Bytes::from(inbound_buffer_copy);
+
+                        if let Ok(rtcp_packets) = unmarshall_compound_rtcp(data) {
+                            let mut streamer_session = self.session_registry.get_room(viewer.room_id).map(|room| room.owner_id).and_then(|owner_id| self.session_registry.get_session_mut(owner_id)).unwrap();
+                            if let ConnectionType::Streamer(streamer_data) = &streamer_session.connection_type {
+                                if let Some(streamer_client) = &mut streamer_session.client {
+                                    if let ClientSslState::Established(streamer_ssl) = &mut streamer_client.ssl_state {
+                                        for packet in rtcp_packets {
+                                            match packet {
+                                                RtcpPacket::TransportLayerFeedbackMessage(nack) => {
+                                                    let lost_pids = nack.nacks.iter().map(|item| item.pid).collect::<Vec<u16>>();
+                                                    let mut nacks_to_send: Vec<u16> = vec![];
+
+                                                    let time = Instant::now();
+                                                    for pid in lost_pids {
+                                                        match sender_client.rtp_replay_buffer.get(pid) {
+                                                            Some(data) => {
+                                                                if let Err(e) = self.socket.send_to(&data, sender_remote) {
+                                                                    eprintln!("Error resending RTP packet {}", e)
+                                                                }
+                                                            }
+                                                            None => {
+                                                                nacks_to_send.push(pid)
+                                                            }
+                                                        }
+                                                    }
+                                                    println!("Lookup took {}", time.elapsed().as_micros());
+                                                    let nacks = nacks_to_send.into_iter().map(|pid| GenericNACK { pid, blp: 0 }).collect::<Vec<GenericNACK>>();
+                                                    if !nacks.is_empty() {
+                                                        let sender_ssrc = streamer_session.media_session.video_session.host_ssrc;
+                                                        let media_ssrc = streamer_session.media_session.video_session.remote_ssrc.unwrap();
+
+                                                        println!("lost nacks {:?}", nacks);
+                                                        let mut rtcp_nack = TransportLayerNACK::new(nacks, sender_ssrc, media_ssrc).marshall().expect("Marshall should resolve on trusted source").to_vec();
+                                                        if let Ok(_) = streamer_ssl.srtp_outbound.protect_rtcp(&mut rtcp_nack) {
+                                                            if let Err(e) = self.socket.send_to(&rtcp_nack, streamer_client.remote_address) {
+                                                                eprintln!("Error sending stashed RTCP packet to remote {}", e)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                RtcpPacket::PayloadSpecificFeedbackMessage(mut pli) => {
+                                                    let mut pkt = PictureLossIndication::new(streamer_session.media_session.video_session.host_ssrc, streamer_session.media_session.video_session.remote_ssrc.unwrap()).marshall().unwrap().to_vec();
+                                                    if let Ok(_) = streamer_ssl.srtp_outbound.protect_rtcp(&mut pkt) {
+                                                        if let Err(e) = self.socket.send_to(&pkt, streamer_client.remote_address) {
+                                                            eprintln!("Error sending stashed RTCP packet to remote {}", e)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                ClientSslState::Shutdown => {
+                    todo!("Handle shutdown case?")
                 }
             }
             ConnectionType::Streamer(streamer) => match &mut sender_client.ssl_state {
@@ -146,7 +221,10 @@ impl UDPServer {
                         eprintln!("Error reading packet mid handshake {}", e)
                     }
                 }
+
                 ClientSslState::Established(ssl_stream) => {
+                    // Simulate packet loss
+
                     if let Ok(_) = ssl_stream.srtp_inbound.unprotect(&mut self.inbound_buffer) {
                         let room_id = streamer.owned_room_id;
 
@@ -155,10 +233,12 @@ impl UDPServer {
                             .eq(&(sender_session.media_session.video_session.payload_number as u8));
 
                         if is_video_packet {
+                            // Feed thumbnail image extractor
                             streamer
                                 .thumbnail_extractor
                                 .try_extract_thumbnail(&self.inbound_buffer);
                         }
+
 
                         let viewer_ids = self
                             .session_registry
@@ -187,6 +267,8 @@ impl UDPServer {
                             if let ClientSslState::Established(ssl_stream) =
                                 &mut viewer_client.ssl_state
                             {
+
+
                                 // Write to temp buffer
                                 self.outbound_buffer.clear();
                                 self.outbound_buffer
@@ -200,10 +282,24 @@ impl UDPServer {
                                     &viewer_session.media_session,
                                 );
 
+
                                 // Convert RTP to SRTP and send to remote
                                 if let Ok(_) =
                                     ssl_stream.srtp_outbound.protect(&mut self.outbound_buffer)
                                 {
+                                    if is_video_packet {
+                                        // Update RTP Replay Buffer
+
+                                        let roc = ssl_stream.srtp_outbound.session().get_stream_roc(viewer_session.media_session.video_session.host_ssrc);
+                                        let rtp_stash = RTPStash::new(Bytes::from(self.outbound_buffer.clone()), roc.unwrap() as usize);
+                                        viewer_client.rtp_replay_buffer.insert(rtp_stash);
+                                    }
+
+                                    if thread_rng().gen_bool(0.01) {
+                                        let _ = mem::replace(self.session_registry.get_session_by_address_mut(remote).unwrap(), sender_session);
+                                        return;
+                                    }
+
                                     if let Err(err) = self.socket.send_to(
                                         &self.outbound_buffer,
                                         viewer_client.remote_address,
@@ -219,6 +315,7 @@ impl UDPServer {
                     todo!("Handle shutdown case?")
                 }
             },
-        }
+        };
+        let _ = mem::replace(self.session_registry.get_session_by_address_mut(remote).unwrap(), sender_session);
     }
 }
