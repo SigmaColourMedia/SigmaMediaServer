@@ -1,10 +1,13 @@
-use std::collections::{HashMap, HashSet};
+use std::cmp::{Ordering};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Instant;
+use byteorder::{ReadBytesExt};
+use bytes::{Buf, Bytes};
 
 use rand::{RngCore, thread_rng};
 
-use sdp::NegotiatedSession;
+use sdp::{NegotiatedSession, VideoSession};
 use thumbnail_image_extractor::ThumbnailExtractor;
 
 use crate::client::Client;
@@ -57,7 +60,7 @@ impl SessionRegistry {
         self.rooms.values().map(Clone::clone).collect()
     }
 
-    pub fn get_room(&self, room_id: RoomID) -> Option<&Room> {
+    pub fn get_room(&mut self, room_id: RoomID) -> Option<&Room> {
         self.rooms.get(&room_id)
     }
 
@@ -218,6 +221,18 @@ pub struct Session {
     pub connection_type: ConnectionType,
 }
 
+impl Default for Session {
+    fn default() -> Self {
+        Self {
+            ttl: Instant::now(),
+            id: 1,
+            client: None,
+            connection_type: ConnectionType::Viewer(Viewer { room_id: 1 }),
+            media_session: NegotiatedSession::default(),
+        }
+    }
+}
+
 impl Session {
     pub fn new_streamer(media_session: NegotiatedSession, room_id: RoomID) -> Self {
         let id = get_random_id();
@@ -265,12 +280,190 @@ pub struct Streamer {
     pub image_timestamp: Option<Instant>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct RTPReplayBuffer {
+    heap: BinaryHeap<RTPStash>,
+    size: usize,
+}
+
+
+impl RTPReplayBuffer {
+    pub fn new() -> Self {
+        Self {
+            heap: BinaryHeap::with_capacity(DEFAULT_RTP_REPLAY_BUFF_SIZE),
+            size: DEFAULT_RTP_REPLAY_BUFF_SIZE,
+        }
+    }
+
+    pub fn insert(&mut self, rtp: RTPStash) {
+        if self.heap.len() == self.size {
+            self.heap.pop();
+        }
+
+        self.heap.push(rtp)
+    }
+
+    pub fn get(&self, seq: u16) -> Option<Bytes> {
+        self.heap.iter().find_map(|item| if item.sequence == seq {
+            Some(item._buffer.clone())
+        } else {
+            None
+        })
+    }
+}
+
 #[derive(Hash, Eq, PartialEq, Debug)]
 pub struct SessionUsername {
     pub remote: String,
     pub host: String,
 }
 
+
+#[derive(PartialEq, Debug, Clone)]
+pub(crate) struct RTPStash {
+    sequence: u16,
+    roc: usize,
+    _buffer: Bytes,
+}
+
+impl RTPStash {
+    pub fn new(buffer: Bytes, roc: usize) -> Self {
+        let seq_num = buffer.slice(2..).get_u16();
+
+        RTPStash {
+            roc,
+            _buffer: buffer,
+            sequence: seq_num,
+        }
+    }
+}
+
+impl Ord for RTPStash {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let self_val = self.roc * (u16::MAX as usize) + self.sequence as usize;
+        let other_val = other.roc * (u16::MAX as usize) + other.sequence as usize;
+
+        if self_val > other_val {
+            Ordering::Less
+        } else if self_val < other_val {
+            Ordering::Greater
+        } else {
+            Ordering::Equal
+        }
+    }
+}
+
+impl Eq for RTPStash {}
+
+impl PartialOrd for RTPStash {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+
 fn get_random_id() -> u32 {
     thread_rng().next_u32()
+}
+
+static DEFAULT_RTP_REPLAY_BUFF_SIZE: usize = 1024;
+
+#[cfg(test)]
+mod rtp_stash_tests {
+    use std::collections::BinaryHeap;
+    use bytes::Bytes;
+    use crate::ice_registry::{RTPReplayBuffer, RTPStash};
+
+    #[test]
+    fn inserts_in_ok_order() {
+        let mut heap: BinaryHeap<RTPStash> = BinaryHeap::new();
+
+        let item_1 = RTPStash {
+            _buffer: Bytes::from_static(&[0, 1]),
+            sequence: 65000,
+            roc: 0,
+        };
+        let item_2 = RTPStash {
+            _buffer: Bytes::from_static(&[0, 2]),
+            sequence: 65030,
+            roc: 0,
+        };
+        let item_3 = RTPStash {
+            _buffer: Bytes::from_static(&[0, 3]),
+            sequence: 100,
+            roc: 1,
+        };
+
+        heap.push(item_3.clone());
+        heap.push(item_1.clone());
+        heap.push(item_2.clone());
+
+        assert_eq!(heap.pop(), Some(item_1));
+        assert_eq!(heap.pop(), Some(item_2));
+        assert_eq!(heap.pop(), Some(item_3));
+    }
+}
+
+#[cfg(test)]
+mod rtp_replay_buffer_tests {
+    use std::collections::{BinaryHeap, HashMap};
+    use std::mem;
+    use bytes::Bytes;
+    use crate::ice_registry::{RTPReplayBuffer, RTPStash};
+
+    #[test]
+    fn evicts_last_item_when_overflows() {
+        let mut buffer = RTPReplayBuffer {
+            size: 3,
+            heap: BinaryHeap::new(),
+        };
+
+
+        let item_0 = RTPStash {
+            _buffer: Bytes::from_static(&[0, 5]),
+            sequence: 50000,
+            roc: 0,
+        };
+        let item_1 = RTPStash {
+            _buffer: Bytes::from_static(&[0, 1]),
+            sequence: 65000,
+            roc: 0,
+        };
+        let item_2 = RTPStash {
+            _buffer: Bytes::from_static(&[0, 2]),
+            sequence: 65030,
+            roc: 0,
+        };
+        let item_3 = RTPStash {
+            _buffer: Bytes::from_static(&[0, 3]),
+            sequence: 100,
+            roc: 1,
+        };
+
+        buffer.insert(item_0.clone());
+        buffer.insert(item_1.clone());
+        buffer.insert(item_2.clone());
+        buffer.insert(item_3.clone());
+
+        assert!(buffer.heap.iter().find(|&item| item.sequence == item_1.sequence).is_some());
+        assert!(buffer.heap.iter().find(|&item| item.sequence == item_2.sequence).is_some());
+        assert!(buffer.heap.iter().find(|&item| item.sequence == item_3.sequence).is_some());
+        assert!(buffer.heap.iter().find(|&item| item.sequence == item_0.sequence).is_none())
+    }
+
+    #[test]
+    fn test_replace() {
+        let mut map = HashMap::new();
+        map.insert(1, vec![0, 1, 2]);
+
+        let mut dummy = vec![2, 4];
+        let outside = mem::replace(map.get_mut(&1).unwrap(), dummy);
+
+        println!("outside {:?}", outside);
+        println!("inside {:?}", map);
+        map.get(&0);
+        let outside = mem::replace(map.get_mut(&1).unwrap(), outside);
+        println!("outside {:?}", outside);
+        println!("inside {:?}", map);
+    }
 }

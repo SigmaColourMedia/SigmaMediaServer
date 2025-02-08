@@ -5,10 +5,11 @@ use std::net::{SocketAddr, UdpSocket};
 
 use openssl::error::ErrorStack;
 use openssl::ssl::{HandshakeError, MidHandshakeSslStream, SslStream};
-use srtp::openssl::{InboundSession, OutboundSession};
+use srtp::openssl::{Config, InboundSession, OutboundSession};
 
 use crate::client::ClientError::{IncompletePacketRead, OpenSslError};
 use crate::config::get_global_config;
+use crate::ice_registry::RTPReplayBuffer;
 
 #[derive(Debug)]
 pub enum ClientSslState {
@@ -28,6 +29,8 @@ pub struct EstablishedStream {
 pub struct Client {
     pub ssl_state: ClientSslState,
     pub remote_address: SocketAddr,
+    pub rtp_replay_buffer: RTPReplayBuffer,
+
 }
 
 impl Client {
@@ -43,6 +46,7 @@ impl Client {
             Err(HandshakeError::WouldBlock(mid_handshake)) => Ok(Client {
                 ssl_state: ClientSslState::Handshake(mid_handshake),
                 remote_address: remote,
+                rtp_replay_buffer: RTPReplayBuffer::new(),
             }),
         }
     }
@@ -59,7 +63,7 @@ impl Client {
                     Ok(ssl_stream) => {
                         println!("DTLS handshake finished for remote {}", self.remote_address);
                         let (inbound, outbound) =
-                            srtp::openssl::session_pair(ssl_stream.ssl(), Default::default())
+                            srtp::openssl::session_pair(ssl_stream.ssl(), Config { window_size: 0, encrypt_extension_headers: &vec![], allow_repeat_tx: true })
                                 .unwrap();
 
                         ClientSslState::Established(EstablishedStream {
