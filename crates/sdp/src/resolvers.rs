@@ -21,6 +21,41 @@ pub struct NegotiatedSession {
     pub audio_session: AudioSession,
 }
 
+impl Default for NegotiatedSession {
+    fn default() -> Self {
+        Self {
+            sdp_answer: SDP {
+                video_section: vec![],
+                session_section: vec![],
+                audio_section: vec![],
+            },
+            ice_credentials: ICECredentials {
+                host_username: String::new(),
+                remote_username: String::new(),
+                host_password: String::new(),
+                remote_password: String::new(),
+            },
+            audio_session: AudioSession {
+                codec: AudioCodec::Opus,
+                payload_number: 111,
+                host_ssrc: 1,
+                remote_ssrc: Some(1),
+            },
+            video_session: VideoSession {
+                feedback_support: FeedbackSupport {
+                    supports_pli: false,
+                    supports_nack: false,
+                },
+                codec: VideoCodec::H264,
+                remote_ssrc: Some(1),
+                host_ssrc: 1,
+                capabilities: HashSet::new(),
+                payload_number: 96,
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ICECredentials {
     pub host_username: String,
@@ -130,7 +165,7 @@ impl SDPResolver {
     }
 
     /** Gets ICE credentials from the SDP. Uses session-level credentials if no media-level credentials were provided.
-                                                                                                                               If media-level credentials were provided, check if they match across media-streams and if so resolve to ICECredentials.
+                                                                                                                                                       If media-level credentials were provided, check if they match across media-streams and if so resolve to ICECredentials.
      */
     fn get_ice_credentials(sdp: &SDP) -> Option<ICECredentials> {
         let get_ice_username = |section: &Vec<SDPLine>| {
