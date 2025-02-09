@@ -20,6 +20,7 @@ mod rtp;
 mod server;
 mod stun;
 mod thumbnail;
+mod rtp_replay_buffer;
 
 fn main() {
     let (server_command_sender, server_command_receiver) =
@@ -124,10 +125,10 @@ fn main() {
                         ConnectionType::Streamer(streamer) => {
                             let should_update_thumbnail = streamer.image_timestamp.is_none()
                                 || streamer
-                                    .image_timestamp
-                                    .unwrap()
-                                    .elapsed()
-                                    .gt(&Duration::from_secs(120));
+                                .image_timestamp
+                                .unwrap()
+                                .elapsed()
+                                .gt(&Duration::from_secs(120));
 
                             if should_update_thumbnail
                                 && streamer.thumbnail_extractor.last_picture.is_some()
