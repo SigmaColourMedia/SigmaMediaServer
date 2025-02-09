@@ -9,7 +9,7 @@ use srtp::openssl::{Config, InboundSession, OutboundSession};
 
 use crate::client::ClientError::{IncompletePacketRead, OpenSslError};
 use crate::config::get_global_config;
-use crate::ice_registry::RTPReplayBuffer;
+use crate::rtp_replay_buffer::{ReplayBuffer};
 
 #[derive(Debug)]
 pub enum ClientSslState {
@@ -29,7 +29,7 @@ pub struct EstablishedStream {
 pub struct Client {
     pub ssl_state: ClientSslState,
     pub remote_address: SocketAddr,
-    pub rtp_replay_buffer: RTPReplayBuffer,
+    pub rtp_replay_buffer: ReplayBuffer,
 
 }
 
@@ -46,7 +46,7 @@ impl Client {
             Err(HandshakeError::WouldBlock(mid_handshake)) => Ok(Client {
                 ssl_state: ClientSslState::Handshake(mid_handshake),
                 remote_address: remote,
-                rtp_replay_buffer: RTPReplayBuffer::new(),
+                rtp_replay_buffer: ReplayBuffer::default(),
             }),
         }
     }
