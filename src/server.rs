@@ -178,18 +178,18 @@ impl UDPServer {
                                                             }
                                                         }
                                                     }
-                                                    let nacks = nacks_to_send.into_iter().map(|pid| GenericNACK { pid, blp: 0 }).collect::<Vec<GenericNACK>>();
-                                                    if !nacks.is_empty() {
-                                                        let sender_ssrc = streamer_session.media_session.video_session.host_ssrc;
-                                                        let media_ssrc = streamer_session.media_session.video_session.remote_ssrc.unwrap_or(0); // todo Handle a default for remote ssrc
-
-                                                        let mut rtcp_nack = TransportLayerNACK::new(nacks, sender_ssrc, media_ssrc).marshall().expect("Marshall should resolve on trusted source").to_vec();
-                                                        if let Ok(_) = streamer_ssl.srtp_outbound.protect_rtcp(&mut rtcp_nack) {
-                                                            if let Err(e) = self.socket.send_to(&rtcp_nack, streamer_client.remote_address) {
-                                                                eprintln!("Error sending stashed RTCP packet to remote {}", e)
-                                                            }
-                                                        }
-                                                    }
+                                                    // let nacks = nacks_to_send.into_iter().map(|pid| GenericNACK { pid, blp: 0 }).collect::<Vec<GenericNACK>>();
+                                                    // if !nacks.is_empty() {
+                                                    //     let sender_ssrc = streamer_session.media_session.video_session.host_ssrc;
+                                                    //     let media_ssrc = streamer_session.media_session.video_session.remote_ssrc.unwrap_or(0); // todo Handle a default for remote ssrc
+                                                    //
+                                                    //     let mut rtcp_nack = TransportLayerNACK::new(nacks, sender_ssrc, media_ssrc).marshall().expect("Marshall should resolve on trusted source").to_vec();
+                                                    //     if let Ok(_) = streamer_ssl.srtp_outbound.protect_rtcp(&mut rtcp_nack) {
+                                                    //         if let Err(e) = self.socket.send_to(&rtcp_nack, streamer_client.remote_address) {
+                                                    //             eprintln!("Error sending stashed RTCP packet to remote {}", e)
+                                                    //         }
+                                                    //     }
+                                                    // }
                                                 }
                                                 RtcpPacket::PayloadSpecificFeedbackMessage(_) => {
                                                     let mut pkt = PictureLossIndication::new(streamer_session.media_session.video_session.host_ssrc, streamer_session.media_session.video_session.remote_ssrc.unwrap()).marshall().unwrap().to_vec();
@@ -287,7 +287,7 @@ impl UDPServer {
                                             viewer_client.rtp_replay_buffer.insert(Bytes::from(self.outbound_buffer.clone()), roc);
                                         }
 
-                                   
+
                                         if let Err(err) = self.socket.send_to(
                                             &self.outbound_buffer,
                                             viewer_client.remote_address,
