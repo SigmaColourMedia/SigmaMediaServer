@@ -63,7 +63,7 @@ impl Client {
                     Ok(ssl_stream) => {
                         println!("DTLS handshake finished for remote {}", self.remote_address);
                         let (inbound, outbound) =
-                            srtp::openssl::session_pair(ssl_stream.ssl(), Config { window_size: 0, encrypt_extension_headers: &vec![], allow_repeat_tx: true })
+                            srtp::openssl::session_pair(ssl_stream.ssl(), Config { window_size: 32767, encrypt_extension_headers: &vec![], allow_repeat_tx: true })
                                 .unwrap();
 
                         ClientSslState::Established(EstablishedStream {

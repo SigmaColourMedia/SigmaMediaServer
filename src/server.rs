@@ -159,8 +159,6 @@ impl UDPServer {
                             if let Some(streamer_session) = self.session_registry.get_room(viewer.room_id).map(|room| room.owner_id).and_then(|owner_id| self.session_registry.get_session_mut(owner_id)) {
                                 if let Some(streamer_client) = &mut streamer_session.client {
                                     if let ClientSslState::Established(streamer_ssl) = &mut streamer_client.ssl_state {
-                                        let time = Instant::now();
-
                                         for packet in rtcp_packets {
                                             match packet {
                                                 RtcpPacket::TransportLayerFeedbackMessage(nack) => {
@@ -182,7 +180,6 @@ impl UDPServer {
                                                     if !nacks.is_empty() {
                                                         let sender_ssrc = streamer_session.media_session.video_session.host_ssrc;
                                                         let media_ssrc = streamer_session.media_session.video_session.remote_ssrc.unwrap_or(0); // todo Handle a default for remote ssrc
-
                                                         let mut rtcp_nack = TransportLayerNACK::new(nacks, sender_ssrc, media_ssrc).marshall().expect("Marshall should resolve on trusted source").to_vec();
                                                         if let Ok(_) = streamer_ssl.srtp_outbound.protect_rtcp(&mut rtcp_nack) {
                                                             if let Err(e) = self.socket.send_to(&rtcp_nack, streamer_client.remote_address) {
@@ -220,85 +217,96 @@ impl UDPServer {
                 }
 
                 ClientSslState::Established(ssl_stream) => {
-                    if let Ok(_) = ssl_stream.srtp_inbound.unprotect(&mut self.inbound_buffer) {
-                        let room_id = streamer.owned_room_id;
+                    // if thread_rng().gen_bool(0.20) {
+                    //     let _ = mem::replace(self.session_registry.get_session_by_address_mut(remote).unwrap(), sender_session);
+                    //     return;
+                    // }
+                    // let copy = self.inbound_buffer.clone();
 
-                        let is_video_packet = get_rtp_header_data(&self.inbound_buffer)
-                            .payload_type
-                            .eq(&(sender_session.media_session.video_session.payload_number as u8));
+                    match ssl_stream.srtp_inbound.unprotect(&mut self.inbound_buffer) {
+                        Ok(_) => {
+                            println!("Sending RTP packet {}", Bytes::from(self.inbound_buffer.clone()).slice(2..).get_u16());
 
-                        if is_video_packet {
-                            // Feed thumbnail image extractor
-                            streamer
-                                .thumbnail_extractor
-                                .try_extract_thumbnail(&self.inbound_buffer);
-                        }
+                            let room_id = streamer.owned_room_id;
 
+                            let is_video_packet = get_rtp_header_data(&self.inbound_buffer)
+                                .payload_type
+                                .eq(&(sender_session.media_session.video_session.payload_number as u8));
 
-                        let viewer_ids = self
-                            .session_registry
-                            .get_room(room_id)
-                            .expect("Streamer room should exist")
-                            .viewer_ids
-                            .clone()
-                            .into_iter();
-
-                        let viewers = viewer_ids.len();
-                        for id in viewer_ids {
-                            let streamer_media = self
-                                .session_registry
-                                .get_session_by_address_mut(&remote)
-                                .expect("Streamer session should be established")
-                                .media_session
-                                .clone();
-                            let viewer_session = self.session_registry.get_session_mut(id).expect("Viewer session should be established if viewer id belongs to a room");
-
-                            // If viewer has yet elected a Client, skip it
-                            if viewer_session.client.is_none() {
-                                continue;
+                            if is_video_packet {
+                                // Feed thumbnail image extractor
+                                streamer
+                                    .thumbnail_extractor
+                                    .try_extract_thumbnail(&self.inbound_buffer);
                             }
 
-                            let viewer_client = viewer_session.client.as_mut().unwrap();
 
-                            if let ClientSslState::Established(ssl_stream) =
-                                &mut viewer_client.ssl_state
-                            {
+                            let viewer_ids = self
+                                .session_registry
+                                .get_room(room_id)
+                                .expect("Streamer room should exist")
+                                .viewer_ids
+                                .clone()
+                                .into_iter();
+
+                            for id in viewer_ids {
+                                let streamer_media = self
+                                    .session_registry
+                                    .get_session_by_address_mut(&remote)
+                                    .expect("Streamer session should be established")
+                                    .media_session
+                                    .clone();
+                                let viewer_session = self.session_registry.get_session_mut(id).expect("Viewer session should be established if viewer id belongs to a room");
+
+                                // If viewer has yet elected a Client, skip it
+                                if viewer_session.client.is_none() {
+                                    continue;
+                                }
+
+                                let viewer_client = viewer_session.client.as_mut().unwrap();
+
+                                if let ClientSslState::Established(ssl_stream) =
+                                    &mut viewer_client.ssl_state
+                                {
 
 
-                                // Write to temp buffer
-                                self.outbound_buffer.clear();
-                                self.outbound_buffer
-                                    .write(&self.inbound_buffer)
-                                    .expect("Should write to outbound buffer");
+                                    // Write to temp buffer
+                                    self.outbound_buffer.clear();
+                                    self.outbound_buffer
+                                        .write(&self.inbound_buffer)
+                                        .expect("Should write to outbound buffer");
 
-                                // Remap Payload Type and SSRC to match negotiated values
-                                remap_rtp_header(
-                                    &mut self.outbound_buffer,
-                                    &streamer_media,
-                                    &viewer_session.media_session,
-                                );
+                                    // Remap Payload Type and SSRC to match negotiated values
+                                    remap_rtp_header(
+                                        &mut self.outbound_buffer,
+                                        &streamer_media,
+                                        &viewer_session.media_session,
+                                    );
 
 
-                                match ssl_stream.srtp_outbound.protect(&mut self.outbound_buffer) {
-                                    Ok(_) => {
-                                        if is_video_packet {
-                                            // Update RTP Replay Buffer
-                                            let roc = ssl_stream.srtp_outbound.session().get_stream_roc(viewer_session.media_session.video_session.host_ssrc).unwrap_or(0);
-                                            viewer_client.rtp_replay_buffer.insert(Bytes::from(self.outbound_buffer.clone()), roc);
+                                    match ssl_stream.srtp_outbound.protect(&mut self.outbound_buffer) {
+                                        Ok(_) => {
+                                            if is_video_packet {
+                                                // Update RTP Replay Buffer
+                                                let roc = ssl_stream.srtp_outbound.session().get_stream_roc(viewer_session.media_session.video_session.host_ssrc).unwrap_or(0);
+                                                viewer_client.rtp_replay_buffer.insert(Bytes::from(self.outbound_buffer.clone()), roc);
+                                            }
+
+
+                                            if let Err(err) = self.socket.send_to(
+                                                &self.outbound_buffer,
+                                                viewer_client.remote_address,
+                                            ) {
+                                                eprintln!("Couldn't send RTP data {}", err)
+                                            }
                                         }
-
-                                   
-                                        if let Err(err) = self.socket.send_to(
-                                            &self.outbound_buffer,
-                                            viewer_client.remote_address,
-                                        ) {
-                                            eprintln!("Couldn't send RTP data {}", err)
-                                        }
+                                        Err(err) => { println!("Could not protect due to {}", err) }
                                     }
-                                    Err(err) => { println!("Could not protect due to {}", err) }
                                 }
                             }
                         }
+                        _ => {}
+                        // Err(e) => { eprintln!("Error unprotecting packet {} at num {}", e, Bytes::from(copy).slice(2..).get_u16()) }
                     }
                 }
                 ClientSslState::Shutdown => {
