@@ -2,19 +2,19 @@ use std::collections::HashSet;
 
 #[derive(Debug)]
 pub struct Reporter {
-    pub ext_highest_seq: u16,
-    pub lost_packets: HashSet<u16>,
+    pub ext_highest_seq: usize,
+    pub lost_packets: HashSet<usize>,
     packet_loss_sum: usize,
-    roc: u16,
+    roc: usize,
 }
 
 impl Reporter {
-    pub fn process_packet(&mut self, pid: u16, roc: u16) {
+    pub fn process_packet(&mut self, pid: usize, roc: usize) {
         // Packet crosses the roc counter boundary
         if roc != self.roc {
             // Packet is the next packet to process
             if roc > self.roc {
-                let packets_lost_since_last_roc = u16::MAX - self.ext_highest_seq;
+                let packets_lost_since_last_roc = (u16::MAX as usize) - self.ext_highest_seq;
                 let packets_lost_in_new_roc = pid;
 
                 let mut index = 1;
@@ -31,7 +31,7 @@ impl Reporter {
                 }
                 self.roc = roc;
                 self.ext_highest_seq = pid;
-                self.lost_packets = self.lost_packets.union(&packets_lost).map(ToOwned::to_owned).collect::<HashSet<u16>>();
+                self.lost_packets = self.lost_packets.union(&packets_lost).map(ToOwned::to_owned).collect::<HashSet<usize>>();
             }
             // Old packet was re-transmitted
             else {
@@ -54,7 +54,7 @@ impl Reporter {
                 packets_lost -= 1;
             }
 
-            self.lost_packets = self.lost_packets.union(&lost_packets).map(ToOwned::to_owned).collect::<HashSet<u16>>();
+            self.lost_packets = self.lost_packets.union(&lost_packets).map(ToOwned::to_owned).collect::<HashSet<usize>>();
             self.ext_highest_seq = pid;
         }
         // Packet is late/duplicate/re-send
@@ -63,7 +63,7 @@ impl Reporter {
         }
     }
 
-    pub fn new(pid: u16, roc: u16) -> Self {
+    pub fn new(pid: usize, roc: usize) -> Self {
         Self {
             roc,
             ext_highest_seq: pid,
@@ -174,7 +174,7 @@ mod reporters_tests {
     fn packet_jumps_roc() {
         let mut reporter = Reporter {
             lost_packets: HashSet::new(),
-            ext_highest_seq: u16::MAX,
+            ext_highest_seq: u16::MAX as usize,
             roc: 0,
             packet_loss_sum: 0,
         };
@@ -193,7 +193,7 @@ mod reporters_tests {
     fn packet_jumps_roc_and_loses_packet() {
         let mut reporter = Reporter {
             lost_packets: HashSet::new(),
-            ext_highest_seq: u16::MAX,
+            ext_highest_seq: u16::MAX as usize,
             roc: 0,
             packet_loss_sum: 0,
         };
@@ -211,15 +211,15 @@ mod reporters_tests {
     fn packet_jumps_roc_and_loses_packet_before_counter_increment() {
         let mut reporter = Reporter {
             lost_packets: HashSet::new(),
-            ext_highest_seq: u16::MAX - 4,
+            ext_highest_seq: (u16::MAX as usize) - 4,
             roc: 0,
             packet_loss_sum: 0,
         };
-        reporter.process_packet(u16::MAX - 3, 0);
+        reporter.process_packet((u16::MAX as usize) - 3, 0);
         reporter.process_packet(0, 1);
 
 
-        assert_eq!(reporter.lost_packets, HashSet::from([u16::MAX, u16::MAX - 1, u16::MAX - 2]));
+        assert_eq!(reporter.lost_packets, HashSet::from([u16::MAX as usize, u16::MAX as usize - 1, u16::MAX as usize - 2]));
         assert_eq!(reporter.packet_loss_sum, 0);
         assert_eq!(reporter.roc, 1);
         assert_eq!(reporter.ext_highest_seq, 0);
@@ -229,15 +229,15 @@ mod reporters_tests {
     fn packet_jumps_roc_and_loses_packets_before_and_after_roc_increment() {
         let mut reporter = Reporter {
             lost_packets: HashSet::new(),
-            ext_highest_seq: u16::MAX - 4,
+            ext_highest_seq: u16::MAX as usize - 4,
             roc: 0,
             packet_loss_sum: 0,
         };
-        reporter.process_packet(u16::MAX - 3, 0);
+        reporter.process_packet(u16::MAX as usize - 3, 0);
         reporter.process_packet(5, 1);
 
 
-        assert_eq!(reporter.lost_packets, HashSet::from([u16::MAX, u16::MAX - 1, u16::MAX - 2, 4, 3, 2, 1, 0]));
+        assert_eq!(reporter.lost_packets, HashSet::from([u16::MAX as usize, u16::MAX as usize - 1, u16::MAX as usize - 2, 4, 3, 2, 1, 0]));
         assert_eq!(reporter.packet_loss_sum, 0);
         assert_eq!(reporter.roc, 1);
         assert_eq!(reporter.ext_highest_seq, 5);
@@ -247,17 +247,17 @@ mod reporters_tests {
     fn packet_jumps_roc_out_of_order() {
         let mut reporter = Reporter {
             lost_packets: HashSet::new(),
-            ext_highest_seq: u16::MAX - 4,
+            ext_highest_seq: u16::MAX as usize - 4,
             roc: 0,
             packet_loss_sum: 0,
         };
-        reporter.process_packet(u16::MAX - 3, 0);
+        reporter.process_packet(u16::MAX as usize - 3, 0);
         reporter.process_packet(2, 1);
-        reporter.process_packet(u16::MAX - 2, 0);
-        reporter.process_packet(u16::MAX - 1, 0);
+        reporter.process_packet(u16::MAX as usize - 2, 0);
+        reporter.process_packet(u16::MAX as usize - 1, 0);
         reporter.process_packet(0, 1);
         reporter.process_packet(1, 1);
-        reporter.process_packet(u16::MAX, 0);
+        reporter.process_packet(u16::MAX as usize, 0);
 
 
         assert_eq!(reporter.lost_packets.len(), 0);

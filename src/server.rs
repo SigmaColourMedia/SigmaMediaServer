@@ -191,7 +191,7 @@ impl UDPServer {
                 }
 
                 ClientSslState::Established(ssl_stream) => {
-                    // if thread_rng().gen_bool(0.25) {
+                    // if thread_rng().gen_bool(0.15) {
                     //     mem::replace(&mut sender_session.client, Some(sender_client));
                     //     mem::replace(&mut sender_session.connection_type, sender_connection_type);
                     //     let _ = mem::replace(self.session_registry.get_session_by_address_mut(remote).unwrap(), sender_session);
@@ -217,9 +217,9 @@ impl UDPServer {
                                     .try_extract_thumbnail(&self.inbound_buffer);
 
                                 if sender_session.video_reporter.is_some() {
-                                    sender_session.process_packet(packet_seq, roc);
+                                    sender_session.process_packet(packet_seq as usize, roc as usize);
                                 } else {
-                                    sender_session.set_reporter(packet_seq, roc as u16);
+                                    sender_session.set_reporter(packet_seq as usize, roc as usize);
                                 }
                             }
 

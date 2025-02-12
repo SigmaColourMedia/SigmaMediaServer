@@ -272,11 +272,11 @@ impl Session {
         }
     }
 
-    pub fn process_packet(&mut self, pid: u16, roc: u32) {
-        self.video_reporter.as_mut().expect("Video Reporter should be Some").process_packet(pid, roc as u16);
+    pub fn process_packet(&mut self, pid: usize, roc: usize) {
+        self.video_reporter.as_mut().expect("Video Reporter should be Some").process_packet(pid, roc);
     }
 
-    pub fn set_reporter(&mut self, pid: u16, roc: u16) {
+    pub fn set_reporter(&mut self, pid: usize, roc: usize) {
         self.video_reporter = Some(Reporter::new(pid, roc));
     }
 
@@ -289,13 +289,13 @@ impl Session {
 
         let packets_to_report = reporter.lost_packets.iter().filter(|&&pid| {
             pid.abs_diff(reporter.ext_highest_seq) < 528
-        }).collect::<Vec<&u16>>();
+        }).collect::<Vec<&usize>>();
 
         if packets_to_report.is_empty() {
             return None;
         }
 
-        let nacks = packets_to_report.into_iter().map(|&pid| GenericNACK { pid, blp: 0 }).collect();
+        let nacks = packets_to_report.into_iter().map(|&pid| GenericNACK { pid: pid as u16, blp: 0 }).collect();
 
         Some(TransportLayerNACK::new(nacks, self.media_session.video_session.host_ssrc, self.media_session.video_session.remote_ssrc.unwrap_or(0)))
     }
