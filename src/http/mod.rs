@@ -72,6 +72,7 @@ pub enum ServerCommand {
     HandlePacket(Vec<u8>, SocketAddr),
     SendRoomsStatus(Sender<Notification>),
     RunPeriodicChecks,
+    SendRRFeedback,
 }
 
 pub struct Response {
