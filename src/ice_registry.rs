@@ -272,9 +272,8 @@ impl Session {
         }
     }
 
-    pub fn process_packet(&mut self, pid: u16, roc: u32) -> Option<TransportLayerNACK> {
+    pub fn process_packet(&mut self, pid: u16, roc: u32) {
         self.video_reporter.as_mut().expect("Video Reporter should be Some").process_packet(pid, roc as u16);
-        self.check_packet_integrity()
     }
 
     pub fn set_reporter(&mut self, pid: u16, roc: u16) {
@@ -282,8 +281,12 @@ impl Session {
     }
 
 
-    fn check_packet_integrity(&mut self) -> Option<TransportLayerNACK> {
-        let reporter = self.video_reporter.as_mut().expect("Video reporter must be defined before calling check integrity");
+    pub fn check_packet_integrity(&mut self) -> Option<TransportLayerNACK> {
+        if self.video_reporter.is_none() {
+            return None;
+        }
+        let reporter = self.video_reporter.as_mut().unwrap();
+
         let packets_to_report = reporter.lost_packets.iter().filter(|&&pid| {
             pid.abs_diff(reporter.ext_highest_seq) < 528
         }).collect::<Vec<&u16>>();
