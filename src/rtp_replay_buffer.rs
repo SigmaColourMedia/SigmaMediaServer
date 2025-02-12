@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 use bytes::{Buf, Bytes};
 
-static DEFAULT_RTP_REPLAY_BUFF_SIZE: usize = 32767;
+static DEFAULT_RTP_REPLAY_BUFF_SIZE: usize = 1024;
 
 
 #[derive(Debug)]
