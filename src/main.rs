@@ -3,11 +3,13 @@ use std::sync::mpsc::Sender;
 use std::thread;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+use rtcp::Marshall;
+use crate::client::{Client, ClientSslState};
 
 use crate::config::get_global_config;
 use crate::http::server::{Notification, Room, start_http_server};
 use crate::http::ServerCommand;
-use crate::ice_registry::ConnectionType;
+use crate::ice_registry::{ConnectionType, Session};
 use crate::server::UDPServer;
 use crate::thumbnail::save_thumbnail_to_storage;
 
@@ -21,6 +23,7 @@ mod server;
 mod stun;
 mod thumbnail;
 mod rtp_replay_buffer;
+mod rtcp_reporter;
 
 fn main() {
     let (server_command_sender, server_command_receiver) =
@@ -40,6 +43,10 @@ fn main() {
     thread::spawn({
         let sender = server_command_sender.clone();
         move || start_timeout_interval(sender)
+    });
+    thread::spawn({
+        let sender = server_command_sender.clone();
+        move || poll_rtcp_rr_feedback(sender)
     });
 
     loop {
@@ -166,6 +173,36 @@ fn main() {
                     }
                 }
             }
+            ServerCommand::SendRRFeedback => {
+                let streamers = udp_server
+                    .session_registry
+                    .get_all_sessions_mut().into_iter()
+                    .filter_map(|session| {
+                        match &session.connection_type {
+                            ConnectionType::Viewer(_) => None,
+                            ConnectionType::Streamer(_) => {
+                                Some(session)
+                            }
+                        }
+                    })
+                    .collect::<Vec<&mut Session>>();
+
+                for streamer_session in streamers {
+                    if let Some(nack_to_report) = streamer_session.check_packet_integrity() {
+                        println!("I want to report nack {:?}", nack_to_report.nacks.len());
+                        if let Some(client) = streamer_session.client.as_mut() {
+                            if let ClientSslState::Established(ssl_stream) = &mut client.ssl_state {
+                                let mut packets = nack_to_report.marshall().unwrap().to_vec();
+                                if let Ok(_) = ssl_stream.srtp_outbound.protect_rtcp(&mut packets) {
+                                    if let Err(_) = udp_server.socket.send_to(&packets, client.remote_address) {
+                                        eprintln!("Error sending packet to remote")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -175,6 +212,15 @@ fn start_timeout_interval(sender: Sender<ServerCommand>) {
         sleep(Duration::from_secs(3));
         sender
             .send(ServerCommand::RunPeriodicChecks)
+            .expect("Server channel should be open");
+    }
+}
+
+fn poll_rtcp_rr_feedback(sender: Sender<ServerCommand>) {
+    loop {
+        sleep(Duration::from_millis(10));
+        sender
+            .send(ServerCommand::SendRRFeedback)
             .expect("Server channel should be open");
     }
 }
