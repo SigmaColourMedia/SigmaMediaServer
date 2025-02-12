@@ -2,6 +2,7 @@ pub mod header;
 pub mod transport_layer_feedback;
 pub mod payload_specific_feedback;
 pub mod rtcp;
+mod receiver_report;
 
 use byteorder::{ReadBytesExt};
 use std::io::{Read, Seek};

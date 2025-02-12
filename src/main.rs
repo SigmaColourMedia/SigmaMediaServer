@@ -189,7 +189,6 @@ fn main() {
 
                 for streamer_session in streamers {
                     if let Some(nack_to_report) = streamer_session.check_packet_integrity() {
-                        println!("I want to report nack {:?}", nack_to_report.nacks.len());
                         if let Some(client) = streamer_session.client.as_mut() {
                             if let ClientSslState::Established(ssl_stream) = &mut client.ssl_state {
                                 let mut packets = nack_to_report.marshall().unwrap().to_vec();
