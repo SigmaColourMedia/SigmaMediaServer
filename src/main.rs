@@ -217,7 +217,7 @@ fn start_timeout_interval(sender: Sender<ServerCommand>) {
 
 fn poll_rtcp_rr_feedback(sender: Sender<ServerCommand>) {
     loop {
-        sleep(Duration::from_millis(10));
+        sleep(Duration::from_millis(2));
         sender
             .send(ServerCommand::SendRRFeedback)
             .expect("Server channel should be open");
