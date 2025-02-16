@@ -1,12 +1,40 @@
 use byteorder::{WriteBytesExt};
 use bytes::{BufMut, Bytes, BytesMut};
-use crate::header::Header;
+use crate::header::{Header, PayloadType};
 use crate::{Marshall, MarshallError};
 
 struct ReceiverReport {
     header: Header,
     sender_ssrc: u32,
     reports: Vec<ReportBlock>,
+}
+
+impl ReceiverReport {
+    pub fn new(sender_ssrc: u32, reports: Vec<ReportBlock>) -> Self {
+        let header = Header {
+            length: (4 + reports.len() * 24) as u16,
+            payload_type: PayloadType::ReceiverReport,
+            padding: false,
+            feedback_message_type: reports.len() as u8,
+        };
+
+        Self { reports, sender_ssrc, header }
+    }
+}
+
+impl Marshall for ReceiverReport {
+    fn marshall(self) -> Result<Bytes, MarshallError>
+    where
+        Self: Sized,
+    {
+        let mut bytes = BytesMut::new();
+        bytes.put(self.header.marshall()?);
+        bytes.put_u32(self.sender_ssrc);
+        for report in self.reports {
+            bytes.put(report.marshall()?);
+        };
+        Ok(bytes.freeze())
+    }
 }
 
 struct ReportBlock {

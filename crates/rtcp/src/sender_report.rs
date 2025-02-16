@@ -5,13 +5,13 @@ use crate::{Unmarshall, UnmarshallError};
 
 
 #[derive(Debug, Clone, PartialEq)]
-struct SenderReport {
+pub(crate) struct SenderReport {
     header: Header,
     sender_info: SenderInfo,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct SenderInfo {
+pub(crate) struct SenderInfo {
     sender_ssrc: u32,
     ntp_timestamp: u64,
     rtp_timestamp: u32,

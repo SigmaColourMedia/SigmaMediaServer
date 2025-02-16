@@ -14,6 +14,9 @@ pub struct Header {
 pub(crate) enum PayloadType {
     TransportLayerFeedbackMessage,
     PayloadSpecificFeedbackMessage,
+    SenderReport,
+    ReceiverReport,
+    SDES,
     Unsupported,
 }
 
@@ -35,6 +38,9 @@ impl Unmarshall for Header {
 
         let fb_message_type = FMT_MASK & first_octet;
         let payload_type = match value.read_u8().or(Err(UnmarshallError::UnexpectedFrame))? {
+            200 => PayloadType::SenderReport,
+            201 => PayloadType::ReceiverReport,
+            202 => PayloadType::SDES,
             205 => PayloadType::TransportLayerFeedbackMessage,
             206 => PayloadType::PayloadSpecificFeedbackMessage,
             _ => PayloadType::Unsupported
@@ -63,6 +69,9 @@ impl Marshall for Header {
         let second_octet = match &self.payload_type {
             PayloadType::TransportLayerFeedbackMessage => TRANSPORT_LAYER_PT,
             PayloadType::PayloadSpecificFeedbackMessage => PAYLOAD_SPECIFIC_PT,
+            PayloadType::SenderReport => SENDER_REPORT_PT,
+            PayloadType::ReceiverReport => RECEIVER_REPORT_PT,
+            PayloadType::SDES => SDES_PT,
             PayloadType::Unsupported => {
                 return Err(MarshallError::UnsupportedFormat)
             }
@@ -188,5 +197,9 @@ static VERSION_SHIFT: u8 = 6;
 static PADDING_MASK: u8 = 0b0010_0000;
 static PADDING_SHIFT: u8 = 5;
 static FMT_MASK: u8 = 0b0001_1111;
+static SENDER_REPORT_PT: u8 = 200;
+static RECEIVER_REPORT_PT: u8 = 201;
+static SDES_PT: u8 = 202;
+
 static PAYLOAD_SPECIFIC_PT: u8 = 206;
 static TRANSPORT_LAYER_PT: u8 = 205;

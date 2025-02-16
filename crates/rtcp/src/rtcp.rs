@@ -3,11 +3,15 @@ use crate::payload_specific_feedback::PayloadSpecificFeedback;
 use crate::transport_layer_feedback::TransportLayerNACK;
 use crate::{Marshall, MarshallError, Unmarshall, UnmarshallError};
 use crate::header::{Header, PayloadType};
+use crate::sdes::SourceDescriptor;
+use crate::sender_report::SenderReport;
 
 #[derive(Debug, PartialEq)]
 pub enum RtcpPacket {
     TransportLayerFeedbackMessage(TransportLayerNACK),
     PayloadSpecificFeedbackMessage(PayloadSpecificFeedback),
+    SenderReport(SenderReport),
+    SourceDescriptor(SourceDescriptor),
 }
 
 impl Marshall for RtcpPacket {
@@ -17,7 +21,10 @@ impl Marshall for RtcpPacket {
     {
         match self {
             RtcpPacket::TransportLayerFeedbackMessage(tlp_fb) => tlp_fb.marshall(),
-            RtcpPacket::PayloadSpecificFeedbackMessage(ps_fb) => ps_fb.marshall()
+            RtcpPacket::PayloadSpecificFeedbackMessage(ps_fb) => ps_fb.marshall(),
+            _ => {
+                panic!("Cannot marshall unsupported packet")
+            }
         }
     }
 }
@@ -32,8 +39,9 @@ impl Unmarshall for RtcpPacket {
         match &header.payload_type {
             PayloadType::TransportLayerFeedbackMessage =>
                 Ok(RtcpPacket::TransportLayerFeedbackMessage(TransportLayerNACK::unmarshall(bytes)?)),
-
             PayloadType::PayloadSpecificFeedbackMessage => Ok(RtcpPacket::PayloadSpecificFeedbackMessage(PayloadSpecificFeedback::unmarshall(bytes)?)),
+            PayloadType::SenderReport => Ok(RtcpPacket::SenderReport(SenderReport::unmarshall(bytes)?)),
+            PayloadType::SDES => Ok(RtcpPacket::SourceDescriptor(SourceDescriptor::unmarshall(bytes)?)),
             _ => Err(UnmarshallError::UnexpectedFrame)
         }
     }

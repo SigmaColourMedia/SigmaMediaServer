@@ -172,7 +172,7 @@ impl UDPServer {
                                             }
                                         }
                                     }
-                                    RtcpPacket::PayloadSpecificFeedbackMessage(_) => {}
+                                    _ => {}
                                 }
                             }
                         }
@@ -191,12 +191,22 @@ impl UDPServer {
                 }
 
                 ClientSslState::Established(ssl_stream) => {
-                    // if thread_rng().gen_bool(0.15) {
+                    // if thread_rng().gen_bool(0.25) {
                     //     mem::replace(&mut sender_session.client, Some(sender_client));
                     //     mem::replace(&mut sender_session.connection_type, sender_connection_type);
                     //     let _ = mem::replace(self.session_registry.get_session_by_address_mut(remote).unwrap(), sender_session);
                     //     return;
                     // }
+
+                    let mut buffer_copy = self.inbound_buffer.clone();
+
+                    if let Ok(_) = ssl_stream.srtp_inbound.unprotect_rtcp(&mut buffer_copy) {
+                        let input = Bytes::from(buffer_copy);
+                        if let Ok(rtcp) = unmarshall_compound_rtcp(input) {
+                            println!("got RTCP! {:?}", rtcp)
+                        }
+                    }
+
 
                     match ssl_stream.srtp_inbound.unprotect(&mut self.inbound_buffer) {
                         Ok(_) => {
