@@ -37,11 +37,35 @@ impl RTPReporter {
 
         // in order, with permissible gap
         if u_delta < MAX_DROPOUT {
-            // Sequence number wrapped - count another 64K cycle.
+
+
+            // Sequence number wrapped
             if seq < self.max_seq {
+                // Add any missing packets in previous cycle
+                let packets_missed_in_previous_cycle = u16::MAX - self.max_seq;
+                for packet in 0..packets_missed_in_previous_cycle {
+                    self.lost_packets.insert(packet + self.max_seq + 1);
+                }
+                // Add any missing packets in new cycle
+                let packets_missed_in_new_cycle = seq;
+                for packet in 0..packets_missed_in_new_cycle {
+                    self.lost_packets.insert(packet);
+                }
+                //  count another cycle.
                 self.cycles += RTP_SEQ_MOD;
             }
+            // In cycle, jumped few packets forwards
+            else {
+                // Add any missing packets in current cycle
+                let packets_missed_in_cycle = seq - self.max_seq - 1;
+                for packet in 0..packets_missed_in_cycle {
+                    self.lost_packets.insert(packet + self.max_seq + 1);
+                }
+            }
+
+
             self.max_seq = seq;
+
             /* the sequence number made a very large jump */
         } else if u_delta as u32 <= RTP_SEQ_MOD - MAX_MISORDER {
             /*
@@ -51,12 +75,16 @@ impl RTPReporter {
              */
             if seq as u32 == self.bad_seq {
                 let _ = std::mem::replace(self, RTPReporter::new(seq));
+                // Bad packet, await for next sequential packet
             } else {
                 self.bad_seq = (seq as u32 + 1) & (RTP_SEQ_MOD - 1);
                 return Err(UpdateSequenceError::InvalidSequence);
             }
             /* duplicate or reordered packet */
-        } else {}
+        } else {
+            // Evict lost packet
+            self.lost_packets.remove(&seq);
+        }
         self.received += 1;
         Ok(())
     }
@@ -78,6 +106,8 @@ impl RTPReporter {
         }
         return ((lost_interval << 8) as u32 / expected_interval) as u8;
     }
+
+    fn generate_receiver_report(&mut self) {}
 }
 
 
@@ -144,6 +174,7 @@ mod fraction_lost {
 
 #[cfg(test)]
 mod update_seq {
+    use std::collections::HashSet;
     use crate::rtp_reporter::{MAX_DROPOUT, RTP_SEQ_MOD, RTPReporter, UpdateSequenceError};
 
     #[test]
@@ -223,6 +254,47 @@ mod update_seq {
         assert_eq!(reporter.max_seq, expected_bad_seq);
         assert_eq!(reporter.bad_seq, RTP_SEQ_MOD + 1);
         assert_eq!(reporter.received, 2);
+    }
+
+    #[test]
+    fn lost_packet_is_reported() {
+        let mut reporter = RTPReporter::new(1);
+        reporter.update_seq(3).unwrap();
+
+        assert_eq!(reporter.lost_packets, HashSet::from([2]))
+    }
+
+    #[test]
+    fn multiple_lost_packets_in_cycle_are_reported() {
+        let mut reporter = RTPReporter::new(1);
+        reporter.update_seq(6).unwrap();
+
+        assert_eq!(reporter.lost_packets, HashSet::from([2, 3, 4, 5]))
+    }
+
+    #[test]
+    fn multiple_lost_packets_across_cycles_are_reported() {
+        let mut reporter = RTPReporter::new(u16::MAX - 3);
+        reporter.update_seq(2).unwrap();
+
+        assert_eq!(reporter.lost_packets, HashSet::from([u16::MAX - 2, u16::MAX - 1, u16::MAX, 0, 1]))
+    }
+
+    #[test]
+    fn lost_packet_across_cycle_is_reported() {
+        let mut reporter = RTPReporter::new(u16::MAX);
+        reporter.update_seq(1).unwrap();
+
+        assert_eq!(reporter.lost_packets, HashSet::from([0]))
+    }
+
+    #[test]
+    fn lost_packets_are_evicted_when_arrive_out_of_order() {
+        let mut reporter = RTPReporter::new(1);
+        reporter.update_seq(3).unwrap();
+        assert_eq!(reporter.lost_packets, HashSet::from([2]));
+        reporter.update_seq(2).unwrap();
+        assert_eq!(reporter.lost_packets, HashSet::from([]));
     }
 }
 
