@@ -3,7 +3,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 use crate::header::{Header, PayloadType};
 use crate::{Marshall, MarshallError};
 
-struct ReceiverReport {
+pub struct ReceiverReport {
     header: Header,
     sender_ssrc: u32,
     reports: Vec<ReportBlock>,
@@ -37,14 +37,14 @@ impl Marshall for ReceiverReport {
     }
 }
 
-struct ReportBlock {
-    ssrc: u32,
-    fraction_lost: u8,
-    cumulative_packets_lost: u32,
-    ext_highest_sequence: u32,
-    jitter: u32,
-    lsr: u32,
-    dlsr: u32,
+pub struct ReportBlock {
+    pub ssrc: u32,
+    pub fraction_lost: u8,
+    pub cumulative_packets_lost: u32,
+    pub ext_highest_sequence: u32,
+    pub jitter: u32,
+    pub lsr: u32,
+    pub dlsr: u32,
 }
 
 impl Marshall for ReportBlock {
