@@ -112,6 +112,17 @@ impl RTPReporter {
         }
         return ((lost_interval << 8) as u32 / expected_interval) as u8;
     }
+
+    fn cleanup_stale_missing_packets(&mut self) {
+        let max_seq = self.max_seq;
+
+
+        self.missing_packets = self.missing_packets.drain().filter(|item| {
+            let delta = item.wrapping_sub(max_seq);
+            let is_stale = delta as u32 <= RTP_SEQ_MOD - MAX_MISORDER;
+            !is_stale
+        }).collect::<HashSet<u16>>();
+    }
 }
 
 fn generate_nacks(missing_packets: HashSet<u16>) -> Vec<GenericNACK> {
@@ -167,7 +178,7 @@ fn map_to_nack(pid: u16, next_pids: Vec<u16>) -> GenericNACK {
 
 
 static MAX_DROPOUT: u16 = 3000;
-static MAX_MISORDER: u32 = 100;
+static MAX_MISORDER: u32 = 180;
 static RTP_SEQ_MOD: u32 = 1 << 16;
 
 #[cfg(test)]
@@ -298,6 +309,137 @@ mod map_to_nack {
             pid: 0,
             blp: 0b1111_1111_1111_1111,
         })
+    }
+}
+
+#[cfg(test)]
+mod cleanup_stale_missing_packets {
+    use std::collections::HashSet;
+    use crate::rtp_reporter::{MAX_MISORDER, RTP_SEQ_MOD, RTPReporter};
+
+    #[test]
+    fn evicts_stale_packet() {
+        let max_seq: u16 = 5003;
+        let max_disorder = MAX_MISORDER as u16;
+
+        let mut reporter = RTPReporter {
+            missing_packets: HashSet::from([
+                max_seq - max_disorder, // Stale packet
+                max_seq - max_disorder + 1, max_seq - max_disorder + 2, max_seq - max_disorder + 3 // Packets within limit
+            ]),
+            max_seq,
+            media_ssrc: 1,
+            host_ssrc: 0,
+            base_seq: 0,
+            cycles: 0,
+            bad_seq: RTP_SEQ_MOD + 1,
+            expected_prior: 0,
+            received: 5000,
+            received_prior: 0,
+        };
+
+        reporter.cleanup_stale_missing_packets();
+
+        assert_eq!(reporter.missing_packets, HashSet::from([max_seq - max_disorder + 1, max_seq - max_disorder + 2, max_seq - max_disorder + 3]))
+    }
+
+    #[test]
+    fn does_not_discard_packets_within_max_disorder_boundary() {
+        let max_seq: u16 = 5003;
+        let max_disorder = MAX_MISORDER as u16;
+
+        let mut reporter = RTPReporter {
+            missing_packets: HashSet::from([
+                max_seq - max_disorder + 1, max_seq - max_disorder + 2, max_seq - max_disorder + 3 // Packets within limit
+            ]),
+            max_seq,
+            media_ssrc: 1,
+            host_ssrc: 0,
+            base_seq: 0,
+            cycles: 0,
+            bad_seq: RTP_SEQ_MOD + 1,
+            expected_prior: 0,
+            received: 5000,
+            received_prior: 0,
+        };
+
+        reporter.cleanup_stale_missing_packets();
+
+        assert_eq!(reporter.missing_packets, HashSet::from([max_seq - max_disorder + 1, max_seq - max_disorder + 2, max_seq - max_disorder + 3]))
+    }
+
+    #[test]
+    fn discards_multiple_stale_packets() {
+        let max_seq: u16 = 5003;
+        let max_disorder = MAX_MISORDER as u16;
+
+        let mut reporter = RTPReporter {
+            missing_packets: HashSet::from([
+                max_seq - max_disorder - 20, max_seq - max_disorder - 1, max_seq - max_disorder, // Stale packets
+                max_seq - max_disorder + 1, max_seq - max_disorder + 2, max_seq - max_disorder + 3 // Packets within limit
+            ]),
+            max_seq,
+            media_ssrc: 1,
+            host_ssrc: 0,
+            base_seq: 0,
+            cycles: 0,
+            bad_seq: RTP_SEQ_MOD + 1,
+            expected_prior: 0,
+            received: 5000,
+            received_prior: 0,
+        };
+
+        reporter.cleanup_stale_missing_packets();
+
+        assert_eq!(reporter.missing_packets, HashSet::from([max_seq - max_disorder + 1, max_seq - max_disorder + 2, max_seq - max_disorder + 3]))
+    }
+
+    #[test]
+    fn keeps_packets_crossing_cycle_boundary_within_max_disorder() {
+        let max_seq: u16 = 3;
+        let max_disorder = MAX_MISORDER as u16;
+
+        let mut reporter = RTPReporter {
+            missing_packets: HashSet::from([
+                u16::MAX - 3, u16::MAX - 2, u16::MAX, // Packets in prev cycle
+                max_seq - 1, max_seq - 2 // Packets in new cycle
+            ]),
+            max_seq,
+            media_ssrc: 1,
+            host_ssrc: 0,
+            base_seq: 0,
+            cycles: RTP_SEQ_MOD, // We're in the second cycle
+            bad_seq: RTP_SEQ_MOD + 1,
+            expected_prior: 0,
+            received: 5000,
+            received_prior: 0,
+        };
+
+        reporter.cleanup_stale_missing_packets();
+
+        assert_eq!(reporter.missing_packets, HashSet::from([max_seq - 2, max_seq - 1, u16::MAX - 3, u16::MAX - 2, u16::MAX]))
+    }
+
+    #[test]
+    fn discards_packets_crossing_cycle_boundary_past_max_disorder() {
+        let max_seq = MAX_MISORDER as u16;
+
+        let mut reporter = RTPReporter {
+            missing_packets: HashSet::from([u16::MAX - 3, u16::MAX - 2, MAX_MISORDER as u16 - 1]),
+            max_seq,
+            media_ssrc: 1,
+            host_ssrc: 0,
+            base_seq: 0,
+            cycles: RTP_SEQ_MOD, // We're in the second cycle
+            bad_seq: RTP_SEQ_MOD + 1,
+            expected_prior: 0,
+            received: 5000,
+            received_prior: 0,
+        };
+
+        reporter.cleanup_stale_missing_packets();
+
+        assert_eq!(reporter.missing_packets, HashSet::from([MAX_MISORDER as u16 - 1]))
     }
 }
 
