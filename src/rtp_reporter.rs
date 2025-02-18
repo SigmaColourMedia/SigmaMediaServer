@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use rtcp::transport_layer_feedback::GenericNACK;
 
 #[derive(Debug, Clone, PartialEq)]
 struct RTPReporter {
@@ -10,6 +11,8 @@ struct RTPReporter {
     expected_prior: u32,
     received_prior: u32,
     missing_packets: HashSet<u16>,
+    host_ssrc: u32,
+    media_ssrc: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -17,8 +20,9 @@ enum UpdateSequenceError {
     InvalidSequence
 }
 
+
 impl RTPReporter {
-    fn new(seq: u16) -> Self {
+    fn new(seq: u16, host_ssrc: u32, media_ssrc: u32) -> Self {
         Self {
             cycles: 0,
             max_seq: seq,
@@ -28,6 +32,8 @@ impl RTPReporter {
             received_prior: 0,
             expected_prior: 0,
             missing_packets: HashSet::new(),
+            host_ssrc,
+            media_ssrc,
         }
     }
 
@@ -74,7 +80,7 @@ impl RTPReporter {
              * (i.e., pretend this was the first packet).
              */
             if seq as u32 == self.bad_seq {
-                let _ = std::mem::replace(self, RTPReporter::new(seq));
+                let _ = std::mem::replace(self, RTPReporter::new(seq, self.host_ssrc, self.media_ssrc));
                 // Bad packet, await for next sequential packet
             } else {
                 self.bad_seq = (seq as u32 + 1) & (RTP_SEQ_MOD - 1);
@@ -106,8 +112,57 @@ impl RTPReporter {
         }
         return ((lost_interval << 8) as u32 / expected_interval) as u8;
     }
+}
 
-    fn generate_receiver_report(&mut self) {}
+fn generate_nacks(missing_packets: HashSet<u16>) -> Vec<GenericNACK> {
+    let mut packets = missing_packets.into_iter().collect::<Vec<u16>>();
+    packets.sort();
+
+    let mut stack: Vec<(u16, Vec<u16>)> = vec![];
+
+    for packet in packets {
+        if let Some((curr_id, packet_vec)) = stack.last_mut() {
+            if packet - *curr_id > 16 {
+                stack.push((packet, vec![]));
+            } else {
+                packet_vec.push(packet)
+            }
+        } else {
+            stack.push((packet, vec![]));
+        }
+    }
+
+    stack.into_iter().map(|(id, other)| map_to_nack(id, other)).collect::<Vec<GenericNACK>>()
+}
+
+fn map_to_nack(pid: u16, next_pids: Vec<u16>) -> GenericNACK {
+    let mut blp: u16 = 0b0000_0000_0000_0000;
+    for packet in next_pids {
+        let index = packet - pid;
+        match index {
+            1 => blp = blp ^ 0b0000_0000_0000_0001,
+            2 => blp = blp ^ 0b0000_0000_0000_0010,
+            3 => blp = blp ^ 0b0000_0000_0000_0100,
+            4 => blp = blp ^ 0b0000_0000_0000_1000,
+            5 => blp = blp ^ 0b0000_0000_0001_0000,
+            6 => blp = blp ^ 0b0000_0000_0010_0000,
+            7 => blp = blp ^ 0b0000_0000_0100_0000,
+            8 => blp = blp ^ 0b0000_0000_1000_0000,
+            9 => blp = blp ^ 0b0000_0001_0000_0000,
+            10 => blp = blp ^ 0b0000_0010_0000_0000,
+            11 => blp = blp ^ 0b0000_0100_0000_0000,
+            12 => blp = blp ^ 0b0000_1000_0000_0000,
+            13 => blp = blp ^ 0b0001_0000_0000_0000,
+            14 => blp = blp ^ 0b0010_0000_0000_0000,
+            15 => blp = blp ^ 0b0100_0000_0000_0000,
+            16 => blp = blp ^ 0b1000_0000_0000_0000,
+            _ => panic!("Should only include packets with id pid < packet_id <= pid + 16")
+        }
+    };
+    GenericNACK {
+        pid,
+        blp,
+    }
 }
 
 
@@ -116,13 +171,144 @@ static MAX_MISORDER: u32 = 100;
 static RTP_SEQ_MOD: u32 = 1 << 16;
 
 #[cfg(test)]
+mod generate_nacks {
+    use std::collections::HashSet;
+    use rtcp::transport_layer_feedback::GenericNACK;
+    use crate::rtp_reporter::generate_nacks;
+
+    #[test]
+    fn generate_one_nack() {
+        let input = HashSet::from([4, 2, 0, 6, 10]);
+
+        let output = generate_nacks(input);
+
+        assert_eq!(output, vec![GenericNACK {
+            pid: 0,
+            blp: 0b0000_0010_0010_1010,
+        }])
+    }
+
+    #[test]
+    fn generate_two_nack() {
+        let input = HashSet::from([4, 2, 0, 6, 10, 16, 18, 20, 35, 37]);
+
+        let output = generate_nacks(input);
+
+        assert_eq!(output, vec![
+            GenericNACK {
+                pid: 0,
+                blp: 0b1000_0010_0010_1010,
+            },
+            GenericNACK {
+                pid: 18,
+                blp: 0b0000_0000_0000_0010,
+            },
+            GenericNACK {
+                pid: 35,
+                blp: 0b0000_0000_0000_0010,
+            },
+        ]);
+    }
+
+    #[test]
+    fn two_nacks_spanning_cycle() {
+        let input = HashSet::from([4, 2, 0, 6, 10, 16, u16::MAX, u16::MAX - 1]);
+        let output = generate_nacks(input);
+        assert_eq!(output, vec![
+            GenericNACK {
+                pid: 0,
+                blp: 0b1000_0010_0010_1010,
+            },
+            GenericNACK {
+                pid: u16::MAX - 1,
+                blp: 0b0000_0000_0000_0001,
+            },
+        ]);
+    }
+
+
+    #[test]
+    fn generate_three_nacks() {
+        let input = HashSet::from([4, 2, 0, 6, 10, 18, 20]);
+
+        let output = generate_nacks(input);
+
+        assert_eq!(output, vec![
+            GenericNACK {
+                pid: 0,
+                blp: 0b0000_0010_0010_1010,
+            },
+            GenericNACK {
+                pid: 18,
+                blp: 0b0000_0000_0000_0010,
+            }])
+    }
+}
+
+#[cfg(test)]
+mod map_to_nack {
+    use rtcp::transport_layer_feedback::GenericNACK;
+    use crate::rtp_reporter::map_to_nack;
+
+    #[test]
+    fn zero_extra_packets() {
+        let output = map_to_nack(0, vec![]);
+
+        assert_eq!(output, GenericNACK {
+            pid: 0,
+            blp: 0,
+        })
+    }
+
+    #[test]
+    fn next_packet_included() {
+        let output = map_to_nack(0, vec![1]);
+
+        assert_eq!(output, GenericNACK {
+            pid: 0,
+            blp: 0b0000_0000_0000_0001,
+        })
+    }
+
+    #[test]
+    fn third_and_fifth_packets_included() {
+        let output = map_to_nack(0, vec![3, 5]);
+
+        assert_eq!(output, GenericNACK {
+            pid: 0,
+            blp: 0b0000_0000_0001_0100,
+        })
+    }
+
+    #[test]
+    fn tenth_and_seventh_and_fifth_packets_included() {
+        let output = map_to_nack(0, vec![10, 5, 7]);
+
+        assert_eq!(output, GenericNACK {
+            pid: 0,
+            blp: 0b0000_0010_0101_0000,
+        })
+    }
+
+    #[test]
+    fn all_packets_included() {
+        let output = map_to_nack(0, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+
+        assert_eq!(output, GenericNACK {
+            pid: 0,
+            blp: 0b1111_1111_1111_1111,
+        })
+    }
+}
+
+#[cfg(test)]
 mod fraction_lost {
     use std::collections::HashSet;
     use crate::rtp_reporter::{RTP_SEQ_MOD, RTPReporter};
 
     #[test]
     fn no_packets_lost() {
-        let reporter = RTPReporter::new(1);
+        let reporter = RTPReporter::new(1, 0, 1);
 
         let lost = reporter.fraction_lost();
 
@@ -140,6 +326,8 @@ mod fraction_lost {
             cycles: 0,
             bad_seq: RTP_SEQ_MOD + 1,
             base_seq: 1,
+            host_ssrc: 0,
+            media_ssrc: 1,
         };
         reporter.update_seq(6).unwrap();
 
@@ -160,6 +348,8 @@ mod fraction_lost {
             cycles: 0,
             bad_seq: RTP_SEQ_MOD + 1,
             base_seq: 1,
+            host_ssrc: 0,
+            media_ssrc: 1,
         };
         reporter.update_seq(5).unwrap();
         reporter.update_seq(6).unwrap();
@@ -180,7 +370,7 @@ mod update_seq {
     #[test]
     fn packet_comes_in_order() {
         let base_seq = 2;
-        let mut reporter = RTPReporter::new(base_seq);
+        let mut reporter = RTPReporter::new(base_seq, 0, 1);
         let next_seq = 3;
         let result = reporter.update_seq(next_seq).unwrap();
 
@@ -192,7 +382,7 @@ mod update_seq {
     #[test]
     fn packet_skips_3_seq() {
         let base_seq = 2;
-        let mut reporter = RTPReporter::new(base_seq);
+        let mut reporter = RTPReporter::new(base_seq, 0, 1);
         let next_seq = 6;
         let result = reporter.update_seq(next_seq).unwrap();
 
@@ -204,7 +394,7 @@ mod update_seq {
     #[test]
     fn reordered_packet_comes_in() {
         let base_seq = 2;
-        let mut reporter = RTPReporter::new(base_seq);
+        let mut reporter = RTPReporter::new(base_seq, 0, 1);
         reporter.update_seq(4).unwrap();
         reporter.update_seq(3).unwrap();
 
@@ -216,7 +406,7 @@ mod update_seq {
     #[test]
     fn packet_wraps_around_cycle() {
         let base_seq = u16::MAX;
-        let mut reporter = RTPReporter::new(base_seq);
+        let mut reporter = RTPReporter::new(base_seq, 0, 1);
         reporter.update_seq(1).unwrap();
         let expected_cycles: u32 = u16::MAX as u32 + 1;
 
@@ -229,7 +419,7 @@ mod update_seq {
     #[test]
     fn packet_exceeds_max_dropout() {
         let base_seq = 1;
-        let mut reporter = RTPReporter::new(1);
+        let mut reporter = RTPReporter::new(1, 0, 1);
         // Feed 2 packets
         reporter.update_seq(2).unwrap();
         reporter.update_seq(3).unwrap();
@@ -258,7 +448,7 @@ mod update_seq {
 
     #[test]
     fn lost_packet_is_reported() {
-        let mut reporter = RTPReporter::new(1);
+        let mut reporter = RTPReporter::new(1, 0, 1);
         reporter.update_seq(3).unwrap();
 
         assert_eq!(reporter.missing_packets, HashSet::from([2]))
@@ -266,7 +456,7 @@ mod update_seq {
 
     #[test]
     fn multiple_lost_packets_in_cycle_are_reported() {
-        let mut reporter = RTPReporter::new(1);
+        let mut reporter = RTPReporter::new(1, 0, 1);
         reporter.update_seq(6).unwrap();
 
         assert_eq!(reporter.missing_packets, HashSet::from([2, 3, 4, 5]))
@@ -274,7 +464,7 @@ mod update_seq {
 
     #[test]
     fn multiple_lost_packets_across_cycles_are_reported() {
-        let mut reporter = RTPReporter::new(u16::MAX - 3);
+        let mut reporter = RTPReporter::new(u16::MAX - 3, 0, 1);
         reporter.update_seq(2).unwrap();
 
         assert_eq!(reporter.missing_packets, HashSet::from([u16::MAX - 2, u16::MAX - 1, u16::MAX, 0, 1]))
@@ -282,7 +472,7 @@ mod update_seq {
 
     #[test]
     fn lost_packet_across_cycle_is_reported() {
-        let mut reporter = RTPReporter::new(u16::MAX);
+        let mut reporter = RTPReporter::new(u16::MAX, 0, 1);
         reporter.update_seq(1).unwrap();
 
         assert_eq!(reporter.missing_packets, HashSet::from([0]))
@@ -290,7 +480,7 @@ mod update_seq {
 
     #[test]
     fn lost_packets_are_evicted_when_arrive_out_of_order() {
-        let mut reporter = RTPReporter::new(1);
+        let mut reporter = RTPReporter::new(1, 0, 1);
         reporter.update_seq(3).unwrap();
         assert_eq!(reporter.missing_packets, HashSet::from([2]));
         reporter.update_seq(2).unwrap();
@@ -306,7 +496,7 @@ mod new {
     #[test]
     fn reporter_is_initialized_properly() {
         let input_seq = 2;
-        let reporter = RTPReporter::new(input_seq);
+        let reporter = RTPReporter::new(input_seq, 0, 1);
         assert_eq!(reporter, RTPReporter {
             base_seq: input_seq as u32,
             max_seq: input_seq,
@@ -316,6 +506,8 @@ mod new {
             missing_packets: HashSet::new(),
             expected_prior: 0,
             received_prior: 0,
+            host_ssrc: 0,
+            media_ssrc: 1,
         })
     }
 }
@@ -326,13 +518,13 @@ mod lost_packets {
 
     #[test]
     fn one_packet_received_in_total() {
-        let mut reporter = RTPReporter::new(1);
+        let mut reporter = RTPReporter::new(1, 0, 1);
         assert_eq!(reporter.lost_packets(), 0)
     }
 
     #[test]
     fn zero_packets_lost() {
-        let mut reporter = RTPReporter::new(1);
+        let mut reporter = RTPReporter::new(1, 0, 1);
         // Feed reporter some packets
         reporter.update_seq(2).unwrap();
         reporter.update_seq(3).unwrap();
@@ -343,7 +535,7 @@ mod lost_packets {
 
     #[test]
     fn two_packets_lost() {
-        let mut reporter = RTPReporter::new(1);
+        let mut reporter = RTPReporter::new(1, 0, 1);
         // Feed reporter some packets
         reporter.update_seq(4).unwrap();
 
@@ -352,7 +544,7 @@ mod lost_packets {
 
     #[test]
     fn three_packets_lost_when_wrapping() {
-        let mut reporter = RTPReporter::new(u16::MAX - 1);
+        let mut reporter = RTPReporter::new(u16::MAX - 1, 0, 1);
         // Feed reporter some packets
         reporter.update_seq(2).unwrap();
 
@@ -361,7 +553,7 @@ mod lost_packets {
 
     #[test]
     fn two_packets_lost_and_one_recovered() {
-        let mut reporter = RTPReporter::new(1);
+        let mut reporter = RTPReporter::new(1, 0, 1);
         // Feed reporter some packets
         reporter.update_seq(5).unwrap();
         assert_eq!(reporter.lost_packets(), 3);
