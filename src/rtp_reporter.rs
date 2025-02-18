@@ -1,4 +1,7 @@
 use std::collections::HashSet;
+use bytes::Bytes;
+use rtcp::receiver_report::{ReceiverReport, ReportBlock};
+use rtcp::sdes::SourceDescriptor;
 use rtcp::transport_layer_feedback::GenericNACK;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -13,6 +16,8 @@ struct RTPReporter {
     missing_packets: HashSet<u16>,
     host_ssrc: u32,
     media_ssrc: u32,
+    dlsr: u32,
+    lsr: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -32,6 +37,8 @@ impl RTPReporter {
             received_prior: 0,
             expected_prior: 0,
             missing_packets: HashSet::new(),
+            dlsr: 0,
+            lsr: 0,
             host_ssrc,
             media_ssrc,
         }
@@ -101,11 +108,15 @@ impl RTPReporter {
         expected - self.received
     }
 
-    fn fraction_lost(&self) -> u8 {
+    fn fraction_lost(&mut self) -> u8 {
         let extended_max = self.cycles + self.max_seq as u32;
         let expected = extended_max - self.base_seq + 1;
         let expected_interval = expected - self.expected_prior;
+        self.expected_prior = expected;
+
         let received_interval = self.received - self.received_prior;
+        self.received_prior = self.received;
+
         let lost_interval = expected_interval.wrapping_sub(received_interval);
         if expected_interval == 0 || lost_interval <= 0 {
             return 0;
@@ -123,10 +134,29 @@ impl RTPReporter {
             !is_stale
         }).collect::<HashSet<u16>>();
     }
+
+    fn generate_receiver_report(&mut self) -> Bytes {
+        let report_block = ReportBlock {
+            ext_highest_sequence: self.max_seq as u32,
+            fraction_lost: self.fraction_lost(),
+            ssrc: self.media_ssrc,
+            jitter: 0, // Unsupported
+            cumulative_packets_lost: self.lost_packets(),
+            dlsr: self.dlsr,
+            lsr: self.lsr,
+        };
+
+        let receiver_report = ReceiverReport::new(self.host_ssrc, vec![report_block]);
+        self.cleanup_stale_missing_packets();
+
+        let nacks = generate_nacks(&mut self.missing_packets);
+
+        Bytes::new()
+    }
 }
 
-fn generate_nacks(missing_packets: HashSet<u16>) -> Vec<GenericNACK> {
-    let mut packets = missing_packets.into_iter().collect::<Vec<u16>>();
+fn generate_nacks(missing_packets: &HashSet<u16>) -> Vec<GenericNACK> {
+    let mut packets = missing_packets.iter().collect::<Vec<&u16>>();
     packets.sort();
 
     let mut stack: Vec<(u16, Vec<u16>)> = vec![];
@@ -134,12 +164,12 @@ fn generate_nacks(missing_packets: HashSet<u16>) -> Vec<GenericNACK> {
     for packet in packets {
         if let Some((curr_id, packet_vec)) = stack.last_mut() {
             if packet - *curr_id > 16 {
-                stack.push((packet, vec![]));
+                stack.push((*packet, vec![]));
             } else {
-                packet_vec.push(packet)
+                packet_vec.push(*packet)
             }
         } else {
-            stack.push((packet, vec![]));
+            stack.push((*packet, vec![]));
         }
     }
 
@@ -191,7 +221,7 @@ mod generate_nacks {
     fn generate_one_nack() {
         let input = HashSet::from([4, 2, 0, 6, 10]);
 
-        let output = generate_nacks(input);
+        let output = generate_nacks(&input);
 
         assert_eq!(output, vec![GenericNACK {
             pid: 0,
@@ -203,7 +233,7 @@ mod generate_nacks {
     fn generate_two_nack() {
         let input = HashSet::from([4, 2, 0, 6, 10, 16, 18, 20, 35, 37]);
 
-        let output = generate_nacks(input);
+        let output = generate_nacks(&input);
 
         assert_eq!(output, vec![
             GenericNACK {
@@ -224,7 +254,7 @@ mod generate_nacks {
     #[test]
     fn two_nacks_spanning_cycle() {
         let input = HashSet::from([4, 2, 0, 6, 10, 16, u16::MAX, u16::MAX - 1]);
-        let output = generate_nacks(input);
+        let output = generate_nacks(&input);
         assert_eq!(output, vec![
             GenericNACK {
                 pid: 0,
@@ -242,7 +272,7 @@ mod generate_nacks {
     fn generate_three_nacks() {
         let input = HashSet::from([4, 2, 0, 6, 10, 18, 20]);
 
-        let output = generate_nacks(input);
+        let output = generate_nacks(&input);
 
         assert_eq!(output, vec![
             GenericNACK {
@@ -336,6 +366,8 @@ mod cleanup_stale_missing_packets {
             expected_prior: 0,
             received: 5000,
             received_prior: 0,
+            lsr: 0,
+            dlsr: 0,
         };
 
         reporter.cleanup_stale_missing_packets();
@@ -361,6 +393,8 @@ mod cleanup_stale_missing_packets {
             expected_prior: 0,
             received: 5000,
             received_prior: 0,
+            lsr: 0,
+            dlsr: 0,
         };
 
         reporter.cleanup_stale_missing_packets();
@@ -387,6 +421,8 @@ mod cleanup_stale_missing_packets {
             expected_prior: 0,
             received: 5000,
             received_prior: 0,
+            lsr: 0,
+            dlsr: 0,
         };
 
         reporter.cleanup_stale_missing_packets();
@@ -413,6 +449,8 @@ mod cleanup_stale_missing_packets {
             expected_prior: 0,
             received: 5000,
             received_prior: 0,
+            lsr: 0,
+            dlsr: 0,
         };
 
         reporter.cleanup_stale_missing_packets();
@@ -435,6 +473,8 @@ mod cleanup_stale_missing_packets {
             expected_prior: 0,
             received: 5000,
             received_prior: 0,
+            lsr: 0,
+            dlsr: 0,
         };
 
         reporter.cleanup_stale_missing_packets();
@@ -450,11 +490,16 @@ mod fraction_lost {
 
     #[test]
     fn no_packets_lost() {
-        let reporter = RTPReporter::new(1, 0, 1);
+        let mut reporter = RTPReporter::new(1, 0, 1);
 
         let lost = reporter.fraction_lost();
+        let extended_max = reporter.cycles + reporter.max_seq as u32;
+        let expected = extended_max - reporter.base_seq + 1;
+        assert_eq!(lost, 0);
 
-        assert_eq!(lost, 0)
+        // Should update prior
+        assert_eq!(reporter.received_prior, reporter.received);
+        assert_eq!(reporter.expected_prior, expected);
     }
 
     #[test]
@@ -470,13 +515,22 @@ mod fraction_lost {
             base_seq: 1,
             host_ssrc: 0,
             media_ssrc: 1,
+            lsr: 0,
+            dlsr: 0,
         };
+
         reporter.update_seq(6).unwrap();
 
 
         let lost = reporter.fraction_lost();
         let percentage = lost as f32 / 256.0;
-        assert_eq!(percentage, 0.5)
+        assert_eq!(percentage, 0.5);
+
+        // Should update prior
+        let extended_max = reporter.cycles + reporter.max_seq as u32;
+        let expected = extended_max - reporter.base_seq + 1;
+        assert_eq!(reporter.received_prior, reporter.received);
+        assert_eq!(reporter.expected_prior, expected);
     }
 
     #[test]
@@ -492,7 +546,10 @@ mod fraction_lost {
             base_seq: 1,
             host_ssrc: 0,
             media_ssrc: 1,
+            lsr: 0,
+            dlsr: 0,
         };
+
         reporter.update_seq(5).unwrap();
         reporter.update_seq(6).unwrap();
         reporter.update_seq(8).unwrap();
@@ -500,7 +557,13 @@ mod fraction_lost {
 
         let lost = reporter.fraction_lost();
         let percentage = lost as f32 / 256.0;
-        assert_eq!(percentage, 0.25)
+        assert_eq!(percentage, 0.25);
+
+        // Should update prior
+        let extended_max = reporter.cycles + reporter.max_seq as u32;
+        let expected = extended_max - reporter.base_seq + 1;
+        assert_eq!(reporter.received_prior, reporter.received);
+        assert_eq!(reporter.expected_prior, expected);
     }
 }
 
@@ -650,6 +713,8 @@ mod new {
             received_prior: 0,
             host_ssrc: 0,
             media_ssrc: 1,
+            lsr: 0,
+            dlsr: 0,
         })
     }
 }
