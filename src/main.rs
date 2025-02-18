@@ -24,6 +24,7 @@ mod stun;
 mod thumbnail;
 mod rtp_replay_buffer;
 mod rtcp_reporter;
+mod rtp_reporter;
 
 fn main() {
     let (server_command_sender, server_command_receiver) =
