@@ -1,5 +1,3 @@
-use std::f32::consts::E;
-use std::os::unix::raw::mode_t;
 use byteorder::ReadBytesExt;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use crate::header::{Header, PayloadType};
@@ -17,16 +15,58 @@ pub struct Chunk {
     items: Vec<SDES>,
 }
 
-// impl SourceDescriptor {
-//     pub fn new(chunks: Vec<Chunk>) {
-//         let header = Header {
-//             payload_type: PayloadType::SDES,
-//             length: 10,
-//             padding: false,
-//             feedback_message_type: chunks.len() as u8,
-//         };
-//     }
-// }
+impl SourceDescriptor {
+    pub fn new(chunks: Vec<Chunk>) -> Self {
+        let chunks_len = chunks.clone().into_iter().map(|chunk| chunk.marshall().unwrap().len()).sum::<usize>();
+        if chunks_len % 4 != 0 {
+            panic!("Chunks should match 32-bit word boundaries")
+        }
+        let header = Header {
+            payload_type: PayloadType::SDES,
+            length: (chunks_len / 4) as u16,
+            padding: false,
+            feedback_message_type: 1,
+        };
+
+        SourceDescriptor {
+            chunks,
+            header,
+        }
+    }
+}
+
+impl Marshall for SourceDescriptor {
+    fn marshall(self) -> Result<Bytes, MarshallError>
+    where
+        Self: Sized,
+    {
+        let mut bytes = BytesMut::new();
+        bytes.put(self.header.marshall()?);
+        for chunk in self.chunks {
+            bytes.put(chunk.marshall()?)
+        }
+        Ok(bytes.freeze())
+    }
+}
+
+impl Marshall for Chunk {
+    fn marshall(self) -> Result<Bytes, MarshallError>
+    where
+        Self: Sized,
+    {
+        let mut bytes = BytesMut::new();
+        bytes.put_u32(self.ssrc);
+        for item in self.items {
+            bytes.put(item.marshall()?)
+        }
+
+        let extra_padding = bytes.len() % 4;
+        if extra_padding > 0 {
+            bytes.put_bytes(0, extra_padding)
+        }
+        Ok(bytes.freeze())
+    }
+}
 
 impl Unmarshall for SourceDescriptor {
     fn unmarshall(bytes: Bytes) -> Result<Self, UnmarshallError>
@@ -126,6 +166,286 @@ impl Marshall for CNameSDES {
 }
 
 static CNAME_CODE: u8 = 1;
+
+#[cfg(test)]
+mod source_descriptor_new_constructor {
+    use crate::header::{Header, PayloadType};
+    use crate::sdes::{Chunk, CNameSDES, SDES, SourceDescriptor};
+
+    #[test]
+    fn constructs_source_descriptor_with_one_chunk() {
+        let chunks = vec![
+            Chunk {
+                ssrc: 1,
+                items: vec![SDES::CName(CNameSDES {
+                    domain_name: "smid".to_string()
+                })],
+            }
+        ];
+        let output = SourceDescriptor::new(chunks.clone());
+
+        assert_eq!(output, SourceDescriptor {
+            header: Header {
+                padding: false,
+                length: 3,
+                payload_type: PayloadType::SDES,
+                feedback_message_type: 1,
+            },
+            chunks,
+        })
+    }
+
+    #[test]
+    fn constructs_source_descriptor_with_one_chunk_and_multiple_items() {
+        let chunks = vec![
+            Chunk {
+                ssrc: 1,
+                items: vec![
+                    SDES::CName(CNameSDES {
+                        domain_name: "smid".to_string()
+                    }),
+                    SDES::CName(CNameSDES {
+                        domain_name: "test".to_string()
+                    }),
+                ],
+            }
+        ];
+        let output = SourceDescriptor::new(chunks.clone());
+
+        assert_eq!(output, SourceDescriptor {
+            header: Header {
+                padding: false,
+                length: 4,
+                payload_type: PayloadType::SDES,
+                feedback_message_type: 1,
+            },
+            chunks,
+        })
+    }
+
+    #[test]
+    fn constructs_source_descriptor_with_two_chunks() {
+        let chunks = vec![
+            Chunk {
+                ssrc: 1,
+                items: vec![SDES::CName(CNameSDES {
+                    domain_name: "smid".to_string()
+                })],
+            },
+            Chunk {
+                ssrc: 2,
+                items: vec![SDES::CName(CNameSDES {
+                    domain_name: "test".to_string()
+                })],
+            },
+        ];
+        let output = SourceDescriptor::new(chunks.clone());
+
+        assert_eq!(output, SourceDescriptor {
+            header: Header {
+                padding: false,
+                length: 6,
+                payload_type: PayloadType::SDES,
+                feedback_message_type: 1,
+            },
+            chunks,
+        })
+    }
+}
+
+#[cfg(test)]
+mod marshall_sdes {
+    use bytes::Bytes;
+    use crate::header::{Header, PayloadType};
+    use crate::Marshall;
+    use crate::sdes::{Chunk, CNameSDES, SDES, SourceDescriptor};
+
+    #[test]
+    fn marshall_single_chunk_sdes() {
+        let sdes = SourceDescriptor {
+            header: Header {
+                payload_type: PayloadType::SDES,
+                length: 2,
+                feedback_message_type: 1,
+                padding: false,
+            },
+            chunks: vec![Chunk {
+                ssrc: 1,
+                items: vec![SDES::CName(CNameSDES {
+                    domain_name: "sm".to_string()
+                })],
+            }],
+        };
+
+        assert_eq!(sdes.marshall().unwrap(), Bytes::from_static(&[
+            129, 202, 0, 2, // SDES header, len = 2
+            // First chunk
+            0, 0, 0, 1, // SSRC = 1
+            1, 2, 115, 109 // SDES CNAME, len = 2, domain = "sm"
+        ]));
+    }
+
+    #[test]
+    fn marshall_multiple_items_chunk_sdes() {
+        let sdes = SourceDescriptor {
+            header: Header {
+                payload_type: PayloadType::SDES,
+                length: 4,
+                feedback_message_type: 1,
+                padding: false,
+            },
+            chunks: vec![Chunk {
+                ssrc: 1,
+                items: vec![
+                    SDES::CName(CNameSDES {
+                        domain_name: "sm".to_string()
+                    }),
+                    SDES::CName(CNameSDES {
+                        domain_name: "test".to_string()
+                    }),
+                ],
+            }],
+        };
+
+        assert_eq!(sdes.marshall().unwrap(), Bytes::from_static(&[
+            129, 202, 0, 4, // SDES header, len = 2
+            // First chunk
+            0, 0, 0, 1, // SSRC = 1
+            1, 2, 115, 109, // SDES CNAME, len = 2, domain = "sm"
+            1, 4, 116, 101, // SDES CNAME, len = 2, domain = "test"
+            115, 116, 0, 0
+        ]));
+    }
+
+    #[test]
+    fn marshall_chunk_with_multiple_padded_items() {
+        let sdes = SourceDescriptor {
+            header: Header {
+                payload_type: PayloadType::SDES,
+                length: 4,
+                feedback_message_type: 1,
+                padding: false,
+            },
+            chunks: vec![Chunk {
+                ssrc: 1,
+                items: vec![
+                    SDES::CName(CNameSDES {
+                        domain_name: "test".to_string()
+                    }),
+                    SDES::CName(CNameSDES {
+                        domain_name: "sm".to_string()
+                    }),
+                ],
+            }],
+        };
+
+        assert_eq!(sdes.marshall().unwrap(), Bytes::from_static(&[
+            129, 202, 0, 4, // SDES header, len = 2
+            // First chunk
+            0, 0, 0, 1, // SSRC = 1
+            1, 4, 116, 101, // SDES CNAME, len = 2, domain = "test"
+            115, 116, 1, 2, // domain = "st", SDES CNAME, len = 4
+            115, 109, 0, 0 // SDES CNAME, len = 2, domain = "sm"
+        ]));
+    }
+
+    #[test]
+    fn marshall_single_chunk_with_one_item_padded() {
+        let sdes = SourceDescriptor {
+            header: Header {
+                payload_type: PayloadType::SDES,
+                length: 3,
+                feedback_message_type: 1,
+                padding: false,
+            },
+            chunks: vec![Chunk {
+                ssrc: 1,
+                items: vec![SDES::CName(CNameSDES {
+                    domain_name: "smid".to_string()
+                })],
+            }],
+        };
+
+        assert_eq!(sdes.marshall().unwrap(), Bytes::from_static(&[
+            129, 202, 0, 3, // SDES header, len = 2
+            // First chunk
+            0, 0, 0, 1, // SSRC = 1
+            1, 4, 115, 109, // SDES CNAME, len = 2, domain = "smid"
+            105, 100, 0, 0 // 2 bytes padding
+        ]));
+    }
+
+    #[test]
+    fn marshall_two_chunk_sdes_with_items_padded() {
+        let sdes = SourceDescriptor {
+            header: Header {
+                payload_type: PayloadType::SDES,
+                length: 3,
+                feedback_message_type: 1,
+                padding: false,
+            },
+            chunks: vec![
+                Chunk {
+                    ssrc: 1,
+                    items: vec![SDES::CName(CNameSDES {
+                        domain_name: "smid".to_string()
+                    })],
+                },
+                Chunk {
+                    ssrc: 2,
+                    items: vec![SDES::CName(CNameSDES {
+                        domain_name: "test".to_string()
+                    })],
+                }],
+        };
+
+        assert_eq!(sdes.marshall().unwrap(), Bytes::from_static(&[
+            129, 202, 0, 3, // SDES header, len = 2
+            // First chunk
+            0, 0, 0, 1, // SSRC = 1
+            1, 4, 115, 109, // SDES CNAME, len = 2, domain = "smid"
+            105, 100, 0, 0, // 2 bytes padding
+            // Second chunk
+            0, 0, 0, 2, // SSRC = 2
+            1, 4, 116, 101, // SDES CNAME, len = 2, domain = "test"
+            115, 116, 0, 0 // 2 bytes padding
+        ]));
+    }
+}
+
+#[cfg(test)]
+mod marshall_chunk {
+    use bytes::Bytes;
+    use crate::Marshall;
+    use crate::sdes::{Chunk, CNameSDES, SDES};
+
+    #[test]
+    fn marshall_chunk_with_two_padding_bytes() {
+        let chunk = Chunk {
+            ssrc: 1,
+            items: vec![SDES::CName(CNameSDES { domain_name: "smid".to_string() })],
+        };
+
+        assert_eq!(chunk.marshall().unwrap(), Bytes::from_static(&[
+            0, 0, 0, 1, // SSRC = 1
+            1, 4, 115, 109, // CNAME, len = 4, domain = "smid"
+            105, 100, 0, 0 // 2 padding bytes
+        ]))
+    }
+
+    #[test]
+    fn marshall_chunk_with_no_padding_bytes() {
+        let chunk = Chunk {
+            ssrc: 1,
+            items: vec![SDES::CName(CNameSDES { domain_name: "sm".to_string() })],
+        };
+
+        assert_eq!(chunk.marshall().unwrap(), Bytes::from_static(&[
+            0, 0, 0, 1, // SSRC = 1
+            1, 2, 115, 109, // CNAME, len = 2, domain = "sm"
+        ]))
+    }
+}
 
 
 #[cfg(test)]
