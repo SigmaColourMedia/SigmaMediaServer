@@ -11,8 +11,8 @@ pub struct SourceDescriptor {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Chunk {
-    ssrc: u32,
-    items: Vec<SDES>,
+    pub ssrc: u32,
+    pub items: Vec<SDES>,
 }
 
 impl SourceDescriptor {
@@ -146,6 +146,12 @@ impl Marshall for SDES {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CNameSDES {
     domain_name: String,
+}
+
+impl CNameSDES {
+    pub fn new(domain: String) -> Self {
+        CNameSDES { domain_name: domain }
+    }
 }
 
 impl Marshall for CNameSDES {
@@ -370,7 +376,7 @@ mod marshall_sdes {
             129, 202, 0, 3, // SDES header, len = 2
             // First chunk
             0, 0, 0, 1, // SSRC = 1
-            1, 4, 115, 109, // SDES CNAME, len = 2, domain = "smid"
+            1, 4, 115, 109, // SDES CNAME, len = 4, domain = "smid"
             105, 100, 0, 0 // 2 bytes padding
         ]));
     }
