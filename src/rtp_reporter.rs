@@ -1,8 +1,10 @@
 use std::collections::HashSet;
-use bytes::Bytes;
+use bytes::{BufMut, Bytes, BytesMut};
+use rtcp::Marshall;
 use rtcp::receiver_report::{ReceiverReport, ReportBlock};
-use rtcp::sdes::SourceDescriptor;
-use rtcp::transport_layer_feedback::GenericNACK;
+use rtcp::sdes::{Chunk, CNameSDES, SourceDescriptor};
+use rtcp::sdes::SDES::CName;
+use rtcp::transport_layer_feedback::{GenericNACK, TransportLayerNACK};
 
 #[derive(Debug, Clone, PartialEq)]
 struct RTPReporter {
@@ -136,6 +138,8 @@ impl RTPReporter {
     }
 
     fn generate_receiver_report(&mut self) -> Bytes {
+        let mut bytes = BytesMut::new();
+
         let report_block = ReportBlock {
             ext_highest_sequence: self.max_seq as u32,
             fraction_lost: self.fraction_lost(),
@@ -147,11 +151,18 @@ impl RTPReporter {
         };
 
         let receiver_report = ReceiverReport::new(self.host_ssrc, vec![report_block]);
+
+        bytes.put(receiver_report.marshall().unwrap());
         self.cleanup_stale_missing_packets();
 
         let nacks = generate_nacks(&mut self.missing_packets);
-
-        Bytes::new()
+        if !nacks.is_empty() {
+            let transport_layer_nack = TransportLayerNACK::new(nacks, self.host_ssrc, self.media_ssrc);
+            bytes.put(transport_layer_nack.marshall().unwrap())
+        }
+        let sdes = SourceDescriptor::new(vec![Chunk { ssrc: self.host_ssrc, items: vec![CName(CNameSDES::new("smid".to_string()))] }]);
+        bytes.put(sdes.marshall().unwrap());
+        bytes.freeze()
     }
 }
 
@@ -210,6 +221,100 @@ fn map_to_nack(pid: u16, next_pids: Vec<u16>) -> GenericNACK {
 static MAX_DROPOUT: u16 = 3000;
 static MAX_MISORDER: u32 = 180;
 static RTP_SEQ_MOD: u32 = 1 << 16;
+
+#[cfg(test)]
+mod generate_receiver_report {
+    use bytes::Bytes;
+    use crate::rtp_reporter::{MAX_MISORDER, RTPReporter};
+
+    #[test]
+    fn generate_report_with_no_nacks() {
+        let mut reporter = RTPReporter::new(2, 1, 2);
+        let report = reporter.generate_receiver_report();
+
+        assert_eq!(report.to_vec(), Bytes::from_static(&[
+            129, 201, 0, 7, // Receiver Report Header, len = 7
+            0, 0, 0, 1, // sender SSRC = 1
+            0, 0, 0, 2, // SSRC_1 = 2
+            0, 0, 0, 0, // Fraction Lost = 0, packets lost = 0
+            0, 0, 0, 2, // Highest seq num = 2
+            0, 0, 0, 0, // Jitter = 0
+            0, 0, 0, 0, // LSR = 0
+            0, 0, 0, 0, //DLSR = 0
+            // SDES
+            129, 202, 0, 3, // SDES, 1 chunk, len = 2
+            // Chunk 1
+            0, 0, 0, 1, // Sender SSRC = 1
+            1, 4, 115, 109, // SDES CNAME, len = 4, domain = "smid"
+            105, 100, 0, 0 // 2 bytes padding
+        ]).to_vec())
+    }
+
+    #[test]
+    fn generate_report_with_two_nacks() {
+        let mut reporter = RTPReporter::new(2, 1, 2);
+        reporter.update_seq(5).unwrap();
+
+        let report = reporter.generate_receiver_report();
+
+        assert_eq!(report.to_vec(), Bytes::from_static(&[
+            129, 201, 0, 7, // Receiver Report Header, len = 7
+            0, 0, 0, 1, // sender SSRC = 1
+            0, 0, 0, 2, // SSRC_1 = 2
+            128, 0, 0, 2, // Fraction Lost = 50% (128), packets lost = 2
+            0, 0, 0, 5, // Highest seq num = 5
+            0, 0, 0, 0, // Jitter = 0
+            0, 0, 0, 0, // LSR = 0
+            0, 0, 0, 0, //DLSR = 0
+            // Generic NACK
+            129, 205, 0, 3, // Header, len = 3
+            0, 0, 0, 1, // Sender SSRC = 1
+            0, 0, 0, 2, // Media SSRC = 2
+            0, 3, 0, 1, // PID = 3, BLP = 0b0000_0001
+            // SDES
+            129, 202, 0, 3, // SDES, 1 chunk, len = 2
+            // Chunk 1
+            0, 0, 0, 1, // Sender SSRC = 1
+            1, 4, 115, 109, // SDES CNAME, len = 4, domain = "smid"
+            105, 100, 0, 0 // 2 bytes padding
+        ]).to_vec())
+    }
+
+    #[test]
+    fn evicts_stale_packets_from_missing_packets_list() {
+        let base_ssrc = 2;
+        let mut reporter = RTPReporter::new(base_ssrc, 1, 2);
+        reporter.update_seq(base_ssrc + 2).unwrap(); // drops base_seq + 1 packet
+
+        for seq in base_ssrc + 3..base_ssrc + MAX_MISORDER as u16 + 4 {
+            reporter.update_seq(seq).unwrap()
+        }
+        let highest_seq = (base_ssrc + MAX_MISORDER as u16 + 3) as u8;
+
+        let report = reporter.generate_receiver_report();
+
+        assert!(reporter.missing_packets.is_empty()); // Evicts packet from missing_packets HashSet
+        assert_eq!(reporter.lost_packets(), 1); // Keeps track of lost_packets stats
+
+        // Doesn't generate NACK
+        assert_eq!(report, Bytes::from(vec![
+            129, 201, 0, 7, // Receiver Report Header, len = 7
+            0, 0, 0, 1, // sender SSRC = 1
+            0, 0, 0, 2, // SSRC_1 = 2
+            1, 0, 0, 1, // Fraction Lost < 1% (1), packets lost = 1
+            0, 0, 0, highest_seq, // Highest seq num = base_seq + MAX_DISORDER + 3
+            0, 0, 0, 0, // Jitter = 0
+            0, 0, 0, 0, // LSR = 0
+            0, 0, 0, 0, //DLSR = 0
+            // SDES
+            129, 202, 0, 3, // SDES, 1 chunk, len = 2
+            // Chunk 1
+            0, 0, 0, 1, // Sender SSRC = 1
+            1, 4, 115, 109, // SDES CNAME, len = 4, domain = "smid"
+            105, 100, 0, 0, // 2 bytes padding
+        ]))
+    }
+}
 
 #[cfg(test)]
 mod generate_nacks {
