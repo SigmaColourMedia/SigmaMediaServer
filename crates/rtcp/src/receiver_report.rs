@@ -3,6 +3,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 use crate::header::{Header, PayloadType};
 use crate::{Marshall, MarshallError};
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReceiverReport {
     header: Header,
     sender_ssrc: u32,
@@ -12,7 +13,7 @@ pub struct ReceiverReport {
 impl ReceiverReport {
     pub fn new(sender_ssrc: u32, reports: Vec<ReportBlock>) -> Self {
         let header = Header {
-            length: (4 + reports.len() * 24) as u16,
+            length: (1 + reports.len() * 6) as u16, // Sender SSRC 32-bit word + N-report_blocks * 6 32-bit words
             payload_type: PayloadType::ReceiverReport,
             padding: false,
             feedback_message_type: reports.len() as u8,
@@ -37,6 +38,7 @@ impl Marshall for ReceiverReport {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReportBlock {
     pub ssrc: u32,
     pub fraction_lost: u8,
@@ -64,6 +66,47 @@ impl Marshall for ReportBlock {
         Ok(bytes.freeze())
     }
 }
+
+#[cfg(test)]
+mod receiver_report_new_constructor {
+    use crate::header::{Header, PayloadType};
+    use crate::receiver_report::{ReceiverReport, ReportBlock};
+
+    #[test]
+    fn one_block_receiver_report() {
+        let actual_output = ReceiverReport::new(1, vec![ReportBlock {
+            lsr: 0,
+            ssrc: 2,
+            dlsr: 0,
+            fraction_lost: 10,
+            jitter: 0,
+            cumulative_packets_lost: 2,
+            ext_highest_sequence: 15,
+        }]);
+
+        let expected_output = ReceiverReport {
+            header: Header {
+                padding: false,
+                length: 7,
+                payload_type: PayloadType::ReceiverReport,
+                feedback_message_type: 1,
+            },
+            sender_ssrc: 1,
+            reports: vec![ReportBlock {
+                lsr: 0,
+                ssrc: 2,
+                dlsr: 0,
+                fraction_lost: 10,
+                jitter: 0,
+                cumulative_packets_lost: 2,
+                ext_highest_sequence: 15,
+            }],
+        };
+
+        assert_eq!(actual_output, expected_output)
+    }
+}
+
 
 #[cfg(test)]
 mod report_block_marshall {
