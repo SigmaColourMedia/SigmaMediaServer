@@ -11,12 +11,12 @@ pub(crate) struct SenderReport {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct SenderInfo {
-    sender_ssrc: u32,
-    ntp_timestamp: u64,
-    rtp_timestamp: u32,
-    sender_packet_count: u32,
-    sender_octet_count: u32,
+pub struct SenderInfo {
+    pub sender_ssrc: u32,
+    pub ntp_timestamp: u64,
+    pub rtp_timestamp: u32,
+    pub sender_packet_count: u32,
+    pub sender_octet_count: u32,
 }
 
 
