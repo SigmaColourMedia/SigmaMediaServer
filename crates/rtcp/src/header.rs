@@ -4,14 +4,14 @@ use crate::{Marshall, MarshallError, Unmarshall, UnmarshallError};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Header {
-    pub(crate) payload_type: PayloadType,
-    pub(crate) length: u16,
-    pub(crate) feedback_message_type: u8,
-    pub(crate) padding: bool,
+    pub payload_type: PayloadType,
+    pub length: u16,
+    pub feedback_message_type: u8,
+    pub padding: bool,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub(crate) enum PayloadType {
+pub enum PayloadType {
     TransportLayerFeedbackMessage,
     PayloadSpecificFeedbackMessage,
     SenderReport,
