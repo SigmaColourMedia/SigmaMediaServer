@@ -5,9 +5,9 @@ use crate::{Unmarshall, UnmarshallError};
 
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct SenderReport {
+pub struct SenderReport {
     header: Header,
-    sender_info: SenderInfo,
+    pub sender_info: SenderInfo,
 }
 
 #[derive(Debug, Clone, PartialEq)]
