@@ -18,13 +18,13 @@ mod client;
 mod config;
 mod http;
 mod ice_registry;
-mod rtp;
 mod server;
 mod stun;
 mod thumbnail;
 mod rtp_replay_buffer;
 mod rtcp_reporter;
 mod rtp_reporter;
+mod media_header;
 
 fn main() {
     let (server_command_sender, server_command_receiver) =
