@@ -1,22 +1,19 @@
 use std::io::Write;
 use std::mem;
 use std::net::{SocketAddr, UdpSocket};
-use std::time::{Duration, Instant};
-use byteorder::{BigEndian, ReadBytesExt};
+use std::time::{Instant};
 
-use bytes::{Buf, BufMut, Bytes, BytesMut};
-use rand::{Rng, thread_rng};
+use bytes::{Bytes};
 use rtcp::rtcp::RtcpPacket;
 use rtcp::{Marshall, Unmarshall, unmarshall_compound_rtcp};
-use rtcp::payload_specific_feedback::PictureLossIndication;
-use rtcp::transport_layer_feedback::{GenericNACK, TransportLayerNACK};
 
 use sdp::SDPResolver;
 
 use crate::client::{Client, ClientSslState};
 use crate::config::get_global_config;
-use crate::ice_registry::{ConnectionType, Session, SessionRegistry, Streamer, Viewer};
-use crate::rtp::{get_rtp_header_data, remap_rtp_header};
+use crate::ice_registry::{ConnectionType, Session, SessionRegistry, Viewer};
+use crate::media_header::MediaHeader;
+use crate::rtp_reporter::RTPReporter;
 use crate::stun::{create_stun_success, get_stun_packet, ICEStunMessageType};
 
 pub struct UDPServer {
@@ -198,107 +195,118 @@ impl UDPServer {
                     //     return;
                     // }
 
-                    let mut buffer_copy = self.inbound_buffer.clone();
+                    let buffer = Bytes::from(self.inbound_buffer.clone());
 
-                    if let Ok(_) = ssl_stream.srtp_inbound.unprotect_rtcp(&mut buffer_copy) {
-                        let input = Bytes::from(buffer_copy);
-                        if let Ok(rtcp) = unmarshall_compound_rtcp(input) {
-                            println!("got RTCP! {:?}", rtcp)
-                        }
-                    }
+                    if let Ok(header) = MediaHeader::unmarshall(buffer) {
+                        match header {
+                            MediaHeader::RTP(mut header) => {
+                                if let Ok(_) = ssl_stream.srtp_inbound.unprotect(&mut self.inbound_buffer) {
+                                    let is_video_packet = header.payload_type == sender_session.media_session.video_session.payload_number as u8;
 
+                                    if is_video_packet {
+                                        // Feed thumbnail image extractor
+                                        streamer
+                                            .thumbnail_extractor
+                                            .try_extract_thumbnail(&self.inbound_buffer);
 
-                    match ssl_stream.srtp_inbound.unprotect(&mut self.inbound_buffer) {
-                        Ok(_) => {
-                            let packet_seq = self.inbound_buffer.as_slice()[2..].reader().read_u16::<BigEndian>().unwrap();
-                            let roc = ssl_stream.srtp_inbound.session().get_stream_roc(sender_session.media_session.video_session.remote_ssrc.unwrap_or(0)).unwrap_or(0);
-
-
-                            let room_id = streamer.owned_room_id;
-
-                            let is_video_packet = get_rtp_header_data(&self.inbound_buffer)
-                                .payload_type
-                                .eq(&(sender_session.media_session.video_session.payload_number as u8));
-
-                            if is_video_packet {
-                                // Feed thumbnail image extractor
-                                streamer
-                                    .thumbnail_extractor
-                                    .try_extract_thumbnail(&self.inbound_buffer);
-
-                                if sender_session.video_reporter.is_some() {
-                                    sender_session.process_packet(packet_seq as usize, roc as usize);
-                                } else {
-                                    sender_session.set_reporter(packet_seq as usize, roc as usize);
-                                }
-                            }
-
-
-                            let viewer_ids = self
-                                .session_registry
-                                .get_room(room_id)
-                                .expect("Streamer room should exist")
-                                .viewer_ids
-                                .clone()
-                                .into_iter();
-
-                            for id in viewer_ids {
-                                let streamer_media = self
-                                    .session_registry
-                                    .get_session_by_address_mut(&remote)
-                                    .expect("Streamer session should be established")
-                                    .media_session
-                                    .clone();
-                                let viewer_session = self.session_registry.get_session_mut(id).expect("Viewer session should be established if viewer id belongs to a room");
-
-                                // If viewer has yet elected a Client, skip it
-                                if viewer_session.client.is_none() {
-                                    continue;
-                                }
-
-                                let viewer_client = viewer_session.client.as_mut().unwrap();
-
-                                if let ClientSslState::Established(ssl_stream) =
-                                    &mut viewer_client.ssl_state
-                                {
-
-
-                                    // Write to temp buffer
-                                    self.outbound_buffer.clear();
-                                    self.outbound_buffer
-                                        .write(&self.inbound_buffer)
-                                        .expect("Should write to outbound buffer");
-
-                                    // Remap Payload Type and SSRC to match negotiated values
-                                    remap_rtp_header(
-                                        &mut self.outbound_buffer,
-                                        &streamer_media,
-                                        &viewer_session.media_session,
-                                    );
-
-
-                                    match ssl_stream.srtp_outbound.protect(&mut self.outbound_buffer) {
-                                        Ok(_) => {
-                                            if is_video_packet {
-                                                // Update RTP Replay Buffer
-                                                let roc = ssl_stream.srtp_outbound.session().get_stream_roc(viewer_session.media_session.video_session.host_ssrc).unwrap_or(0);
-                                                viewer_client.rtp_replay_buffer.insert(Bytes::from(self.outbound_buffer.clone()), roc);
+                                        // Update video_reporter
+                                        match sender_session.video_reporter_2.as_mut() {
+                                            Some(mut reporter) =>
+                                                reporter.feed_rtp(header.clone()),
+                                            None => {
+                                                let reporter = RTPReporter::new(header.seq, sender_session.media_session.video_session.host_ssrc, sender_session.media_session.video_session.remote_ssrc.unwrap());
+                                                sender_session.video_reporter_2.insert(reporter);
                                             }
+                                        };
 
 
-                                            if let Err(err) = self.socket.send_to(
-                                                &self.outbound_buffer,
-                                                viewer_client.remote_address,
-                                            ) {
-                                                eprintln!("Couldn't send RTP data {}", err)
+                                        // if sender_session.video_reporter.is_some() {
+                                        //     sender_session.process_packet(header.seq as usize, roc as usize);
+                                        // } else {
+                                        //     sender_session.set_reporter(header.seq as usize, roc as usize);
+                                        // }
+                                    }
+
+
+                                    let viewer_ids = self
+                                        .session_registry
+                                        .get_room(streamer.owned_room_id)
+                                        .expect("Streamer room should exist")
+                                        .viewer_ids
+                                        .clone()
+                                        .into_iter();
+
+                                    for id in viewer_ids {
+                                        let viewer_session = self.session_registry.get_session_mut(id).expect("Viewer session should be established if viewer id belongs to a room");
+
+                                        // If viewer has yet elected a Client, skip it
+                                        if viewer_session.client.is_none() {
+                                            continue;
+                                        }
+
+                                        let viewer_client = viewer_session.client.as_mut().unwrap();
+
+                                        if let ClientSslState::Established(ssl_stream) =
+                                            &mut viewer_client.ssl_state
+                                        {
+
+                                            // Write to temp buffer
+                                            self.outbound_buffer.clear();
+                                            self.outbound_buffer
+                                                .write(&self.inbound_buffer)
+                                                .expect("Should write to outbound buffer");
+
+
+                                            // Remap RTP header
+                                            let (host_pt, host_ssrc) = if is_video_packet {
+                                                (viewer_session.media_session.video_session.payload_number, viewer_session.media_session.video_session.host_ssrc)
+                                            } else {
+                                                (viewer_session.media_session.audio_session.payload_number, viewer_session.media_session.audio_session.host_ssrc)
+                                            };
+                                            let mut header_copy = header.clone();
+                                            header_copy.payload_type = host_pt as u8;
+                                            header_copy.ssrc = host_ssrc;
+                                            let header_buffer = header_copy.marshall().unwrap().to_vec();
+                                            self.outbound_buffer[..header_buffer.len()].copy_from_slice(&header_buffer);
+
+
+                                            // Turn packet into SRTP
+                                            if let Ok(_) = ssl_stream.srtp_outbound.protect(&mut self.outbound_buffer) {
+
+                                                // Update RTP replay Buffer
+                                                if is_video_packet {
+                                                    let roc = ssl_stream.srtp_outbound.session().get_stream_roc(viewer_session.media_session.video_session.host_ssrc).unwrap_or(0);
+                                                    viewer_client.rtp_replay_buffer.insert(Bytes::from(self.outbound_buffer.clone()), roc);
+                                                }
+
+                                                // if thread_rng().gen_bool(0.10) {
+                                                //     mem::replace(&mut sender_session.client, Some(sender_client));
+                                                //     mem::replace(&mut sender_session.connection_type, sender_connection_type);
+                                                //     let _ = mem::replace(self.session_registry.get_session_by_address_mut(remote).unwrap(), sender_session);
+                                                //     return;
+                                                // }
+
+
+                                                if let Err(err) = self.socket.send_to(
+                                                    &self.outbound_buffer,
+                                                    viewer_client.remote_address,
+                                                ) {
+                                                    eprintln!("Couldn't send RTP data {}", err)
+                                                }
                                             }
                                         }
-                                        Err(err) => { println!("Could not protect due to {}", err) }
+                                    }
+                                }
+                            }
+                            MediaHeader::RTCP(header) => {
+                                if let Ok(_) = ssl_stream.srtp_inbound.unprotect_rtcp(&mut self.inbound_buffer) {
+                                    let input = Bytes::from(self.inbound_buffer.clone());
+                                    if let Ok(rtcp) = unmarshall_compound_rtcp(input) {
+                                        // println!("got RTCP! {:?}", rtcp)
                                     }
                                 }
                             }
                         }
-                        Err(e) => {}
                     }
                 }
                 ClientSslState::Shutdown => {
