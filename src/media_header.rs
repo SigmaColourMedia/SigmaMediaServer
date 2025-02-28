@@ -1,24 +1,24 @@
-use bytes::{Buf, Bytes};
-use rtcp::{Marshall, Unmarshall, UnmarshallError};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use rtcp::{Marshall, MarshallError, Unmarshall, UnmarshallError};
 use rtcp;
 
 #[derive(Debug, Clone, PartialEq)]
-enum MediaHeader {
+pub enum MediaHeader {
     RTP(RTPHeader),
     RTCP(rtcp::header::Header),
 }
 
 
 #[derive(Debug, Clone, PartialEq)]
-struct RTPHeader {
-    padding: bool,
-    extension: bool,
-    marker: bool,
-    seq: u16,
-    payload_type: u8,
-    timestamp: u32,
-    ssrc: u32,
-    csrc_identifiers: Vec<u32>,
+pub struct RTPHeader {
+    pub padding: bool,
+    pub extension: bool,
+    pub marker: bool,
+    pub seq: u16,
+    pub payload_type: u8,
+    pub timestamp: u32,
+    pub ssrc: u32,
+    pub csrc_identifiers: Vec<u32>,
 }
 
 
@@ -85,6 +85,29 @@ impl Unmarshall for RTPHeader {
     }
 }
 
+impl Marshall for RTPHeader {
+    fn marshall(self) -> Result<Bytes, MarshallError>
+    where
+        Self: Sized,
+    {
+        let mut bytes = BytesMut::new();
+        let version_bit = 1 << 7;
+        let padding_bit = if self.padding { 1 } else { 0 } << 5;
+        let extension_bit = if self.extension { 1 } else { 0 } << 4;
+        let first_octet = version_bit | padding_bit | extension_bit | self.csrc_identifiers.len() as u8;
+        bytes.put_u8(first_octet);
+        let mark_bit = if self.marker { 1 } else { 0 } << 7;
+        bytes.put_u8(mark_bit | self.payload_type);
+        bytes.put_u16(self.seq);
+        bytes.put_u32(self.timestamp);
+        bytes.put_u32(self.ssrc);
+        for csrc in self.csrc_identifiers {
+            bytes.put_u32(csrc)
+        }
+        Ok(bytes.freeze())
+    }
+}
+
 
 static VERSION_MASK: u8 = 0b1100_0000;
 static VERSION_SHIFT: u8 = 6;
@@ -96,6 +119,78 @@ static CSRC_COUNT_MASK: u8 = 0b0000_1111;
 static MARKER_MASK: u8 = 0b1000_0000;
 static MARKER_SHIFT: u8 = 7;
 static PAYLOAD_TYPE_MASK: u8 = 0b0111_1111;
+
+#[cfg(test)]
+mod marshall_rtp_header {
+    use bytes::Bytes;
+    use rtcp::Marshall;
+    use crate::media_header::RTPHeader;
+
+    #[test]
+    fn marshall_rtp_header_with_extension() {
+        let input = RTPHeader {
+            csrc_identifiers: vec![],
+            padding: false,
+            seq: 200,
+            ssrc: 2,
+            timestamp: 100,
+            marker: true,
+            payload_type: 120,
+            extension: true,
+        };
+        let expected_output = Bytes::from_static(&[
+            0b1001_0000, 0b1111_1000, 0, 200, // Version = 2, padding = 0, extension = 1, CC = 0, M = 1, PT = 120, SEQ = 200
+            0, 0, 0, 100, // Timestamp 100
+            0, 0, 0, 2, // SSRC = 2
+        ]);
+
+        assert_eq!(input.marshall().unwrap(), expected_output)
+    }
+
+    #[test]
+    fn marshall_rtp_header_no_extension() {
+        let input = RTPHeader {
+            csrc_identifiers: vec![],
+            padding: false,
+            seq: 200,
+            ssrc: 2,
+            timestamp: 100,
+            marker: false,
+            payload_type: 120,
+            extension: false,
+        };
+        let expected_output = Bytes::from_static(&[
+            0b1000_0000, 0b0111_1000, 0, 200, // Version = 2, padding = 0, extension = 1, CC = 0, M = 0, PT = 120, SEQ = 200
+            0, 0, 0, 100, // Timestamp 100
+            0, 0, 0, 2, // SSRC = 2
+        ]);
+
+        assert_eq!(input.marshall().unwrap(), expected_output)
+    }
+
+    #[test]
+    fn marshall_rtp_header_with_csrc() {
+        let input = RTPHeader {
+            csrc_identifiers: vec![10, 120],
+            padding: false,
+            seq: 200,
+            ssrc: 2,
+            timestamp: 100,
+            marker: false,
+            payload_type: 120,
+            extension: false,
+        };
+        let expected_output = Bytes::from_static(&[
+            0b1000_0010, 0b0111_1000, 0, 200, // Version = 2, padding = 0, extension = 1, CC = 2, M = 0, PT = 120, SEQ = 200
+            0, 0, 0, 100, // Timestamp 100
+            0, 0, 0, 2, // SSRC = 2
+            0, 0, 0, 10, // CSRC = 10
+            0, 0, 0, 120 // CSRC = 120
+        ]);
+
+        assert_eq!(input.marshall().unwrap(), expected_output)
+    }
+}
 
 #[cfg(test)]
 mod unmarshall_media_header {
