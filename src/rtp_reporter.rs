@@ -5,9 +5,10 @@ use rtcp::receiver_report::{ReceiverReport, ReportBlock};
 use rtcp::sdes::{Chunk, CNameSDES, SourceDescriptor};
 use rtcp::sdes::SDES::CName;
 use rtcp::transport_layer_feedback::{GenericNACK, TransportLayerNACK};
+use crate::media_header::RTPHeader;
 
 #[derive(Debug, Clone, PartialEq)]
-struct RTPReporter {
+pub struct RTPReporter {
     max_seq: u16,
     cycles: u32,
     base_seq: u32,
@@ -29,7 +30,7 @@ enum UpdateSequenceError {
 
 
 impl RTPReporter {
-    fn new(seq: u16, host_ssrc: u32, media_ssrc: u32) -> Self {
+    pub fn new(seq: u16, host_ssrc: u32, media_ssrc: u32) -> Self {
         Self {
             cycles: 0,
             max_seq: seq,
@@ -44,6 +45,10 @@ impl RTPReporter {
             host_ssrc,
             media_ssrc,
         }
+    }
+
+    pub fn feed_rtp(&mut self, header: RTPHeader) {
+        self.update_seq(header.seq);
     }
 
 
