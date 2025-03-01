@@ -199,10 +199,12 @@ fn main() {
 }
 
 #[derive(Debug, Clone)]
-enum UDPServerError {
+pub enum UDPServerError {
     RTCPProtectError,
     RTPProtectError,
     SocketWriteError,
+    RTCPUnprotectError,
+    RTCPDecodeError,
 }
 
 fn run_periodic_checks(sender: Sender<ServerCommand>) {
