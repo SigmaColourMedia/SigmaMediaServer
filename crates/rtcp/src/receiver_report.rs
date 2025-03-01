@@ -107,6 +107,50 @@ mod receiver_report_new_constructor {
     }
 }
 
+#[cfg(test)]
+mod receiver_report_marshall {
+    use bytes::Bytes;
+    use crate::header::{Header, PayloadType};
+    use crate::Marshall;
+    use crate::receiver_report::{ReceiverReport, ReportBlock};
+
+    #[test]
+    fn marshall_one_block() {
+        let input = ReceiverReport {
+            sender_ssrc: 1,
+            header: Header {
+                padding: false,
+                length: 7,
+                payload_type: PayloadType::ReceiverReport,
+                feedback_message_type: 1,
+            },
+            reports: vec![ReportBlock {
+                ssrc: 123213414,
+                fraction_lost: 20,
+                cumulative_packets_lost: 2120,
+                ext_highest_sequence: 32131,
+                jitter: 1200,
+                lsr: 230232,
+                dlsr: 200,
+            }],
+        };
+
+        let expected_output = Bytes::from_static(&[
+            129, 201, 0, 7, // Header, report blocks = 1, length = 7
+            0, 0, 0, 1, // Sender SSRC = 1
+            7, 88, 22, 102, // SSRC = 123213414
+            20, 0, 8, 72, // Fraction Lost = 20, Packets Lost = 2120
+            0, 0, 125, 131, // Extended Highest Sequence =  32131
+            0, 0, 4, 176, // Jitter = 1200
+            0, 3, 131, 88, // LSR = 230232,
+            0, 0, 0, 200 // DLSR = 200
+        ]);
+
+
+        assert_eq!(input.marshall().unwrap(), expected_output);
+    }
+}
+
 
 #[cfg(test)]
 mod report_block_marshall {
