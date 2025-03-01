@@ -189,18 +189,35 @@ fn main() {
                     .collect::<Vec<&mut Session>>();
 
                 for streamer_session in streamers {
-                    if let Some(nack_to_report) = streamer_session.check_packet_integrity() {
+                    let can_send_feedback = streamer_session.video_reporter.as_mut().and_then(|reporter| {
+                        let last_timestamp = reporter.last_report_timestamp.get_or_insert(Instant::now());
+                        let is_early_feedback = !reporter.missing_packets.is_empty() && last_timestamp.elapsed() >= Duration::from_millis(1);
+                        let is_regular_feedback = last_timestamp.elapsed() >= Duration::from_secs(1);
+
+                        if is_early_feedback || is_regular_feedback { Some(()) } else { None }
+                    }).is_some();
+
+
+                    if can_send_feedback {
+                        // Generate Report
+                        let video_reporter = streamer_session.video_reporter.as_mut().unwrap();
+                        let mut receiver_report = video_reporter.generate_receiver_report().to_vec();
+
+
+                        // Protect RTCP packet and send to remote
                         if let Some(client) = streamer_session.client.as_mut() {
                             if let ClientSslState::Established(ssl_stream) = &mut client.ssl_state {
-                                let mut packets = nack_to_report.marshall().unwrap().to_vec();
-                                if let Ok(_) = ssl_stream.srtp_outbound.protect_rtcp(&mut packets) {
-                                    if let Err(_) = udp_server.socket.send_to(&packets, client.remote_address) {
-                                        eprintln!("Error sending packet to remote")
+                                if let Ok(_) = ssl_stream.srtp_outbound.protect_rtcp(&mut receiver_report) {
+                                    if let Err(err) = udp_server.socket.send_to(&receiver_report, client.remote_address) {
+                                        eprintln!("Error sending RTCP {}", err)
                                     }
                                 }
                             }
                         }
-                    }
+
+                        // Update last report timestamp
+                        video_reporter.last_report_timestamp = Some(Instant::now());
+                    };
                 }
             }
         }
@@ -218,7 +235,7 @@ fn start_timeout_interval(sender: Sender<ServerCommand>) {
 
 fn poll_rtcp_rr_feedback(sender: Sender<ServerCommand>) {
     loop {
-        sleep(Duration::from_millis(2));
+        sleep(Duration::from_micros(250));
         sender
             .send(ServerCommand::SendRRFeedback)
             .expect("Server channel should be open");
