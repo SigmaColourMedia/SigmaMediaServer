@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::time::Instant;
 use bytes::{BufMut, Bytes, BytesMut};
 use rtcp::Marshall;
 use rtcp::receiver_report::{ReceiverReport, ReportBlock};
@@ -16,11 +17,12 @@ pub struct RTPReporter {
     received: u32,
     expected_prior: u32,
     received_prior: u32,
-    missing_packets: HashSet<u16>,
+    pub missing_packets: HashSet<u16>,
     host_ssrc: u32,
     media_ssrc: u32,
     dlsr: u32,
     lsr: u32,
+    pub last_report_timestamp: Option<Instant>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -42,13 +44,17 @@ impl RTPReporter {
             missing_packets: HashSet::new(),
             dlsr: 0,
             lsr: 0,
+            last_report_timestamp: None,
             host_ssrc,
             media_ssrc,
         }
     }
 
-    pub fn feed_rtp(&mut self, header: RTPHeader) {
+    pub fn feed_rtp(&mut self, header: RTPHeader) -> bool {
+        let lost_prior = self.missing_packets.len();
         self.update_seq(header.seq);
+
+        lost_prior < self.missing_packets.len()
     }
 
 
@@ -112,7 +118,7 @@ impl RTPReporter {
     fn lost_packets(&self) -> u32 {
         let extended_max = self.cycles + self.max_seq as u32;
         let expected = extended_max - self.base_seq + 1;
-        expected - self.received
+        expected.wrapping_sub(self.received)
     }
 
     fn fraction_lost(&mut self) -> u8 {
@@ -142,7 +148,7 @@ impl RTPReporter {
         }).collect::<HashSet<u16>>();
     }
 
-    fn generate_receiver_report(&mut self) -> Bytes {
+    pub fn generate_receiver_report(&mut self) -> Bytes {
         let mut bytes = BytesMut::new();
 
         let report_block = ReportBlock {
@@ -151,8 +157,8 @@ impl RTPReporter {
             ssrc: self.media_ssrc,
             jitter: 0, // Unsupported
             cumulative_packets_lost: self.lost_packets(),
-            dlsr: self.dlsr,
-            lsr: self.lsr,
+            dlsr: self.dlsr, // Unsupported
+            lsr: self.lsr, // Unsupported
         };
 
         let receiver_report = ReceiverReport::new(self.host_ssrc, vec![report_block]);
@@ -455,6 +461,7 @@ mod map_to_nack {
 #[cfg(test)]
 mod cleanup_stale_missing_packets {
     use std::collections::HashSet;
+    use std::time::Instant;
     use crate::rtp_reporter::{MAX_MISORDER, RTP_SEQ_MOD, RTPReporter};
 
     #[test]
@@ -478,6 +485,7 @@ mod cleanup_stale_missing_packets {
             received_prior: 0,
             lsr: 0,
             dlsr: 0,
+            last_report_timestamp: None,
         };
 
         reporter.cleanup_stale_missing_packets();
@@ -505,6 +513,7 @@ mod cleanup_stale_missing_packets {
             received_prior: 0,
             lsr: 0,
             dlsr: 0,
+            last_report_timestamp: None,
         };
 
         reporter.cleanup_stale_missing_packets();
@@ -533,6 +542,7 @@ mod cleanup_stale_missing_packets {
             received_prior: 0,
             lsr: 0,
             dlsr: 0,
+            last_report_timestamp: None,
         };
 
         reporter.cleanup_stale_missing_packets();
@@ -561,6 +571,7 @@ mod cleanup_stale_missing_packets {
             received_prior: 0,
             lsr: 0,
             dlsr: 0,
+            last_report_timestamp: None,
         };
 
         reporter.cleanup_stale_missing_packets();
@@ -584,6 +595,7 @@ mod cleanup_stale_missing_packets {
             received: 5000,
             received_prior: 0,
             lsr: 0,
+            last_report_timestamp: None,
             dlsr: 0,
         };
 
@@ -596,6 +608,7 @@ mod cleanup_stale_missing_packets {
 #[cfg(test)]
 mod fraction_lost {
     use std::collections::HashSet;
+    use std::time::Instant;
     use crate::rtp_reporter::{RTP_SEQ_MOD, RTPReporter};
 
     #[test]
@@ -627,6 +640,7 @@ mod fraction_lost {
             media_ssrc: 1,
             lsr: 0,
             dlsr: 0,
+            last_report_timestamp: None,
         };
 
         reporter.update_seq(6).unwrap();
@@ -658,6 +672,7 @@ mod fraction_lost {
             media_ssrc: 1,
             lsr: 0,
             dlsr: 0,
+            last_report_timestamp: None,
         };
 
         reporter.update_seq(5).unwrap();
@@ -823,6 +838,7 @@ mod new {
             received_prior: 0,
             host_ssrc: 0,
             media_ssrc: 1,
+            last_report_timestamp: None,
             lsr: 0,
             dlsr: 0,
         })
