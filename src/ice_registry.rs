@@ -227,8 +227,7 @@ pub struct Session {
     pub client: Option<Client>,
     pub media_session: NegotiatedSession,
     pub connection_type: ConnectionType,
-    pub video_reporter: Option<Reporter>,
-    pub video_reporter_2: Option<RTPReporter>,
+    pub video_reporter: Option<RTPReporter>,
 
 }
 
@@ -241,7 +240,6 @@ impl Default for Session {
             connection_type: ConnectionType::Viewer(Viewer { room_id: 1 }),
             media_session: NegotiatedSession::default(),
             video_reporter: None,
-            video_reporter_2: None,
         }
     }
 }
@@ -256,7 +254,6 @@ impl Session {
             client: None,
             media_session,
             video_reporter: None,
-            video_reporter_2: None,
             connection_type: ConnectionType::Streamer(Streamer {
                 owned_room_id: room_id,
                 thumbnail_extractor: ThumbnailExtractor::new(),
@@ -272,39 +269,9 @@ impl Session {
             ttl: Instant::now(),
             client: None,
             video_reporter: None,
-            video_reporter_2: None,
             media_session,
             connection_type: ConnectionType::Viewer(Viewer { room_id: target_id }),
         }
-    }
-
-    pub fn process_packet(&mut self, pid: usize, roc: usize) {
-        self.video_reporter.as_mut().expect("Video Reporter should be Some").process_packet(pid, roc);
-    }
-
-    pub fn set_reporter(&mut self, pid: usize, roc: usize) {
-        self.video_reporter = Some(Reporter::new(pid, roc));
-    }
-
-
-    pub fn check_packet_integrity(&mut self) -> Option<TransportLayerNACK> {
-        if self.video_reporter.is_none() {
-            return None;
-        }
-        let reporter = self.video_reporter.as_mut().unwrap();
-
-        let packets_to_report = reporter.lost_packets.iter().filter(|&&pid| {
-            pid.abs_diff(reporter.ext_highest_seq) < 528
-        }).collect::<Vec<&usize>>();
-
-        if packets_to_report.is_empty() {
-            return None;
-        }
-
-        // todo handle blp
-        let nacks = packets_to_report.into_iter().map(|&pid| GenericNACK { pid: pid as u16, blp: 0 }).collect();
-
-        Some(TransportLayerNACK::new(nacks, self.media_session.video_session.host_ssrc, self.media_session.video_session.remote_ssrc.unwrap_or(0)))
     }
 }
 
@@ -344,8 +311,7 @@ mod session_tests {
     #[test]
     fn creates_nack_packet() {
         let mut session = Session {
-            video_reporter: Some(Reporter::new(0, 0)),
-            video_reporter_2: None,
+            video_reporter: None,
             media_session: NegotiatedSession::default(),
             ttl: Instant::now(),
             id: 1,
@@ -377,8 +343,7 @@ mod session_tests {
     #[test]
     fn does_not_create_nack_packet() {
         let mut session = Session {
-            video_reporter: Some(Reporter::new(0, 0)),
-            video_reporter_2: None,
+            video_reporter: None,
             media_session: NegotiatedSession::default(),
             ttl: Instant::now(),
             id: 1,
