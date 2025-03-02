@@ -228,10 +228,72 @@ fn map_to_nack(pid: u16, next_pids: Vec<u16>) -> GenericNACK {
     }
 }
 
+pub fn nack_to_lost_pids(nack: &GenericNACK) -> Vec<u16> {
+    let mut pids = vec![nack.pid];
+
+    for index in 0u16..16 {
+        let is_bit_set = (((1 << index) & nack.blp) >> index) == 1;
+        if is_bit_set {
+            pids.push(nack.pid.wrapping_add(index).wrapping_add(1))
+        }
+    }
+    pids
+}
+
 
 static MAX_DROPOUT: u16 = 3000;
-static MAX_MISORDER: u32 = 512;
+static MAX_MISORDER: u32 = 190;
 static RTP_SEQ_MOD: u32 = 1 << 16;
+
+#[cfg(test)]
+mod nack_to_lost_pids {
+    use rtcp::transport_layer_feedback::GenericNACK;
+    use crate::rtp_reporter::nack_to_lost_pids;
+
+    #[test]
+    fn nack_with_no_blp() {
+        let input = GenericNACK {
+            pid: 120,
+            blp: 0,
+        };
+        let actual_output = nack_to_lost_pids(&input);
+
+        assert_eq!(actual_output, vec![120])
+    }
+
+    #[test]
+    fn nack_with_one_next_packet_in_blp() {
+        let input = GenericNACK {
+            pid: 120,
+            blp: 0b0000_0000_0000_0001,
+        };
+        let actual_output = nack_to_lost_pids(&input);
+
+        assert_eq!(actual_output, vec![120, 121])
+    }
+
+    #[test]
+    fn nack_with_three_packets_in_blp() {
+        let input = GenericNACK {
+            pid: 120,
+            blp: 0b0001_0000_1000_0001,
+        };
+        let actual_output = nack_to_lost_pids(&input);
+
+        assert_eq!(actual_output, vec![120, 121, 128, 133])
+    }
+
+    #[test]
+    fn nack_with_full_blp() {
+        let input = GenericNACK {
+            pid: 120,
+            blp: u16::MAX,
+        };
+        let actual_output = nack_to_lost_pids(&input);
+
+        assert_eq!(actual_output, vec![120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136])
+    }
+}
 
 #[cfg(test)]
 mod generate_receiver_report {

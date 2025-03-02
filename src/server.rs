@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::io::Write;
 use std::mem;
 use std::net::{SocketAddr, UdpSocket};
@@ -14,7 +15,7 @@ use crate::client::{Client, ClientSslState};
 use crate::config::get_global_config;
 use crate::ice_registry::{ConnectionType, Session, SessionRegistry, Viewer};
 use crate::media_header::MediaHeader;
-use crate::rtp_reporter::RTPReporter;
+use crate::rtp_reporter::{nack_to_lost_pids, RTPReporter};
 use crate::stun::{create_stun_success, get_stun_packet, ICEStunMessageType};
 use crate::UDPServerError;
 
@@ -161,7 +162,10 @@ impl UDPServer {
                         for packet in rtcp_packets {
                             match packet {
                                 RtcpPacket::TransportLayerFeedbackMessage(nack) => {
-                                    let lost_packets = nack.nacks.iter().map(|item| item.pid).filter_map(|pid| sender_client.rtp_replay_buffer.get(pid)).collect::<Vec<_>>();
+                                    let lost_packets = nack.nacks.iter().map(nack_to_lost_pids
+                                    ).flatten().collect::<HashSet<u16>>().into_iter().filter_map(|pid| sender_client.rtp_replay_buffer.get(pid)).collect::<Vec<_>>();
+
+
                                     for packet in lost_packets {
                                         if let Err(e) = self.socket.send_to(packet, sender_remote) {
                                             eprintln!("Error resending RTP packet {}", e)
@@ -273,12 +277,12 @@ impl UDPServer {
                                                     viewer_client.rtp_replay_buffer.insert(Bytes::from(self.outbound_buffer.clone()), roc);
                                                 }
 
-                                                if thread_rng().gen_bool(0.10) {
-                                                    mem::replace(&mut sender_session.client, Some(sender_client));
-                                                    mem::replace(&mut sender_session.connection_type, sender_connection_type);
-                                                    let _ = mem::replace(self.session_registry.get_session_by_address_mut(remote).unwrap(), sender_session);
-                                                    return;
-                                                }
+                                                // if thread_rng().gen_bool(0.25) {
+                                                //     mem::replace(&mut sender_session.client, Some(sender_client));
+                                                //     mem::replace(&mut sender_session.connection_type, sender_connection_type);
+                                                //     let _ = mem::replace(self.session_registry.get_session_by_address_mut(remote).unwrap(), sender_session);
+                                                //     return;
+                                                // }
 
 
                                                 if let Err(err) = self.socket.send_to(
