@@ -1,17 +1,14 @@
-use std::cmp::{Ordering};
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Instant;
 
 
 use rand::{RngCore, thread_rng};
-use rtcp::transport_layer_feedback::{GenericNACK, TransportLayerNACK};
 
-use sdp::{NegotiatedSession, VideoSession};
+use sdp::{NegotiatedSession};
 use thumbnail_image_extractor::ThumbnailExtractor;
 
 use crate::client::Client;
-use crate::rtcp_reporter::Reporter;
 use crate::rtp_reporter::RTPReporter;
 
 type RoomID = u32;
@@ -281,6 +278,7 @@ pub enum ConnectionType {
     Streamer(Streamer),
 }
 
+
 #[derive(Debug, Clone)]
 pub struct Viewer {
     pub room_id: ResourceID,
@@ -306,7 +304,6 @@ mod session_tests {
     use sdp::NegotiatedSession;
     use thumbnail_image_extractor::ThumbnailExtractor;
     use crate::ice_registry::{ConnectionType, Session, Streamer};
-    use crate::rtcp_reporter::Reporter;
 
     #[test]
     fn creates_nack_packet() {
