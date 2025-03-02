@@ -162,8 +162,8 @@ impl UDPServer {
                         for packet in rtcp_packets {
                             match packet {
                                 RtcpPacket::TransportLayerFeedbackMessage(nack) => {
-                                    let lost_packets = nack.nacks.iter().map(nack_to_lost_pids
-                                    ).flatten().collect::<HashSet<u16>>().into_iter().filter_map(|pid| sender_client.rtp_replay_buffer.get(pid)).collect::<Vec<_>>();
+                                    let lost_packets = nack.nacks.iter().flat_map(nack_to_lost_pids
+                                    ).collect::<HashSet<u16>>().into_iter().filter_map(|pid| sender_client.rtp_replay_buffer.get(pid)).collect::<Vec<_>>();
 
 
                                     for packet in lost_packets {

@@ -242,7 +242,7 @@ pub fn nack_to_lost_pids(nack: &GenericNACK) -> Vec<u16> {
 
 
 static MAX_DROPOUT: u16 = 3000;
-static MAX_MISORDER: u32 = 190;
+static MAX_MISORDER: u32 = 512;
 static RTP_SEQ_MOD: u32 = 1 << 16;
 
 #[cfg(test)]
