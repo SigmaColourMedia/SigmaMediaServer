@@ -230,7 +230,7 @@ fn map_to_nack(pid: u16, next_pids: Vec<u16>) -> GenericNACK {
 
 
 static MAX_DROPOUT: u16 = 3000;
-static MAX_MISORDER: u32 = 180;
+static MAX_MISORDER: u32 = 512;
 static RTP_SEQ_MOD: u32 = 1 << 16;
 
 #[cfg(test)]
