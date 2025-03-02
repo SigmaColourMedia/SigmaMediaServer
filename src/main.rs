@@ -22,7 +22,6 @@ mod server;
 mod stun;
 mod thumbnail;
 mod rtp_replay_buffer;
-mod rtcp_reporter;
 mod rtp_reporter;
 mod media_header;
 
