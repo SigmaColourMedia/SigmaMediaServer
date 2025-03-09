@@ -2,12 +2,14 @@ use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Instant;
 
+
 use rand::{RngCore, thread_rng};
 
-use sdp::NegotiatedSession;
+use sdp::{NegotiatedSession};
 use thumbnail_image_extractor::ThumbnailExtractor;
 
 use crate::client::Client;
+use crate::rtp_reporter::RTPReporter;
 
 type RoomID = u32;
 type ResourceID = u32;
@@ -18,11 +20,18 @@ pub struct SessionRegistry {
     address_map: HashMap<SocketAddr, ResourceID>,
     rooms: HashMap<RoomID, Room>,
 }
+
 #[derive(Clone)]
 pub struct Room {
     pub id: u32,
     pub owner_id: u32,
     pub viewer_ids: HashSet<u32>,
+}
+
+#[derive(Hash, Eq, PartialEq, Debug)]
+pub struct SessionUsername {
+    pub remote: String,
+    pub host: String,
 }
 
 impl Room {
@@ -56,7 +65,7 @@ impl SessionRegistry {
         self.rooms.values().map(Clone::clone).collect()
     }
 
-    pub fn get_room(&self, room_id: RoomID) -> Option<&Room> {
+    pub fn get_room(&mut self, room_id: RoomID) -> Option<&Room> {
         self.rooms.get(&room_id)
     }
 
@@ -215,6 +224,21 @@ pub struct Session {
     pub client: Option<Client>,
     pub media_session: NegotiatedSession,
     pub connection_type: ConnectionType,
+    pub video_reporter: Option<RTPReporter>,
+
+}
+
+impl Default for Session {
+    fn default() -> Self {
+        Self {
+            ttl: Instant::now(),
+            id: 1,
+            client: None,
+            connection_type: ConnectionType::Viewer(Viewer { room_id: 1 }),
+            media_session: NegotiatedSession::default(),
+            video_reporter: None,
+        }
+    }
 }
 
 impl Session {
@@ -226,6 +250,7 @@ impl Session {
             ttl: Instant::now(),
             client: None,
             media_session,
+            video_reporter: None,
             connection_type: ConnectionType::Streamer(Streamer {
                 owned_room_id: room_id,
                 thumbnail_extractor: ThumbnailExtractor::new(),
@@ -240,6 +265,7 @@ impl Session {
             id,
             ttl: Instant::now(),
             client: None,
+            video_reporter: None,
             media_session,
             connection_type: ConnectionType::Viewer(Viewer { room_id: target_id }),
         }
@@ -252,9 +278,10 @@ pub enum ConnectionType {
     Streamer(Streamer),
 }
 
+
 #[derive(Debug, Clone)]
 pub struct Viewer {
-    room_id: ResourceID,
+    pub room_id: ResourceID,
 }
 
 #[derive(Debug, Clone)]
@@ -264,12 +291,9 @@ pub struct Streamer {
     pub image_timestamp: Option<Instant>,
 }
 
-#[derive(Hash, Eq, PartialEq, Debug)]
-pub struct SessionUsername {
-    pub remote: String,
-    pub host: String,
-}
 
 fn get_random_id() -> u32 {
     thread_rng().next_u32()
 }
+
+

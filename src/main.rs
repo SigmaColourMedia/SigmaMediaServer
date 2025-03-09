@@ -3,11 +3,13 @@ use std::sync::mpsc::Sender;
 use std::thread;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+use rtcp::Marshall;
+use crate::client::{Client, ClientSslState};
 
 use crate::config::get_global_config;
 use crate::http::server::{Notification, Room, start_http_server};
 use crate::http::ServerCommand;
-use crate::ice_registry::ConnectionType;
+use crate::ice_registry::{ConnectionType, Session, Streamer};
 use crate::server::UDPServer;
 use crate::thumbnail::save_thumbnail_to_storage;
 
@@ -16,10 +18,12 @@ mod client;
 mod config;
 mod http;
 mod ice_registry;
-mod rtp;
 mod server;
 mod stun;
 mod thumbnail;
+mod rtp_replay_buffer;
+mod rtp_reporter;
+mod media_header;
 
 fn main() {
     let (server_command_sender, server_command_receiver) =
@@ -38,7 +42,7 @@ fn main() {
     });
     thread::spawn({
         let sender = server_command_sender.clone();
-        move || start_timeout_interval(sender)
+        move || run_periodic_checks(sender)
     });
 
     loop {
@@ -108,7 +112,6 @@ fn main() {
                 reply_channel.send(notification);
             }
             ServerCommand::RunPeriodicChecks => {
-                // todo Move these into separate functions
 
                 // *** Save thumbnails ***
 
@@ -124,25 +127,19 @@ fn main() {
                         ConnectionType::Streamer(streamer) => {
                             let should_update_thumbnail = streamer.image_timestamp.is_none()
                                 || streamer
-                                    .image_timestamp
-                                    .unwrap()
-                                    .elapsed()
-                                    .gt(&Duration::from_secs(120));
+                                .image_timestamp
+                                .unwrap()
+                                .elapsed()
+                                .gt(&Duration::from_secs(120));
 
-                            if should_update_thumbnail
-                                && streamer.thumbnail_extractor.last_picture.is_some()
-                            {
-                                // Update new thumbnail timestamp
-                                streamer.image_timestamp = Some(Instant::now());
-                                let last_picture = streamer
-                                    .thumbnail_extractor
-                                    .last_picture
-                                    .as_ref()
-                                    .unwrap()
-                                    .clone();
-                                return Some((streamer.owned_room_id, last_picture));
+                            if !should_update_thumbnail {
+                                return None;
                             }
-                            None
+
+                            streamer.thumbnail_extractor.last_picture.take().map(|last_picture| {
+                                streamer.image_timestamp.replace(Instant::now());
+                                (streamer.owned_room_id, last_picture)
+                            })
                         }
                     })
                     .collect::<Vec<_>>();
@@ -152,16 +149,47 @@ fn main() {
                 }
 
                 // *** Remove stale sessions ***
-                let sessions: Vec<_> = udp_server
+                let stale_session_ids: Vec<_> = udp_server
                     .session_registry
                     .get_all_sessions()
                     .iter()
-                    .map(|&session| (session.id.clone(), session.ttl))
+                    .filter(|&session| session.ttl.elapsed() > Duration::from_secs(5)).map(|&session| session.id)
                     .collect();
 
-                for (id, ttl) in sessions {
-                    if ttl.elapsed() > Duration::from_secs(5) {
-                        udp_server.session_registry.remove_session(id);
+                for id in stale_session_ids {
+                    udp_server.session_registry.remove_session(id);
+                }
+
+                // *** Schedule Receiver Reports ***
+                let sessions_scheduled_for_receiver_report = udp_server
+                    .session_registry
+                    .get_all_sessions_mut().into_iter()
+                    .filter_map(|session| {
+                        let reporter = session.video_reporter.as_mut()?;
+
+                        match &session.connection_type {
+                            ConnectionType::Streamer(_) => {
+                                let client = session.client.as_mut()?;
+                                match &mut client.ssl_state {
+                                    ClientSslState::Established(ssl_stream) => {
+                                        let last_timestamp = reporter.last_report_timestamp.get_or_insert(Instant::now());
+                                        let is_early_feedback = !reporter.missing_packets.is_empty() && last_timestamp.elapsed() >= Duration::from_millis(1);
+                                        let is_regular_feedback = last_timestamp.elapsed() >= Duration::from_secs(1);
+
+                                        if is_early_feedback || is_regular_feedback { Some((reporter, client.remote_address, ssl_stream)) } else { None }
+                                    }
+                                    _ => None
+                                }
+                            }
+                            _ => None,
+                        }
+                    }).collect::<Vec<_>>();
+
+                for (reporter, remote_address, ssl_stream) in sessions_scheduled_for_receiver_report {
+                    let mut receiver_report = reporter.generate_receiver_report().to_vec();
+                    reporter.last_report_timestamp.replace(Instant::now());
+                    if let Err(err) = ssl_stream.srtp_outbound.protect_rtcp(&mut receiver_report).or(Err(UDPServerError::RTCPProtectError)).and_then(|_| udp_server.socket.send_to(&receiver_report, remote_address).or(Err(UDPServerError::SocketWriteError))) {
+                        eprintln!("Error sending RTCP report {:?}", err)
                     }
                 }
             }
@@ -169,9 +197,18 @@ fn main() {
     }
 }
 
-fn start_timeout_interval(sender: Sender<ServerCommand>) {
+#[derive(Debug, Clone)]
+pub enum UDPServerError {
+    RTCPProtectError,
+    RTPProtectError,
+    SocketWriteError,
+    RTCPUnprotectError,
+    RTCPDecodeError,
+}
+
+fn run_periodic_checks(sender: Sender<ServerCommand>) {
     loop {
-        sleep(Duration::from_secs(3));
+        sleep(Duration::from_micros(150));
         sender
             .send(ServerCommand::RunPeriodicChecks)
             .expect("Server channel should be open");

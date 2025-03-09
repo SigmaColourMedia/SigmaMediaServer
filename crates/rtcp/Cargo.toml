@@ -1,0 +1,8 @@
+[package]
+name = "rtcp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+byteorder = "1.5.0"
+bytes = "1.9.0"
