@@ -88,6 +88,7 @@ pub struct AudioSession {
     pub remote_ssrc: Option<u32>,
 }
 
+#[derive(Debug, Clone)]
 pub struct SDPResolver {
     fingerprint: Fingerprint,
     candidate: Candidate,
