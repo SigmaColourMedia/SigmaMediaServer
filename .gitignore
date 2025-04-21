@@ -5,3 +5,7 @@ certs
 .idea
 .env
 temp
+flamegraph.svg
+perf.data
+perf.data.old
+profile.json.gz
