@@ -28,7 +28,7 @@ pub struct Room {
     pub viewer_ids: HashSet<u32>,
 }
 
-#[derive(Hash, Eq, PartialEq, Debug)]
+#[derive(Hash, Eq, PartialEq, Debug, Clone)]
 pub struct SessionUsername {
     pub remote: String,
     pub host: String,

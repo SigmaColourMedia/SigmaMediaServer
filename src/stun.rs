@@ -7,8 +7,8 @@ use openssl::pkey::PKey;
 use openssl::sign::Signer;
 
 use sdp::ICECredentials;
-use crate::ice_registry::SessionUsername;
 
+use crate::ice_registry::SessionUsername;
 
 // todo Refactor this and move into internal crate
 
@@ -315,7 +315,7 @@ pub enum ICEStunMessageType {
     Nomination(ICEStunPacket),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ICEStunPacket {
     pub username_attribute: SessionUsername,
     pub message_integrity: [u8; STUN_MESSAGE_INTEGRITY_LEN],
