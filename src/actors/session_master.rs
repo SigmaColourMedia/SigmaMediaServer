@@ -7,7 +7,8 @@ use tokio::time::Instant;
 
 use sdp::NegotiatedSession;
 
-use crate::actors::MessageEvent;
+use crate::actors::dtls_actor::DTLSActorHandle;
+use crate::actors::{MessageEvent, SessionPointer};
 use crate::actors::stun_actor::STUNActorHandle;
 use crate::ice_registry::SessionUsername;
 
@@ -27,8 +28,25 @@ impl SessionMaster {
         }
     }
 
-    fn nominate_session(&mut self, id: usize, socket_addr: SocketAddr) {
-        self.translator.add_socket_address(id, socket_addr)
+    pub fn nominate_session(&mut self, session_pointer: SessionPointer) {
+        
+        let id = self.translator.ice_username_map.get(&SessionUsername{
+            remote: session_pointer.ice_credentials.remote_username,
+            host: session_pointer.ice_credentials.host_username
+        }).expect("Attempted to nominate a non-existing session").to_owned();
+        
+        self.translator.add_socket_address(id, session_pointer.socket_address.clone());
+
+        // Init DTLS Session
+        let session = self.translator.session_map.get_mut(&id).unwrap();
+        match session {
+            Session::Streamer(streamer) => {
+                let _ = streamer.dtls_actor.insert(DTLSActorHandle::new(
+                    self.master_channel_tx.clone(),
+                    session_pointer.socket_address,
+                ));
+            }
+        }
     }
     pub fn get_session_by_ice_username(&self, username: &SessionUsername) -> Option<&Session> {
         self.translator.get_by_ice_username(username)
@@ -51,6 +69,7 @@ impl SessionMaster {
                     self.master_channel_tx.clone(),
                     negotiated_session,
                 ),
+                dtls_actor: None,
             }));
         self.translator.add_ice_username(id, ice_username);
         debug!(target: "Session Master", "Assigning session: {id}")
@@ -100,12 +119,15 @@ impl SessionAddressTranslator {
     }
 }
 
+#[derive(Debug)]
 pub enum Session {
     Streamer(StreamerSession),
 }
 
+#[derive(Debug)]
 pub struct StreamerSession {
     ttl: Instant,
     pub stun_actor_handle: STUNActorHandle,
+    pub dtls_actor: Option<DTLSActorHandle>,
     pub negotiated_session: NegotiatedSession,
 }

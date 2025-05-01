@@ -1,39 +1,115 @@
+use std::{io, mem};
 use std::collections::VecDeque;
-use std::io;
 use std::io::{Error, ErrorKind, Read, Write};
 use std::net::SocketAddr;
 
+use log::{debug, trace, warn};
+use openssl::ssl::{HandshakeError, MidHandshakeSslStream};
+use srtp::openssl::{Config, InboundSession, OutboundSession};
+use tokio::sync::mpsc::error::TrySendError;
+
 use crate::actors::{EventProducer, MessageEvent};
+use crate::config::get_global_config;
 
 type Sender = tokio::sync::mpsc::Sender<Message>;
 type Receiver = tokio::sync::mpsc::Receiver<Message>;
 
-enum Message {}
+pub enum Message {
+    ReadPacket(Vec<u8>),
+}
 
 struct DTLSActor {
     receiver: Receiver,
-    event_producer: EventProducer,
+    ssl_stream: SSLStream,
 }
 
 impl DTLSActor {
-    fn new(receiver: Receiver, event_producer: EventProducer) -> Self {
-        Self {
-            receiver,
-            event_producer,
+    fn new(receiver: Receiver, event_producer: EventProducer, socket_addr: SocketAddr) -> Self {
+        let dtls_negotiator = DTLSNegotiator::new(event_producer, socket_addr);
+        let mid_handshake_stream = get_global_config()
+            .ssl_config
+            .acceptor
+            .accept(dtls_negotiator);
+
+        if let Err(HandshakeError::WouldBlock(mid_handshake)) = mid_handshake_stream {
+            Self {
+                ssl_stream: SSLStream::MidHandshake(mid_handshake),
+                receiver,
+            }
+        } else {
+            panic!(
+                "Should open mid-handshake SSL stream {:?}",
+                mid_handshake_stream
+            );
         }
     }
 
-    pub async fn handle_message(&self, message: Message) {}
+    pub async fn handle_message(&mut self, message: Message) {
+        match message {
+            Message::ReadPacket(packet) => {
+                let ssl_stream = mem::replace(&mut self.ssl_stream, SSLStream::Shutdown);
+                let ssl_stream = match ssl_stream {
+                    SSLStream::MidHandshake(mut mid_handshake) => {
+                        mid_handshake.get_mut().buffer.push_back(packet);
+
+                        match mid_handshake.handshake() {
+                            Ok(srtp_stream) => {
+                                let (inbound, outbound) = srtp::openssl::session_pair(
+                                    srtp_stream.ssl(),
+                                    Config {
+                                        window_size: 512,
+                                        encrypt_extension_headers: &vec![],
+                                        allow_repeat_tx: true,
+                                    },
+                                )
+                                .expect("SRTP Session Pair setup failure");
+
+                                debug!(target: "DTLS Actor", "DTLS setup complete with remote: {}", srtp_stream.get_ref().socket_addr);
+
+                                SSLStream::Established(SRTPSessionPair {
+                                    outbound_session: outbound,
+                                    inbound: inbound,
+                                })
+                            }
+                            Err(err) => match err {
+                                HandshakeError::SetupFailure(err) => {
+                                    debug!(target: "DTLS Actor", "DTLS Setup failure: {}", err);
+                                    SSLStream::Shutdown
+                                }
+                                HandshakeError::Failure(err) => {
+                                    debug!(target: "DTLS Actor", "Handshake failure: {:?}", err);
+                                    SSLStream::Shutdown
+                                }
+                                HandshakeError::WouldBlock(ssl_stream) => {
+                                    SSLStream::MidHandshake(ssl_stream)
+                                }
+                            },
+                        }
+                    }
+                    SSLStream::Shutdown => {
+                        trace!(target: "DTLS Actor", "Message received in SSLStream:Shutdown state");
+                        SSLStream::Shutdown
+                    }
+                    SSLStream::Established(srtp_session) => {
+                        trace!(target: "DTLS Actor", "Message received in SSLStream:Established state");
+                        SSLStream::Established(srtp_session)
+                    }
+                };
+                self.ssl_stream = ssl_stream
+            }
+        }
+    }
 }
 
-struct DTLSActorHandle {
+#[derive(Debug)]
+pub struct DTLSActorHandle {
     pub sender: Sender,
 }
 
 impl DTLSActorHandle {
-    pub fn new(event_producer: EventProducer) -> Self {
+    pub fn new(event_producer: EventProducer, socket_addr: SocketAddr) -> Self {
         let (sender, receiver) = tokio::sync::mpsc::channel::<Message>(100);
-        let actor = DTLSActor::new(receiver, event_producer);
+        let actor = DTLSActor::new(receiver, event_producer, socket_addr);
         tokio::spawn(run(actor));
 
         Self { sender }
@@ -45,24 +121,48 @@ async fn run(mut actor: DTLSActor) {
     }
 }
 
+enum SSLStream {
+    MidHandshake(MidHandshakeSslStream<DTLSNegotiator>),
+    Established(SRTPSessionPair),
+    Shutdown,
+}
+
+struct SRTPSessionPair {
+    inbound: InboundSession,
+    outbound_session: OutboundSession,
+}
+#[derive(Debug)]
 struct DTLSNegotiator {
     event_producer: EventProducer,
     socket_addr: SocketAddr,
     buffer: VecDeque<Vec<u8>>,
 }
 
+impl DTLSNegotiator {
+    pub fn new(event_producer: EventProducer, socket_addr: SocketAddr) -> Self {
+        Self {
+            event_producer,
+            socket_addr,
+            buffer: VecDeque::new(),
+        }
+    }
+}
+
 impl Write for DTLSNegotiator {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.event_producer
-            .blocking_send(MessageEvent::ForwardPacket((
-                buf.to_vec(),
-                self.socket_addr,
-            )))
-            .unwrap();
-        Ok(buf.len())
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self.event_producer.try_send(MessageEvent::ForwardPacket((
+            buf.to_vec(),
+            self.socket_addr,
+        ))) {
+            Ok(_) => Ok(buf.len()),
+            Err(err) => {
+                warn!(target: "DTLSNegotiator", "Error writing to event_producer channel {}", err);
+                Err(Error::from(ErrorKind::ConnectionAborted))
+            }
+        }
     }
 
-    fn flush(&mut self) -> std::io::Result<()> {
+    fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }
 }

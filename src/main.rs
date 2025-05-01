@@ -45,6 +45,7 @@ async fn main() {
                 match message {
                     MessageEvent::NominateSession(session_pointer) => {
                         trace!(target: "Main", "Nominating session {:?}",session_pointer);
+                        master.nominate_session(session_pointer);
                     }
                     MessageEvent::Test => {}
                     MessageEvent::InitStreamer(negotiated_session) => {
@@ -62,7 +63,7 @@ async fn main() {
             Ok((bytes_read, remote_addr)) = udp_socket.recv_from(&mut buffer) => {
                 let packet = Vec::from(&buffer[..bytes_read]);
 
-                let packet_type = get_packet_type(Bytes::from(packet));
+                let packet_type = get_packet_type(Bytes::from(packet.clone()));
                 match packet_type{
                     PacketType::RTP(_) => {
                     }
@@ -86,8 +87,12 @@ async fn main() {
                             };
                         }
                     }
+                    // Forward packets for DTLS Establishment[]'
                     PacketType::Unknown => {
-                         trace!(target: "Main", "Incoming unknown packet");
+                        if let Some(session) = master.get_session_by_socket_addr(&remote_addr){
+                            let dtls_actor_handle = match session{Session::Streamer(streamer) => {&streamer.dtls_actor.as_ref().unwrap()}};
+                            dtls_actor_handle.sender.send(actors::dtls_actor::Message::ReadPacket(packet)).await.unwrap()
+                        }
                     }
                 }
             }

@@ -104,7 +104,7 @@ impl STUNActor {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct STUNActorHandle {
     pub sender: Sender,
 }

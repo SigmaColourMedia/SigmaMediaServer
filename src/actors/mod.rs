@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use sdp::{ICECredentials, NegotiatedSession};
 
-mod dtls_actor;
+pub mod dtls_actor;
 pub mod get_packet_type;
 pub mod rust_hyper;
 pub mod session_master;
@@ -18,8 +18,8 @@ pub enum MessageEvent {
 
 #[derive(Debug)]
 pub struct SessionPointer {
-    socket_address: SocketAddr,
-    ice_credentials: ICECredentials,
+    pub socket_address: SocketAddr,
+    pub ice_credentials: ICECredentials,
 }
 
 pub type Datagram = (Vec<u8>, SocketAddr);
