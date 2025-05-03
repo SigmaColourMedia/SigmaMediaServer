@@ -5,11 +5,10 @@ use log::{trace, warn};
 use sdp::NegotiatedSession;
 
 use crate::actors::{get_event_bus, MessageEvent, SessionPointer};
-use crate::ice_registry::SessionUsername;
 use crate::stun::{create_stun_success, ICEStunMessageType};
 
-type Sender = tokio::sync::mpsc::Sender<Message>;
-type Receiver = tokio::sync::mpsc::Receiver<Message>;
+type Sender = tokio::sync::mpsc::UnboundedSender<Message>;
+type Receiver = tokio::sync::mpsc::UnboundedReceiver<Message>;
 
 pub enum Message {
     ReadPacket(ICEStunMessageType, SocketAddr),
@@ -41,7 +40,6 @@ impl UnsetSTUNActor {
                                 packet[..bytes_written].to_vec(),
                                 remote_addr,
                             )))
-                            .await
                             .unwrap(),
                         Err(_) => {
                             warn!(target: "Unset STUN", "Error creating a STUN success response for STUN message {:#?}", stun_packet);
@@ -64,14 +62,12 @@ impl UnsetSTUNActor {
                                     packet[..bytes_written].to_vec(),
                                     remote_addr,
                                 )))
-                                .await
                                 .unwrap();
                             get_event_bus()
                                 .send(MessageEvent::NominateSession(SessionPointer {
                                     socket_address: remote_addr,
                                     session_username: stun_packet.username_attribute,
                                 }))
-                                .await
                                 .unwrap()
                         }
                         Err(_) => {
@@ -90,7 +86,7 @@ pub struct UnsetSTUNActorHandle {
 }
 impl UnsetSTUNActorHandle {
     pub fn new(media_session: NegotiatedSession) -> Self {
-        let (sender, receiver) = tokio::sync::mpsc::channel::<Message>(100);
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<Message>();
         let actor = UnsetSTUNActor {
             media_session,
             receiver,

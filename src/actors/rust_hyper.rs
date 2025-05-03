@@ -11,7 +11,7 @@ use tokio::net::TcpListener;
 
 use sdp::SDPResolver;
 
-use crate::actors::{EventProducer, get_event_bus, MessageEvent};
+use crate::actors::{get_event_bus, MessageEvent};
 use crate::config::get_global_config;
 
 #[derive(Clone)]
@@ -118,7 +118,6 @@ async fn whip_resolver(
 
     get_event_bus()
         .send(MessageEvent::InitStreamer(negotiated_session))
-        .await
         .unwrap();
 
     Ok(Response::builder()

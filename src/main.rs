@@ -24,13 +24,13 @@ mod server;
 mod stun;
 mod thumbnail;
 
-static EVENT_BUS: OnceLock<tokio::sync::mpsc::Sender<MessageEvent>> = OnceLock::new();
+static EVENT_BUS: OnceLock<tokio::sync::mpsc::UnboundedSender<MessageEvent>> = OnceLock::new();
 
 #[tokio::main]
 async fn main() {
     env_logger::init();
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<MessageEvent>(10000);
-    EVENT_BUS.set(tx.clone()).unwrap();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<MessageEvent>();
+    EVENT_BUS.set(tx).unwrap();
 
     let mut master = SessionMaster::new();
 
@@ -84,19 +84,19 @@ async fn main() {
                         // Check for unset-session traffic
                         if let Some(session) = master.get_unset_session(session_username){
                             let stun_handle = match session{UnsetSession::Streamer(streamer) => {&streamer.stun_actor_handle}UnsetSession::Viewer(viewer) => {&viewer.stun_actor_handle}};
-                            stun_handle.sender.send(actors::unset_stun_actor::Message::ReadPacket(stun_type, remote_addr)).await.unwrap();
+                            stun_handle.sender.send(actors::unset_stun_actor::Message::ReadPacket(stun_type, remote_addr)).unwrap();
                         }
                         // Check for nominated-session live checks
                         else if let Some(session) = master.get_session(&remote_addr){
                             let stun_handle = match session{NominatedSession::Streamer(streamer) => {&streamer.stun_actor_handle}};
-                            stun_handle.sender.send(actors::nominated_stun_actor::Message::ReadPacket(stun_type, remote_addr)).await.unwrap();
+                            stun_handle.sender.send(actors::nominated_stun_actor::Message::ReadPacket(stun_type, remote_addr)).unwrap();
                         }
                     }
                     // Forward packets for DTLS Establishment
                     PacketType::Unknown => {
                         if let Some(session) = master.get_session(&remote_addr){
                             let dtls_actor_handle = match session{NominatedSession::Streamer(streamer) => {&streamer.dtls_actor}};
-                            dtls_actor_handle.sender.send(actors::dtls_actor::Message::ReadPacket(packet)).await.unwrap()
+                            dtls_actor_handle.sender.send(actors::dtls_actor::Message::ReadPacket(packet)).unwrap()
                         }
                     }
                 }

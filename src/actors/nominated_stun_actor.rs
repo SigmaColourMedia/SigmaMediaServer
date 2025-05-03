@@ -7,13 +7,12 @@ use sdp::NegotiatedSession;
 use crate::actors::{get_event_bus, MessageEvent};
 use crate::stun::{create_stun_success, ICEStunMessageType};
 
-type Sender = tokio::sync::mpsc::Sender<Message>;
-type Receiver = tokio::sync::mpsc::Receiver<Message>;
+type Sender = tokio::sync::mpsc::UnboundedSender<Message>;
+type Receiver = tokio::sync::mpsc::UnboundedReceiver<Message>;
 
 pub enum Message {
     ReadPacket(ICEStunMessageType, SocketAddr),
 }
-
 
 /*
 Respond to authorized ICE Live Check requests
@@ -42,7 +41,6 @@ impl NominatedSTUNActor {
                                 packet[..bytes_written].to_vec(),
                                 remote_addr,
                             )))
-                            .await
                             .unwrap(),
                         Err(_) => {
                             warn!(target: "Nominated STUN", "Error creating a STUN success response for STUN message {:#?}", stun_packet)
@@ -63,7 +61,7 @@ pub struct NominatedSTUNActorHandle {
 }
 impl NominatedSTUNActorHandle {
     pub fn new(media_session: NegotiatedSession) -> Self {
-        let (sender, receiver) = tokio::sync::mpsc::channel::<Message>(100);
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<Message>();
         let actor = NominatedSTUNActor {
             media_session,
             receiver,

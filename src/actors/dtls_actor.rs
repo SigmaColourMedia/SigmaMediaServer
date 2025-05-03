@@ -7,12 +7,12 @@ use log::{debug, trace, warn};
 use openssl::ssl::{HandshakeError, MidHandshakeSslStream};
 use srtp::openssl::{Config, InboundSession, OutboundSession};
 
-use crate::actors::{EventProducer, MessageEvent};
+use crate::actors::MessageEvent;
 use crate::config::get_global_config;
 use crate::EVENT_BUS;
 
-type Sender = tokio::sync::mpsc::Sender<Message>;
-type Receiver = tokio::sync::mpsc::Receiver<Message>;
+type Sender = tokio::sync::mpsc::UnboundedSender<Message>;
+type Receiver = tokio::sync::mpsc::UnboundedReceiver<Message>;
 
 pub enum Message {
     ReadPacket(Vec<u8>),
@@ -133,7 +133,7 @@ pub struct DTLSActorHandle {
 
 impl DTLSActorHandle {
     pub fn new(socket_addr: SocketAddr) -> Self {
-        let (sender, receiver) = tokio::sync::mpsc::channel::<Message>(100);
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<Message>();
         let actor = DTLSActor::new(receiver, socket_addr);
         tokio::spawn(run(actor));
 
@@ -173,13 +173,10 @@ impl DTLSNegotiator {
 
 impl Write for DTLSNegotiator {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match EVENT_BUS
-            .get()
-            .unwrap()
-            .try_send(MessageEvent::ForwardPacket((
-                buf.to_vec(),
-                self.socket_addr,
-            ))) {
+        match EVENT_BUS.get().unwrap().send(MessageEvent::ForwardPacket((
+            buf.to_vec(),
+            self.socket_addr,
+        ))) {
             Ok(_) => Ok(buf.len()),
             Err(err) => {
                 warn!(target: "DTLSNegotiator", "Error writing to event_producer channel {}", err);

@@ -27,8 +27,7 @@ pub struct SessionPointer {
     pub session_username: SessionUsername,
 }
 
-pub fn get_event_bus() -> &'static tokio::sync::mpsc::Sender<MessageEvent> {
+pub fn get_event_bus() -> &'static tokio::sync::mpsc::UnboundedSender<MessageEvent> {
     EVENT_BUS.get().unwrap()
 }
 pub type Datagram = (Vec<u8>, SocketAddr);
-pub type EventProducer = tokio::sync::mpsc::Sender<MessageEvent>;

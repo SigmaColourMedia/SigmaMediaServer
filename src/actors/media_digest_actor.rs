@@ -26,7 +26,6 @@ impl MediaDigestActor {
                 self.dtls_actor_handle
                     .sender
                     .send(actors::dtls_actor::Message::DecodeSRTP(packet, tx))
-                    .await
                     .unwrap();
                 let decode_result = rx.await.unwrap();
 
