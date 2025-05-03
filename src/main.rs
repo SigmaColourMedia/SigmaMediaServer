@@ -5,10 +5,10 @@ use tokio::net::UdpSocket;
 use crate::actors::get_packet_type::{get_packet_type, PacketType};
 use crate::actors::MessageEvent;
 use crate::actors::rust_hyper::start_http_server;
-use crate::actors::session_master::{Session, SessionMaster};
+use crate::actors::session_master::{NominatedSession, SessionMaster, UnsetSession};
 use crate::actors::stun_actor::STUNMessage;
 use crate::config::get_global_config;
-use crate::stun::{get_stun_packet, ICEStunMessageType};
+use crate::stun::ICEStunMessageType;
 
 mod acceptor;
 mod actors;
@@ -26,12 +26,12 @@ mod thumbnail;
 #[tokio::main]
 async fn main() {
     env_logger::init();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<MessageEvent>(10000);
 
-    let mut master = SessionMaster::new();
+    let mut master = SessionMaster::new(tx.clone());
 
-    let event_producer_copy = master.master_channel_tx.clone();
     tokio::task::spawn(async move {
-        start_http_server(event_producer_copy).await;
+        start_http_server(tx.clone()).await;
     });
     let udp_socket = UdpSocket::bind(get_global_config().udp_server_config.address)
         .await
@@ -41,7 +41,7 @@ async fn main() {
         let mut buffer = [0u8; 2500];
 
         tokio::select! {
-            Some(message) = master.master_channel_rx.recv() => {
+            Some(message) = rx.recv() => {
                 match message {
                     MessageEvent::NominateSession(session_pointer) => {
                         trace!(target: "Main", "Nominating session {:?}",session_pointer);
@@ -53,8 +53,7 @@ async fn main() {
                         master.add_streamer(negotiated_session);
                     }
                     MessageEvent::ForwardPacket((packet, remote)) => {
-                        trace!(target: "Main", "Forwarding packet to remote socket {}", remote);
-                        if let Err(err) = udp_socket.send_to(&packet, remote).await{
+                        if let Err(_err) = udp_socket.send_to(&packet, remote).await {
                             warn!(target: "Main", "Error sending packet to remote socket {}", remote);
                         }
                     }
@@ -74,23 +73,34 @@ async fn main() {
                             ICEStunMessageType::LiveCheck(packet) => {packet}
                             ICEStunMessageType::Nomination(packet) => {packet}
                         };
-                        if let Some(session) = master.get_session_by_ice_username(&stun_packet.username_attribute){
-                            let stun_actor_handle = match session{Session::Streamer(streamer_session) => {&streamer_session.stun_actor_handle}};
-                            let ice_credentials = match session{Session::Streamer(streamer_session) => {streamer_session.negotiated_session.ice_credentials.clone()}};
 
-                            let actor_message = STUNMessage{
-                                ice_credentials, packet: stun_packet.clone(),socket_addr: remote_addr
-                            };
+                        // Respond to Live Checks & Nomination Requests
+                        if let Some(session) = master.get_unset_session(&stun_packet.username_attribute){
+                            let stun_actor_handle = match session{UnsetSession::Streamer(streamer) => {&streamer.stun_actor_handle}UnsetSession::Viewer(viewer) => {&viewer.stun_actor_handle}};
+                            let ice_credentials = match session{UnsetSession::Streamer(streamer) => {streamer.negotiated_session.ice_credentials.clone()}UnsetSession::Viewer(viewer) => {viewer.negotiated_session.ice_credentials.clone()}};
+
                             match stun_type{
-                                ICEStunMessageType::LiveCheck(_) => {stun_actor_handle.sender.send(actors::stun_actor::Message::LiveCheck(actor_message)).await.unwrap()}
-                                ICEStunMessageType::Nomination(_) => {stun_actor_handle.sender.send(actors::stun_actor::Message::Nominate(actor_message)).await.unwrap()}
-                            };
+                                ICEStunMessageType::LiveCheck(stun_packet) => {stun_actor_handle.sender.send(actors::stun_actor::Message::LiveCheck(STUNMessage{
+                                ice_credentials, packet: stun_packet,socket_addr: remote_addr
+                            })).await.unwrap()}
+                                ICEStunMessageType::Nomination(stun_packet) => {stun_actor_handle.sender.send(actors::stun_actor::Message::Nominate(STUNMessage{
+                                ice_credentials, packet: stun_packet,socket_addr: remote_addr
+                            })).await.unwrap()}};
+                        }
+                        // Respond only to Live Checks
+                        else if let Some(session) = master.get_session(&remote_addr){
+                            let stun_actor_handle = match session {NominatedSession::Streamer(streamer) => {&streamer.stun_actor_handle}};
+                            let ice_credentials = match session {NominatedSession::Streamer(streamer) => {streamer.negotiated_session.ice_credentials.clone()}};
+
+                            if let ICEStunMessageType::LiveCheck(stun_packet) = stun_type{
+                                stun_actor_handle.sender.send(actors::stun_actor::Message::LiveCheck(STUNMessage{ice_credentials, packet: stun_packet,socket_addr: remote_addr})).await.unwrap();
+                            }
                         }
                     }
-                    // Forward packets for DTLS Establishment[]'
+                    // Forward packets for DTLS Establishment
                     PacketType::Unknown => {
-                        if let Some(session) = master.get_session_by_socket_addr(&remote_addr){
-                            let dtls_actor_handle = match session{Session::Streamer(streamer) => {&streamer.dtls_actor.as_ref().unwrap()}};
+                        if let Some(session) = master.get_session(&remote_addr){
+                            let dtls_actor_handle = match session{NominatedSession::Streamer(streamer) => {&streamer.dtls_actor}};
                             dtls_actor_handle.sender.send(actors::dtls_actor::Message::ReadPacket(packet)).await.unwrap()
                         }
                     }

@@ -4,6 +4,7 @@ use sdp::{ICECredentials, NegotiatedSession};
 
 pub mod dtls_actor;
 pub mod get_packet_type;
+mod rtp_actor;
 pub mod rust_hyper;
 pub mod session_master;
 pub mod stun_actor;

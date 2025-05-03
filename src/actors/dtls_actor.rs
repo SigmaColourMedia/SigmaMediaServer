@@ -6,7 +6,6 @@ use std::net::SocketAddr;
 use log::{debug, trace, warn};
 use openssl::ssl::{HandshakeError, MidHandshakeSslStream};
 use srtp::openssl::{Config, InboundSession, OutboundSession};
-use tokio::sync::mpsc::error::TrySendError;
 
 use crate::actors::{EventProducer, MessageEvent};
 use crate::config::get_global_config;
@@ -68,7 +67,7 @@ impl DTLSActor {
 
                                 SSLStream::Established(SRTPSessionPair {
                                     outbound_session: outbound,
-                                    inbound: inbound,
+                                    inbound_session: inbound,
                                 })
                             }
                             Err(err) => match err {
@@ -128,7 +127,7 @@ enum SSLStream {
 }
 
 struct SRTPSessionPair {
-    inbound: InboundSession,
+    inbound_session: InboundSession,
     outbound_session: OutboundSession,
 }
 #[derive(Debug)]
