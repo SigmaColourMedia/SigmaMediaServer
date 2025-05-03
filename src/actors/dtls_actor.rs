@@ -9,6 +9,7 @@ use srtp::openssl::{Config, InboundSession, OutboundSession};
 
 use crate::actors::{EventProducer, MessageEvent};
 use crate::config::get_global_config;
+use crate::EVENT_BUS;
 
 type Sender = tokio::sync::mpsc::Sender<Message>;
 type Receiver = tokio::sync::mpsc::Receiver<Message>;
@@ -23,8 +24,8 @@ struct DTLSActor {
 }
 
 impl DTLSActor {
-    fn new(receiver: Receiver, event_producer: EventProducer, socket_addr: SocketAddr) -> Self {
-        let dtls_negotiator = DTLSNegotiator::new(event_producer, socket_addr);
+    fn new(receiver: Receiver, socket_addr: SocketAddr) -> Self {
+        let dtls_negotiator = DTLSNegotiator::new(socket_addr);
         let mid_handshake_stream = get_global_config()
             .ssl_config
             .acceptor
@@ -106,9 +107,9 @@ pub struct DTLSActorHandle {
 }
 
 impl DTLSActorHandle {
-    pub fn new(event_producer: EventProducer, socket_addr: SocketAddr) -> Self {
+    pub fn new(socket_addr: SocketAddr) -> Self {
         let (sender, receiver) = tokio::sync::mpsc::channel::<Message>(100);
-        let actor = DTLSActor::new(receiver, event_producer, socket_addr);
+        let actor = DTLSActor::new(receiver, socket_addr);
         tokio::spawn(run(actor));
 
         Self { sender }
@@ -132,15 +133,13 @@ struct SRTPSessionPair {
 }
 #[derive(Debug)]
 struct DTLSNegotiator {
-    event_producer: EventProducer,
     socket_addr: SocketAddr,
     buffer: VecDeque<Vec<u8>>,
 }
 
 impl DTLSNegotiator {
-    pub fn new(event_producer: EventProducer, socket_addr: SocketAddr) -> Self {
+    pub fn new(socket_addr: SocketAddr) -> Self {
         Self {
-            event_producer,
             socket_addr,
             buffer: VecDeque::new(),
         }
@@ -149,7 +148,7 @@ impl DTLSNegotiator {
 
 impl Write for DTLSNegotiator {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match self.event_producer.try_send(MessageEvent::ForwardPacket((
+        match EVENT_BUS.get().unwrap().try_send(MessageEvent::ForwardPacket((
             buf.to_vec(),
             self.socket_addr,
         ))) {

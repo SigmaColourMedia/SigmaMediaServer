@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use bytes::Bytes;
 use log::{debug, trace, warn};
 use tokio::net::UdpSocket;
@@ -6,7 +8,7 @@ use crate::actors::get_packet_type::{get_packet_type, PacketType};
 use crate::actors::MessageEvent;
 use crate::actors::rust_hyper::start_http_server;
 use crate::actors::session_master::{NominatedSession, SessionMaster, UnsetSession};
-use crate::actors::stun_actor::STUNMessage;
+use crate::actors::stun_actor::{Message, STUNMessage};
 use crate::config::get_global_config;
 use crate::stun::ICEStunMessageType;
 
@@ -23,15 +25,18 @@ mod server;
 mod stun;
 mod thumbnail;
 
+static EVENT_BUS: OnceLock<tokio::sync::mpsc::Sender<MessageEvent>> = OnceLock::new();
+
 #[tokio::main]
 async fn main() {
     env_logger::init();
     let (tx, mut rx) = tokio::sync::mpsc::channel::<MessageEvent>(10000);
+    EVENT_BUS.set(tx.clone()).unwrap();
 
-    let mut master = SessionMaster::new(tx.clone());
+    let mut master = SessionMaster::new();
 
     tokio::task::spawn(async move {
-        start_http_server(tx.clone()).await;
+        start_http_server().await;
     });
     let udp_socket = UdpSocket::bind(get_global_config().udp_server_config.address)
         .await

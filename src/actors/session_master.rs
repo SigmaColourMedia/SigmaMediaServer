@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
 
@@ -14,17 +14,17 @@ use crate::actors::stun_actor::STUNActorHandle;
 use crate::ice_registry::SessionUsername;
 
 pub struct SessionMaster {
-    event_producer: EventProducer,
     nominated_map: NominatedSessionMap,
+    room_map: HashMap<usize, HashSet<usize>>,
     unset_map: UnsetSessionMap,
 }
 
 impl SessionMaster {
-    pub fn new(event_producer: EventProducer) -> Self {
+    pub fn new() -> Self {
         Self {
-            event_producer,
             nominated_map: NominatedSessionMap::new(),
             unset_map: UnsetSessionMap::new(),
+            room_map: HashMap::new(),
         }
     }
 
@@ -51,7 +51,6 @@ impl SessionMaster {
             ttl: Instant::now(),
             negotiated_session: negotiated_session.clone(),
             stun_actor_handle: STUNActorHandle::new(
-                self.event_producer.clone(),
                 negotiated_session,
             ),
         });
@@ -79,7 +78,7 @@ impl SessionMaster {
                 let nominated_session = NominatedSession::Streamer(StreamerSessionData {
                     ttl: Instant::now(),
                     negotiated_session: session_data.negotiated_session,
-                    dtls_actor: DTLSActorHandle::new(self.event_producer.clone(), remote_addr),
+                    dtls_actor: DTLSActorHandle::new(remote_addr),
                     stun_actor_handle: session_data.stun_actor_handle,
                 });
                 trace!(target: "Session Master", "Created nominated_session {:#?}", nominated_session);
@@ -87,6 +86,7 @@ impl SessionMaster {
                 let id = random::<usize>();
                 self.nominated_map.address_map.insert(remote_addr, id);
                 self.nominated_map.session_map.insert(id, nominated_session);
+                self.room_map.insert(id, HashSet::new());
             }
             UnsetSession::Viewer(_) => {
                 // todo support Viewer

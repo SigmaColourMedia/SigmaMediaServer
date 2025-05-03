@@ -1,4 +1,4 @@
-use crate::actors::{EventProducer, MessageEvent};
+use crate::actors::{EventProducer, get_event_bus, MessageEvent};
 use crate::config::get_global_config;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, Limited};
@@ -15,11 +15,10 @@ use tokio::net::TcpListener;
 
 #[derive(Clone)]
 struct WHIPService {
-    sender: EventProducer,
     sdp_resolver: SDPResolver,
 }
 
-pub async fn start_http_server(event_producer: EventProducer) {
+pub async fn start_http_server() {
     let listener = TcpListener::bind(get_global_config().tcp_server_config.address)
         .await
         .unwrap();
@@ -31,7 +30,6 @@ pub async fn start_http_server(event_producer: EventProducer) {
     ));
 
     loop {
-        let event_producer = event_producer.clone();
         let sdp_resolver = sdp_resolver.clone();
 
         let (stream, _) = listener.accept().await.unwrap();
@@ -39,11 +37,10 @@ pub async fn start_http_server(event_producer: EventProducer) {
 
         let service = service_fn(move |req| {
             let sdp_resolver = sdp_resolver.clone();
-            let event_producer = event_producer.clone();
 
             async move {
                 match req.uri().path() {
-                    "/whip" => whip_route(req, event_producer, sdp_resolver).await,
+                    "/whip" => whip_route(req, sdp_resolver).await,
                     _ => error_route(HTTPError::NotFound).await,
                 }
             }
@@ -93,10 +90,9 @@ async fn not_found() -> RouteResult {
 
 async fn whip_route(
     req: Request<IncomingBody>,
-    sender: EventProducer,
     sdp_resolver: Arc<SDPResolver>,
 ) -> RouteResult {
-    let res = whip_resolver(req, sender, sdp_resolver).await;
+    let res = whip_resolver(req, sdp_resolver).await;
     match res {
         Ok(res) => Ok(res),
         Err(err) => error_route(err).await,
@@ -105,7 +101,6 @@ async fn whip_route(
 
 async fn whip_resolver(
     req: Request<IncomingBody>,
-    sender: EventProducer,
     sdp_resolver: Arc<SDPResolver>,
 ) -> Result<HTTPResponse, HTTPError> {
     let bearer_token = req.headers().get("Authorization");
@@ -132,7 +127,7 @@ async fn whip_resolver(
 
     let sdp = negotiated_session.sdp_answer.clone();
 
-    sender
+    get_event_bus()
         .send(MessageEvent::InitStreamer(negotiated_session))
         .await
         .unwrap();
