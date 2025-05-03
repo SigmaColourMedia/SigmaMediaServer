@@ -8,9 +8,10 @@ use tokio::time::Instant;
 
 use sdp::NegotiatedSession;
 
-use crate::actors::{EventProducer, SessionPointer};
 use crate::actors::dtls_actor::DTLSActorHandle;
-use crate::actors::stun_actor::STUNActorHandle;
+use crate::actors::nominated_stun_actor::NominatedSTUNActorHandle;
+use crate::actors::SessionPointer;
+use crate::actors::unset_stun_actor::UnsetSTUNActorHandle;
 use crate::ice_registry::SessionUsername;
 
 pub struct SessionMaster {
@@ -50,9 +51,7 @@ impl SessionMaster {
         let unset_session = UnsetSession::Streamer(UnsetSessionData {
             ttl: Instant::now(),
             negotiated_session: negotiated_session.clone(),
-            stun_actor_handle: STUNActorHandle::new(
-                negotiated_session,
-            ),
+            stun_actor_handle: UnsetSTUNActorHandle::new(negotiated_session),
         });
         trace!(target: "Session Master", "Created streamer unset_session {:#?}", unset_session);
 
@@ -67,8 +66,8 @@ impl SessionMaster {
             .unset_map
             .ice_username_map
             .remove(&SessionUsername {
-                remote: session_pointer.ice_credentials.remote_username,
-                host: session_pointer.ice_credentials.host_username,
+                remote: session_pointer.session_username.remote,
+                host: session_pointer.session_username.host,
             })
             .and_then(|id| self.unset_map.session_map.remove(&id))
             .expect("Attempted to nominate a non-existing session");
@@ -77,9 +76,11 @@ impl SessionMaster {
             UnsetSession::Streamer(session_data) => {
                 let nominated_session = NominatedSession::Streamer(StreamerSessionData {
                     ttl: Instant::now(),
-                    negotiated_session: session_data.negotiated_session,
+                    negotiated_session: session_data.negotiated_session.clone(),
                     dtls_actor: DTLSActorHandle::new(remote_addr),
-                    stun_actor_handle: session_data.stun_actor_handle,
+                    stun_actor_handle: NominatedSTUNActorHandle::new(
+                        session_data.negotiated_session,
+                    ),
                 });
                 trace!(target: "Session Master", "Created nominated_session {:#?}", nominated_session);
 
@@ -137,13 +138,13 @@ pub enum UnsetSession {
 pub struct UnsetSessionData {
     ttl: Instant,
     pub negotiated_session: NegotiatedSession,
-    pub stun_actor_handle: STUNActorHandle,
+    pub stun_actor_handle: UnsetSTUNActorHandle,
 }
 
 #[derive(Debug)]
 pub struct StreamerSessionData {
     ttl: Instant,
-    pub stun_actor_handle: STUNActorHandle,
+    pub stun_actor_handle: NominatedSTUNActorHandle,
     pub dtls_actor: DTLSActorHandle,
     pub negotiated_session: NegotiatedSession,
 }

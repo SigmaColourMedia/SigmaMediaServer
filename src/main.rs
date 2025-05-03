@@ -8,7 +8,6 @@ use crate::actors::get_packet_type::{get_packet_type, PacketType};
 use crate::actors::MessageEvent;
 use crate::actors::rust_hyper::start_http_server;
 use crate::actors::session_master::{NominatedSession, SessionMaster, UnsetSession};
-use crate::actors::stun_actor::{Message, STUNMessage};
 use crate::config::get_global_config;
 use crate::stun::ICEStunMessageType;
 
@@ -49,7 +48,7 @@ async fn main() {
             Some(message) = rx.recv() => {
                 match message {
                     MessageEvent::NominateSession(session_pointer) => {
-                        debug!(target: "Main", "Nominating session with ICE-host username:{}",session_pointer.ice_credentials.host_username);
+                        debug!(target: "Main", "Nominating session with ICE-host username:{}",session_pointer.session_username.host);
                         master.nominate_session(session_pointer);
                     }
                     MessageEvent::Test => {}
@@ -73,33 +72,21 @@ async fn main() {
                     }
                     PacketType::RTCP(_) => {}
                     PacketType::STUN(stun_type) => {
-                        let stun_packet = match &stun_type
+                        let session_username = match &stun_type
                         {
-                            ICEStunMessageType::LiveCheck(packet) => {packet}
-                            ICEStunMessageType::Nomination(packet) => {packet}
+                            ICEStunMessageType::LiveCheck(packet) => {&packet.username_attribute}
+                            ICEStunMessageType::Nomination(packet) => {&packet.username_attribute}
                         };
 
-                        // Respond to Live Checks & Nomination Requests
-                        if let Some(session) = master.get_unset_session(&stun_packet.username_attribute){
-                            let stun_actor_handle = match session{UnsetSession::Streamer(streamer) => {&streamer.stun_actor_handle}UnsetSession::Viewer(viewer) => {&viewer.stun_actor_handle}};
-                            let ice_credentials = match session{UnsetSession::Streamer(streamer) => {streamer.negotiated_session.ice_credentials.clone()}UnsetSession::Viewer(viewer) => {viewer.negotiated_session.ice_credentials.clone()}};
-
-                            match stun_type{
-                                ICEStunMessageType::LiveCheck(stun_packet) => {stun_actor_handle.sender.send(actors::stun_actor::Message::LiveCheck(STUNMessage{
-                                ice_credentials, packet: stun_packet,socket_addr: remote_addr
-                            })).await.unwrap()}
-                                ICEStunMessageType::Nomination(stun_packet) => {stun_actor_handle.sender.send(actors::stun_actor::Message::Nominate(STUNMessage{
-                                ice_credentials, packet: stun_packet,socket_addr: remote_addr
-                            })).await.unwrap()}};
+                        // Check for unset-session traffic
+                        if let Some(session) = master.get_unset_session(session_username){
+                            let stun_handle = match session{UnsetSession::Streamer(streamer) => {&streamer.stun_actor_handle}UnsetSession::Viewer(viewer) => {&viewer.stun_actor_handle}};
+                            stun_handle.sender.send(actors::unset_stun_actor::Message::ReadPacket(stun_type, remote_addr)).await.unwrap();
                         }
-                        // Respond only to Live Checks
+                        // Check for nominated-session live checks
                         else if let Some(session) = master.get_session(&remote_addr){
-                            let stun_actor_handle = match session {NominatedSession::Streamer(streamer) => {&streamer.stun_actor_handle}};
-                            let ice_credentials = match session {NominatedSession::Streamer(streamer) => {streamer.negotiated_session.ice_credentials.clone()}};
-
-                            if let ICEStunMessageType::LiveCheck(stun_packet) = stun_type{
-                                stun_actor_handle.sender.send(actors::stun_actor::Message::LiveCheck(STUNMessage{ice_credentials, packet: stun_packet,socket_addr: remote_addr})).await.unwrap();
-                            }
+                            let stun_handle = match session{NominatedSession::Streamer(streamer) => {&streamer.stun_actor_handle}};
+                            stun_handle.sender.send(actors::nominated_stun_actor::Message::ReadPacket(stun_type, remote_addr)).await.unwrap();
                         }
                     }
                     // Forward packets for DTLS Establishment

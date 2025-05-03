@@ -1,17 +1,18 @@
-use crate::actors::{EventProducer, get_event_bus, MessageEvent};
-use crate::config::get_global_config;
+use std::sync::Arc;
+
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, Limited};
-use hyper::server::conn::http1;
-use hyper::service::{service_fn, Service};
 use hyper::{body::Incoming as IncomingBody, Request, Response};
+use hyper::server::conn::http1;
+use hyper::service::{Service, service_fn};
 use hyper_util::rt::TokioIo;
 use log::{debug, error, info};
-use sdp::SDPResolver;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
 use tokio::net::TcpListener;
+
+use sdp::SDPResolver;
+
+use crate::actors::{EventProducer, get_event_bus, MessageEvent};
+use crate::config::get_global_config;
 
 #[derive(Clone)]
 struct WHIPService {
@@ -79,19 +80,7 @@ async fn error_route(http_error: HTTPError) -> RouteResult {
     }
 }
 
-async fn not_found() -> RouteResult {
-    let res = Ok(Response::builder()
-        .status(404)
-        .body(Full::new(Bytes::from("404 Not Found")))
-        .unwrap());
-
-    res
-}
-
-async fn whip_route(
-    req: Request<IncomingBody>,
-    sdp_resolver: Arc<SDPResolver>,
-) -> RouteResult {
+async fn whip_route(req: Request<IncomingBody>, sdp_resolver: Arc<SDPResolver>) -> RouteResult {
     let res = whip_resolver(req, sdp_resolver).await;
     match res {
         Ok(res) => Ok(res),

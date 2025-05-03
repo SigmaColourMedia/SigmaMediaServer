@@ -1,15 +1,17 @@
 use std::net::SocketAddr;
 
-use sdp::{ICECredentials, NegotiatedSession};
+use sdp::NegotiatedSession;
 
 use crate::EVENT_BUS;
+use crate::ice_registry::SessionUsername;
 
 pub mod dtls_actor;
 pub mod get_packet_type;
+pub mod nominated_stun_actor;
 mod rtp_actor;
 pub mod rust_hyper;
 pub mod session_master;
-pub mod stun_actor;
+pub mod unset_stun_actor;
 
 #[derive(Debug)]
 pub enum MessageEvent {
@@ -22,7 +24,7 @@ pub enum MessageEvent {
 #[derive(Debug)]
 pub struct SessionPointer {
     pub socket_address: SocketAddr,
-    pub ice_credentials: ICECredentials,
+    pub session_username: SessionUsername,
 }
 
 pub fn get_event_bus() -> &'static tokio::sync::mpsc::Sender<MessageEvent> {
