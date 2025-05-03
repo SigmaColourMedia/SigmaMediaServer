@@ -69,6 +69,11 @@ async fn main() {
                 let packet_type = get_packet_type(Bytes::from(packet.clone()));
                 match packet_type{
                     PacketType::RTP(_) => {
+                        if let Some(session) = master.get_session(&remote_addr){
+                            if let NominatedSession::Streamer(streamer) = session{
+                                streamer.media_digest_actor_handle.sender.send(actors::media_digest_actor::Message::ReadPacket(packet)).await.unwrap()
+                            }
+                        }
                     }
                     PacketType::RTCP(_) => {}
                     PacketType::STUN(stun_type) => {

@@ -14,6 +14,10 @@ pub enum Message {
     ReadPacket(ICEStunMessageType, SocketAddr),
 }
 
+
+/*
+Respond to authorized ICE Live Check requests
+ */
 struct NominatedSTUNActor {
     receiver: Receiver,
     media_session: NegotiatedSession,

@@ -9,6 +9,7 @@ use tokio::time::Instant;
 use sdp::NegotiatedSession;
 
 use crate::actors::dtls_actor::DTLSActorHandle;
+use crate::actors::media_digest_actor::MediaDigestActorHandle;
 use crate::actors::nominated_stun_actor::NominatedSTUNActorHandle;
 use crate::actors::SessionPointer;
 use crate::actors::unset_stun_actor::UnsetSTUNActorHandle;
@@ -74,10 +75,12 @@ impl SessionMaster {
 
         match unset_session {
             UnsetSession::Streamer(session_data) => {
+                let dtls_handle = DTLSActorHandle::new(remote_addr);
                 let nominated_session = NominatedSession::Streamer(StreamerSessionData {
                     ttl: Instant::now(),
                     negotiated_session: session_data.negotiated_session.clone(),
-                    dtls_actor: DTLSActorHandle::new(remote_addr),
+                    media_digest_actor_handle: MediaDigestActorHandle::new(dtls_handle.clone()),
+                    dtls_actor: dtls_handle,
                     stun_actor_handle: NominatedSTUNActorHandle::new(
                         session_data.negotiated_session,
                     ),
@@ -145,6 +148,7 @@ pub struct UnsetSessionData {
 pub struct StreamerSessionData {
     ttl: Instant,
     pub stun_actor_handle: NominatedSTUNActorHandle,
+    pub media_digest_actor_handle: MediaDigestActorHandle,
     pub dtls_actor: DTLSActorHandle,
     pub negotiated_session: NegotiatedSession,
 }

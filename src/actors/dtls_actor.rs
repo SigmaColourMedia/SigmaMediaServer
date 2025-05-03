@@ -16,8 +16,22 @@ type Receiver = tokio::sync::mpsc::Receiver<Message>;
 
 pub enum Message {
     ReadPacket(Vec<u8>),
+    DecodeSRTP(Vec<u8>, tokio::sync::oneshot::Sender<SRTPDecodeResult>),
 }
 
+pub type SRTPDecodeResult = Result<Vec<u8>, DecodeError>;
+
+#[derive(Debug)]
+pub enum DecodeError {
+    InvalidSSLState,
+    SRTPError,
+}
+
+/*
+- Establish DTLS connection
+- Decode SRTP/SRTCP packets
+- Encode RTP/RTCP packets
+ */
 struct DTLSActor {
     receiver: Receiver,
     ssl_stream: SSLStream,
@@ -97,11 +111,22 @@ impl DTLSActor {
                 };
                 self.ssl_stream = ssl_stream
             }
+            Message::DecodeSRTP(mut srtp_packet, oneshot) => match &mut self.ssl_stream {
+                SSLStream::Established(srtp_session) => {
+                    match srtp_session.inbound_session.unprotect(&mut srtp_packet) {
+                        Ok(_) => oneshot.send(Ok(srtp_packet)).unwrap(),
+                        Err(_) => oneshot.send(Err(DecodeError::SRTPError)).unwrap(),
+                    }
+                }
+                _ => {
+                    oneshot.send(Err(DecodeError::InvalidSSLState)).unwrap();
+                }
+            },
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DTLSActorHandle {
     pub sender: Sender,
 }
@@ -148,10 +173,13 @@ impl DTLSNegotiator {
 
 impl Write for DTLSNegotiator {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match EVENT_BUS.get().unwrap().try_send(MessageEvent::ForwardPacket((
-            buf.to_vec(),
-            self.socket_addr,
-        ))) {
+        match EVENT_BUS
+            .get()
+            .unwrap()
+            .try_send(MessageEvent::ForwardPacket((
+                buf.to_vec(),
+                self.socket_addr,
+            ))) {
             Ok(_) => Ok(buf.len()),
             Err(err) => {
                 warn!(target: "DTLSNegotiator", "Error writing to event_producer channel {}", err);

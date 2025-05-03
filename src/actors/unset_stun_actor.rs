@@ -14,7 +14,9 @@ type Receiver = tokio::sync::mpsc::Receiver<Message>;
 pub enum Message {
     ReadPacket(ICEStunMessageType, SocketAddr),
 }
-
+/*
+Respond to authorized ICE Live Check & Nominate Requests
+ */
 struct UnsetSTUNActor {
     receiver: Receiver,
     media_session: NegotiatedSession,
