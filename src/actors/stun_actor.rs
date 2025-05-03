@@ -47,10 +47,10 @@ impl STUNActor {
     Start & update session TTL, respond to STUN requests
      */
     pub async fn handle_message(&self, message: Message) {
-        trace!(target: "STUN","Incoming message: {:?}", message);
-
         match message {
             Message::LiveCheck(stun_message) => {
+                trace!(target: "STUN","Incoming Live Check: {:#?}", stun_message);
+
                 let mut packet = vec![0u8; 200];
                 match create_stun_success(
                     &stun_message.ice_credentials,
@@ -67,11 +67,13 @@ impl STUNActor {
                         .await
                         .unwrap(),
                     Err(_) => {
-                        warn!(target: "STUN", "Error creating a STUN success response for STUN message {:?}", stun_message)
+                        warn!(target: "STUN", "Error creating a STUN success response for STUN message {:#?}", stun_message)
                     }
                 }
             }
             Message::Nominate(stun_message) => {
+                trace!(target: "STUN","Incoming Nominate request: {:#?}", stun_message);
+
                 let mut packet = [0u8; 200];
                 match create_stun_success(
                     &stun_message.ice_credentials,
@@ -96,7 +98,7 @@ impl STUNActor {
                             .unwrap()
                     }
                     Err(_) => {
-                        warn!(target: "STUN", "Error creating a STUN success response for STUN message {:?}", stun_message)
+                        warn!(target: "STUN", "Error creating a STUN success response for STUN message {:#?}", stun_message)
                     }
                 }
             }

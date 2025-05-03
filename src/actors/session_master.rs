@@ -1,7 +1,8 @@
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
-use log::trace;
 
+use log::trace;
 use rand::random;
 use tokio::time::Instant;
 
@@ -54,8 +55,8 @@ impl SessionMaster {
                 negotiated_session,
             ),
         });
-        trace!(target: "Session Master", "Created streamer unset_session {:?}", unset_session);
-        
+        trace!(target: "Session Master", "Created streamer unset_session {:#?}", unset_session);
+
         self.unset_map.ice_username_map.insert(session_username, id);
         self.unset_map.session_map.insert(id, unset_session);
     }
@@ -81,7 +82,7 @@ impl SessionMaster {
                     dtls_actor: DTLSActorHandle::new(self.event_producer.clone(), remote_addr),
                     stun_actor_handle: session_data.stun_actor_handle,
                 });
-                trace!(target: "Session Master", "Created nominated_session {:?}", nominated_session);
+                trace!(target: "Session Master", "Created nominated_session {:#?}", nominated_session);
 
                 let id = random::<usize>();
                 self.nominated_map.address_map.insert(remote_addr, id);
