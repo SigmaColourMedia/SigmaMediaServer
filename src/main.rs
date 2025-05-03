@@ -44,12 +44,12 @@ async fn main() {
             Some(message) = rx.recv() => {
                 match message {
                     MessageEvent::NominateSession(session_pointer) => {
-                        trace!(target: "Main", "Nominating session {:?}",session_pointer);
+                        debug!(target: "Main", "Nominating session with ICE-host username:{}",session_pointer.ice_credentials.host_username);
                         master.nominate_session(session_pointer);
                     }
                     MessageEvent::Test => {}
                     MessageEvent::InitStreamer(negotiated_session) => {
-                        trace!(target: "Main","Assigning new streamer session {:?}", &negotiated_session);
+                        debug!(target: "Main","Assigning new streamer session with ICE-host username:{}", &negotiated_session.ice_credentials.host_username);
                         master.add_streamer(negotiated_session);
                     }
                     MessageEvent::ForwardPacket((packet, remote)) => {
