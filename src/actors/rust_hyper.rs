@@ -42,6 +42,7 @@ pub async fn start_http_server() {
             async move {
                 match req.uri().path() {
                     "/whip" => whip_route(req, sdp_resolver).await,
+                    "/debug/session" => session_debug_route(req).await,
                     _ => error_route(HTTPError::NotFound).await,
                 }
             }
@@ -86,6 +87,24 @@ async fn whip_route(req: Request<IncomingBody>, sdp_resolver: Arc<SDPResolver>) 
         Ok(res) => Ok(res),
         Err(err) => error_route(err).await,
     }
+}
+
+async fn session_debug_route(req: Request<IncomingBody>) -> RouteResult{
+    let res = session_debug_resolver(req).await;
+    match res {
+        Ok(res) => Ok(res),
+        Err(err) => error_route(err).await,
+    }
+}
+
+async fn session_debug_resolver(req: Request<IncomingBody>) -> Result<HTTPResponse, HTTPError>{
+    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+    
+    get_event_bus().send(MessageEvent::DebugSession(tx)).unwrap();
+    
+    let res = rx.await.unwrap();
+    
+    Ok(Response::builder().body(Full::new(Bytes::from(res))).unwrap())
 }
 
 async fn whip_resolver(

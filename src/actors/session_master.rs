@@ -18,6 +18,7 @@ use crate::ice_registry::SessionUsername;
 
 static MAX_TTL: Duration = Duration::from_secs(5);
 
+#[derive(Debug)]
 pub struct SessionMaster {
     nominated_map: NominatedSessionMap,
     room_map: HashMap<usize, HashSet<usize>>,
@@ -55,6 +56,8 @@ impl SessionMaster {
         self.unset_map
             .ice_username_map
             .retain(|_, id| self.nominated_map.session_map.get(id).is_some());
+        
+        self.room_map.retain(|id,_| self.nominated_map.session_map.get(id).is_some());
     }
 
     pub fn get_unset_session(&self, session_username: &SessionUsername) -> Option<&UnsetSession> {
@@ -62,6 +65,19 @@ impl SessionMaster {
             .ice_username_map
             .get(session_username)
             .and_then(|id| self.unset_map.session_map.get(id))
+    }
+
+    pub fn get_unset_session_mut(&mut self, session_username: &SessionUsername) -> Option<&mut UnsetSession> {
+        self.unset_map
+            .ice_username_map
+            .get_mut(session_username)
+            .and_then(|id| self.unset_map.session_map.get_mut(id))
+    }
+    pub fn get_session_mut(&mut self, remote_addr: &SocketAddr) -> Option<&mut NominatedSession> {
+        self.nominated_map
+            .address_map
+            .get_mut(remote_addr)
+            .and_then(|id| self.nominated_map.session_map.get_mut(id))
     }
 
     pub fn get_session(&self, remote_addr: &SocketAddr) -> Option<&NominatedSession> {
@@ -135,6 +151,7 @@ impl SessionMaster {
     }
 }
 
+#[derive(Debug)]
 struct NominatedSessionMap {
     session_map: HashMap<usize, NominatedSession>,
     address_map: HashMap<SocketAddr, usize>,
@@ -149,6 +166,7 @@ impl NominatedSessionMap {
     }
 }
 
+#[derive(Debug)]
 struct UnsetSessionMap {
     session_map: HashMap<usize, UnsetSession>,
     ice_username_map: HashMap<SessionUsername, usize>,
@@ -167,15 +185,39 @@ impl UnsetSessionMap {
 pub enum NominatedSession {
     Streamer(StreamerSessionData),
 }
+
+impl NominatedSession{
+    pub fn update_ttl(&mut self){
+        match self{
+            NominatedSession::Streamer(streamer) => {
+                streamer.ttl = Instant::now()
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum UnsetSession {
     Streamer(UnsetSessionData),
     Viewer(UnsetSessionData),
 }
 
+impl UnsetSession{
+    pub fn update_ttl(&mut self){
+        match self {
+            UnsetSession::Streamer(streamer) => {
+                streamer.ttl = Instant::now()
+            }
+            UnsetSession::Viewer(viewer) => {
+                viewer.ttl = Instant::now()
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct UnsetSessionData {
-    ttl: Instant,
+     ttl: Instant,
     pub negotiated_session: NegotiatedSession,
     pub stun_actor_handle: UnsetSTUNActorHandle,
 }

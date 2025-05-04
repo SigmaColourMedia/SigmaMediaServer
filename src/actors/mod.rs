@@ -19,6 +19,7 @@ pub enum MessageEvent {
     NominateSession(SessionPointer),
     InitStreamer(NegotiatedSession),
     ForwardPacket(Datagram),
+    DebugSession(tokio::sync::oneshot::Sender<String>),
 }
 
 #[derive(Debug)]

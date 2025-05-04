@@ -64,7 +64,9 @@ async fn main() {
                             warn!(target: "Main", "Error sending packet to remote socket {}", remote);
                         }
                     }
-                }
+                    MessageEvent::DebugSession(tx) => {
+                        tx.send(format!("{:#?}", master)).unwrap()
+                    }}
             },
             Ok((bytes_read, remote_addr)) = udp_socket.recv_from(&mut buffer) => {
                 let packet = Vec::from(&buffer[..bytes_read]);
@@ -72,8 +74,13 @@ async fn main() {
                 let packet_type = get_packet_type(Bytes::from(packet.clone()));
                 match packet_type{
                     PacketType::RTP(rtp_header) => {
-                        if let Some(streamer) = master.get_session(&remote_addr).and_then(|session| match session{NominatedSession::Streamer(streamer) => {Some(streamer)}}){
-                                streamer.media_digest_actor_handle.sender.send(actors::media_ingest_actor::Message::ReadPacket(packet)).unwrap()
+                        if let Some(session) = master.get_session_mut(&remote_addr){
+                            session.update_ttl();
+                            match session{
+                                NominatedSession::Streamer(streamer) => {
+                                    streamer.media_digest_actor_handle.sender.send(actors::media_ingest_actor::Message::ReadPacket(packet)).unwrap();
+                                }
+                            }
                         }
                     }
                     PacketType::RTCP(_) => {}
@@ -85,19 +92,22 @@ async fn main() {
                         };
 
                         // Check for unset-session traffic
-                        if let Some(session) = master.get_unset_session(session_username){
+                        if let Some(session) = master.get_unset_session_mut(session_username){
+                            session.update_ttl();
                             let stun_handle = match session{UnsetSession::Streamer(streamer) => {&streamer.stun_actor_handle}UnsetSession::Viewer(viewer) => {&viewer.stun_actor_handle}};
                             stun_handle.sender.send(actors::unset_stun_actor::Message::ReadPacket(stun_type, remote_addr)).unwrap();
                         }
                         // Check for nominated-session live checks
-                        else if let Some(session) = master.get_session(&remote_addr){
+                        else if let Some(session) = master.get_session_mut(&remote_addr){
+                            session.update_ttl();
                             let stun_handle = match session{NominatedSession::Streamer(streamer) => {&streamer.stun_actor_handle}};
                             stun_handle.sender.send(actors::nominated_stun_actor::Message::ReadPacket(stun_type, remote_addr)).unwrap();
                         }
                     }
                     // Forward packets for DTLS Establishment
                     PacketType::Unknown => {
-                        if let Some(session) = master.get_session(&remote_addr){
+                        if let Some(session) = master.get_session_mut(&remote_addr){
+                            session.update_ttl();
                             let dtls_actor_handle = match session{NominatedSession::Streamer(streamer) => {&streamer.dtls_actor}};
                             dtls_actor_handle.sender.send(actors::dtls_actor::Message::ReadPacket(packet)).unwrap()
                         }
