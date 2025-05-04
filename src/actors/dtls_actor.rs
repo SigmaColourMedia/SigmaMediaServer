@@ -16,15 +16,17 @@ type Receiver = tokio::sync::mpsc::UnboundedReceiver<Message>;
 
 pub enum Message {
     ReadPacket(Vec<u8>),
-    DecodeSRTP(Vec<u8>, tokio::sync::oneshot::Sender<SRTPDecodeResult>),
+    DecodeSRTP(Vec<u8>, tokio::sync::oneshot::Sender<CryptoResult>),
+    EncodeRTCP(Vec<u8>, tokio::sync::oneshot::Sender<CryptoResult>),
 }
 
-pub type SRTPDecodeResult = Result<Vec<u8>, DecodeError>;
+pub type CryptoResult = Result<Vec<u8>, CryptoError>;
 
 #[derive(Debug)]
-pub enum DecodeError {
+pub enum CryptoError {
     InvalidSSLState,
-    SRTPError,
+    EncodingError(srtp::Error),
+    DecodingError(srtp::Error),
 }
 
 /*
@@ -115,11 +117,22 @@ impl DTLSActor {
                 SSLStream::Established(srtp_session) => {
                     match srtp_session.inbound_session.unprotect(&mut srtp_packet) {
                         Ok(_) => oneshot.send(Ok(srtp_packet)).unwrap(),
-                        Err(_) => oneshot.send(Err(DecodeError::SRTPError)).unwrap(),
+                        Err(err) => oneshot.send(Err(CryptoError::DecodingError(err))).unwrap(),
                     }
                 }
                 _ => {
-                    oneshot.send(Err(DecodeError::InvalidSSLState)).unwrap();
+                    oneshot.send(Err(CryptoError::InvalidSSLState)).unwrap();
+                }
+            },
+            Message::EncodeRTCP(mut packet, oneshot) => match &mut self.ssl_stream {
+                SSLStream::Established(srtp_session) => {
+                    match srtp_session.outbound_session.protect_rtcp(&mut packet) {
+                        Ok(_) => oneshot.send(Ok(packet)).unwrap(),
+                        Err(err) => oneshot.send(Err(CryptoError::EncodingError(err))).unwrap(),
+                    }
+                }
+                _ => {
+                    oneshot.send(Err(CryptoError::InvalidSSLState)).unwrap();
                 }
             },
         }

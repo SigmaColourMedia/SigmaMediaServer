@@ -2,6 +2,7 @@ use std::sync::OnceLock;
 
 use bytes::Bytes;
 use log::{debug, trace, warn};
+use rand::random;
 use tokio::net::UdpSocket;
 
 use crate::actors::get_packet_type::{get_packet_type, PacketType};
@@ -68,9 +69,9 @@ async fn main() {
 
                 let packet_type = get_packet_type(Bytes::from(packet.clone()));
                 match packet_type{
-                    PacketType::RTP(_) => {
+                    PacketType::RTP(rtp_header) => {
                         if let Some(streamer) = master.get_session(&remote_addr).and_then(|session| match session{NominatedSession::Streamer(streamer) => {Some(streamer)}}){
-                                streamer.media_digest_actor_handle.sender.send(actors::media_digest_actor::Message::ReadPacket(packet)).await.unwrap()
+                                streamer.media_digest_actor_handle.sender.send(actors::media_ingest_actor::Message::ReadPacket(packet)).unwrap()
                         }
                     }
                     PacketType::RTCP(_) => {}

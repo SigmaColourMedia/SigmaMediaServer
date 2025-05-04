@@ -7,8 +7,9 @@ use crate::ice_registry::SessionUsername;
 
 pub mod dtls_actor;
 pub mod get_packet_type;
-pub mod media_digest_actor;
+pub mod media_ingest_actor;
 pub mod nominated_stun_actor;
+pub mod receiver_report_actor;
 pub mod rust_hyper;
 pub mod session_master;
 pub mod unset_stun_actor;

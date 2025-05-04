@@ -148,7 +148,10 @@ impl RTPReporter {
         }).collect::<HashSet<u16>>();
     }
 
-    pub fn generate_receiver_report(&mut self) -> Bytes {
+    /*
+    Returns Vec<u8> containing an RTCP receiver report. The bool indicates presence of GENERIC NACK.
+     */
+    pub fn generate_receiver_report(&mut self) -> (Bytes, bool) {
         let mut bytes = BytesMut::new();
 
         let report_block = ReportBlock {
@@ -167,13 +170,15 @@ impl RTPReporter {
         self.cleanup_stale_missing_packets();
 
         let nacks = generate_nacks(&mut self.missing_packets);
-        if !nacks.is_empty() {
+        
+        let has_nack = !nacks.is_empty();
+        if has_nack {
             let transport_layer_nack = TransportLayerNACK::new(nacks, self.host_ssrc, self.media_ssrc);
             bytes.put(transport_layer_nack.marshall().unwrap())
         }
         let sdes = SourceDescriptor::new(vec![Chunk { ssrc: self.host_ssrc, items: vec![CName(CNameSDES::new("smid".to_string()))] }]);
         bytes.put(sdes.marshall().unwrap());
-        bytes.freeze()
+        (bytes.freeze(), has_nack)
     }
 }
 

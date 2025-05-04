@@ -9,8 +9,9 @@ use tokio::time::Instant;
 use sdp::NegotiatedSession;
 
 use crate::actors::dtls_actor::DTLSActorHandle;
-use crate::actors::media_digest_actor::MediaDigestActorHandle;
+use crate::actors::media_ingest_actor::MediaIngestActorHandle;
 use crate::actors::nominated_stun_actor::NominatedSTUNActorHandle;
+use crate::actors::receiver_report_actor::ReceiverReportActorHandle;
 use crate::actors::SessionPointer;
 use crate::actors::unset_stun_actor::UnsetSTUNActorHandle;
 use crate::ice_registry::SessionUsername;
@@ -76,10 +77,12 @@ impl SessionMaster {
         match unset_session {
             UnsetSession::Streamer(session_data) => {
                 let dtls_handle = DTLSActorHandle::new(remote_addr);
+                let rr_handle = ReceiverReportActorHandle::new(&session_data.negotiated_session, remote_addr, dtls_handle.clone());
+                
                 let nominated_session = NominatedSession::Streamer(StreamerSessionData {
                     ttl: Instant::now(),
                     negotiated_session: session_data.negotiated_session.clone(),
-                    media_digest_actor_handle: MediaDigestActorHandle::new(dtls_handle.clone()),
+                    media_digest_actor_handle: MediaIngestActorHandle::new(dtls_handle.clone(), rr_handle),
                     dtls_actor: dtls_handle,
                     stun_actor_handle: NominatedSTUNActorHandle::new(
                         session_data.negotiated_session,
@@ -148,7 +151,7 @@ pub struct UnsetSessionData {
 pub struct StreamerSessionData {
     ttl: Instant,
     pub stun_actor_handle: NominatedSTUNActorHandle,
-    pub media_digest_actor_handle: MediaDigestActorHandle,
+    pub media_digest_actor_handle: MediaIngestActorHandle,
     pub dtls_actor: DTLSActorHandle,
     pub negotiated_session: NegotiatedSession,
 }
