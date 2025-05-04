@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
-use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use log::trace;
 use rand::random;
@@ -16,6 +16,8 @@ use crate::actors::SessionPointer;
 use crate::actors::unset_stun_actor::UnsetSTUNActorHandle;
 use crate::ice_registry::SessionUsername;
 
+static MAX_TTL: Duration = Duration::from_secs(5);
+
 pub struct SessionMaster {
     nominated_map: NominatedSessionMap,
     room_map: HashMap<usize, HashSet<usize>>,
@@ -29,6 +31,30 @@ impl SessionMaster {
             unset_map: UnsetSessionMap::new(),
             room_map: HashMap::new(),
         }
+    }
+
+    pub fn prune_stale_sessions(&mut self) {
+        // Retain only sessions with TTL < MAX_TTL
+        self.nominated_map.session_map.retain(|_, session| {
+            let ttl = match session {
+                NominatedSession::Streamer(streamer) => &streamer.ttl,
+            };
+            ttl.elapsed() < MAX_TTL
+        });
+        self.nominated_map
+            .address_map
+            .retain(|_, id| self.nominated_map.session_map.get(id).is_some());
+
+        self.unset_map.session_map.retain(|_, session| {
+            let ttl = match session {
+                UnsetSession::Streamer(streamer) => &streamer.ttl,
+                UnsetSession::Viewer(viewer) => &viewer.ttl,
+            };
+            ttl.elapsed() < MAX_TTL
+        });
+        self.unset_map
+            .ice_username_map
+            .retain(|_, id| self.nominated_map.session_map.get(id).is_some());
     }
 
     pub fn get_unset_session(&self, session_username: &SessionUsername) -> Option<&UnsetSession> {
@@ -77,12 +103,19 @@ impl SessionMaster {
         match unset_session {
             UnsetSession::Streamer(session_data) => {
                 let dtls_handle = DTLSActorHandle::new(remote_addr);
-                let rr_handle = ReceiverReportActorHandle::new(&session_data.negotiated_session, remote_addr, dtls_handle.clone());
-                
+                let rr_handle = ReceiverReportActorHandle::new(
+                    &session_data.negotiated_session,
+                    remote_addr,
+                    dtls_handle.clone(),
+                );
+
                 let nominated_session = NominatedSession::Streamer(StreamerSessionData {
                     ttl: Instant::now(),
                     negotiated_session: session_data.negotiated_session.clone(),
-                    media_digest_actor_handle: MediaIngestActorHandle::new(dtls_handle.clone(), rr_handle),
+                    media_digest_actor_handle: MediaIngestActorHandle::new(
+                        dtls_handle.clone(),
+                        rr_handle,
+                    ),
                     dtls_actor: dtls_handle,
                     stun_actor_handle: NominatedSTUNActorHandle::new(
                         session_data.negotiated_session,

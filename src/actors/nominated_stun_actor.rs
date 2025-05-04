@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use log::{trace, warn};
+use log::{debug, trace, warn};
 
 use sdp::NegotiatedSession;
 
@@ -74,6 +74,7 @@ impl NominatedSTUNActorHandle {
 
 async fn run(mut actor: NominatedSTUNActor) {
     while let Some(msg) = actor.receiver.recv().await {
-        actor.handle_message(msg).await;
+        actor.handle_message(msg).await
     }
+    debug!(target: "Nominated STUN", "Dropping actor")
 }

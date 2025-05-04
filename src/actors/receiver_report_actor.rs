@@ -111,17 +111,21 @@ async fn run(mut actor: ReceiverReportActor) {
     tokio::pin!(sleep);
     loop {
         select! {
-            Some(msg) = actor.receiver.recv() => {
-                actor.handle_message(msg).await;
+            msg_option = actor.receiver.recv() => {
+                match msg_option{
+                    None => {
+                        debug!(target: "RR Actor", "Dropping Actor");
+                        break
+                    }
+                    Some(msg) => {
+                        actor.handle_message(msg).await;
+                    }
+                }
             },
             () = &mut sleep => {
                 actor.handle_message(Message::SendReport).await;
                 sleep.as_mut().reset(Instant::now() + Duration::from_millis(1));
             },
-            else => {
-                debug!("exiting from loop");
-                break
-            }
         }
     }
 }

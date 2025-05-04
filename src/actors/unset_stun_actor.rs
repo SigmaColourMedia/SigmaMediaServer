@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use log::{trace, warn};
+use log::{debug, trace, warn};
 
 use sdp::NegotiatedSession;
 
@@ -101,4 +101,5 @@ async fn run(mut actor: UnsetSTUNActor) {
     while let Some(msg) = actor.receiver.recv().await {
         actor.handle_message(msg).await;
     }
+    debug!(target: "Unset STUN", "Dropping actor")
 }

@@ -1,9 +1,11 @@
 use std::sync::OnceLock;
+use std::time::Duration;
 
 use bytes::Bytes;
 use log::{debug, trace, warn};
 use rand::random;
 use tokio::net::UdpSocket;
+use tokio::time::Instant;
 
 use crate::actors::get_packet_type::{get_packet_type, PacketType};
 use crate::actors::MessageEvent;
@@ -41,7 +43,8 @@ async fn main() {
     let udp_socket = UdpSocket::bind(get_global_config().udp_server_config.address)
         .await
         .unwrap();
-
+    let sleep_one_sec = tokio::time::sleep(Duration::from_secs(1));
+    tokio::pin!(sleep_one_sec);
     loop {
         let mut buffer = [0u8; 2500];
 
@@ -100,7 +103,13 @@ async fn main() {
                         }
                     }
                 }
-            }
+            },
+            () = &mut sleep_one_sec => {
+                master.prune_stale_sessions();
+                sleep_one_sec.as_mut().reset(Instant::now() + Duration::from_secs(1));
+
+            },
+
         }
     }
 }

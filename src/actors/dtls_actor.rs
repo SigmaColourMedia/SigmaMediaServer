@@ -156,7 +156,9 @@ impl DTLSActorHandle {
 async fn run(mut actor: DTLSActor) {
     while let Some(msg) = actor.receiver.recv().await {
         actor.handle_message(msg).await;
-    }
+    };
+
+    debug!(target: "DTLS Actor", "Dropping Actor");
 }
 
 enum SSLStream {

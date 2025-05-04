@@ -1,7 +1,7 @@
 use std::io::Read;
 
 use bytes::Bytes;
-use log::warn;
+use log::{debug, warn};
 
 use rtcp::Unmarshall;
 
@@ -77,5 +77,6 @@ impl MediaIngestActorHandle {
 async fn run(mut actor: MediaIngestActor) {
     while let Some(msg) = actor.receiver.recv().await {
         actor.handle_message(msg).await;
-    }
+    };
+    debug!(target: "Media Ingest Actor", "Dropping Actor")
 }
