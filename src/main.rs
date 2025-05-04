@@ -52,7 +52,6 @@ async fn main() {
                         debug!(target: "Main", "Nominating session with ICE-host username:{}",session_pointer.session_username.host);
                         master.nominate_session(session_pointer);
                     }
-                    MessageEvent::Test => {}
                     MessageEvent::InitStreamer(negotiated_session) => {
                         debug!(target: "Main","Assigning new streamer session with ICE-host username:{}", &negotiated_session.ice_credentials.host_username);
                         master.add_streamer(negotiated_session);

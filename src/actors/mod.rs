@@ -17,7 +17,6 @@ pub mod unset_stun_actor;
 #[derive(Debug)]
 pub enum MessageEvent {
     NominateSession(SessionPointer),
-    Test,
     InitStreamer(NegotiatedSession),
     ForwardPacket(Datagram),
 }
