@@ -7,6 +7,7 @@ use crate::ice_registry::SessionUsername;
 
 pub mod dtls_actor;
 pub mod get_packet_type;
+pub mod keepalive_actor;
 pub mod media_ingest_actor;
 pub mod nominated_stun_actor;
 pub mod receiver_report_actor;
@@ -20,6 +21,7 @@ pub mod unset_stun_actor;
 pub enum MessageEvent {
     NominateSession(SessionPointer),
     InitStreamer(NegotiatedSession),
+    TerminateSession(usize),
     DebugSession(tokio::sync::oneshot::Sender<String>),
 }
 

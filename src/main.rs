@@ -66,7 +66,10 @@ async fn main() {
                         master.add_streamer(negotiated_session);
                     }
                     MessageEvent::DebugSession(tx) => {
-                        tx.send(format!("{:#?}", master)).unwrap()
+                        tx.send(format!("{:#?}", master)).unwrap();
+                    }
+                    MessageEvent::TerminateSession(id) => {
+                        master.remove_session(id);
                     }}
             },
             Ok((bytes_read, remote_addr)) = udp_socket.recv_from(&mut buffer) => {
@@ -76,9 +79,9 @@ async fn main() {
                 match packet_type{
                     PacketType::RTP(rtp_header) => {
                         if let Some(session) = master.get_session_mut(&remote_addr){
-                            session.update_ttl();
                             match session{
                                 NominatedSession::Streamer(streamer) => {
+                                    streamer.keepalive_handle.sender.send(actors::keepalive_actor::Message::UpdateTTL).unwrap();
                                     streamer.media_digest_actor_handle.sender.send(actors::media_ingest_actor::Message::ReadPacket(packet)).unwrap();
                                 }
                             }
@@ -94,32 +97,27 @@ async fn main() {
 
                         // Check for unset-session traffic
                         if let Some(session) = master.get_unset_session_mut(session_username){
-                            session.update_ttl();
-                            let stun_handle = match session{UnsetSession::Streamer(streamer) => {&streamer.stun_actor_handle}UnsetSession::Viewer(viewer) => {&viewer.stun_actor_handle}};
+                            let (stun_handle, keepalive_handle) = match session{UnsetSession::Streamer(streamer) => {(&streamer.stun_actor_handle, &streamer.keepalive_handle)}UnsetSession::Viewer(viewer) => {(&viewer.stun_actor_handle, &viewer.keepalive_handle)}};
+                            keepalive_handle.sender.send(actors::keepalive_actor::Message::UpdateTTL).unwrap();
                             stun_handle.sender.send(actors::unset_stun_actor::Message::ReadPacket(stun_type, remote_addr)).unwrap();
                         }
                         // Check for nominated-session live checks
                         else if let Some(session) = master.get_session_mut(&remote_addr){
-                            session.update_ttl();
-                            let stun_handle = match session{NominatedSession::Streamer(streamer) => {&streamer.stun_actor_handle}};
+                            let (stun_handle, keepalive_handle) = match session{NominatedSession::Streamer(streamer) => {(&streamer.stun_actor_handle, &streamer.keepalive_handle)}};
+                            keepalive_handle.sender.send(actors::keepalive_actor::Message::UpdateTTL).unwrap();
                             stun_handle.sender.send(actors::nominated_stun_actor::Message::ReadPacket(stun_type, remote_addr)).unwrap();
                         }
                     }
                     // Forward packets for DTLS Establishment
                     PacketType::Unknown => {
                         if let Some(session) = master.get_session_mut(&remote_addr){
-                            session.update_ttl();
-                            let dtls_actor_handle = match session{NominatedSession::Streamer(streamer) => {&streamer.dtls_actor}};
+                            let (dtls_actor_handle, keepalive_handle) = match session{NominatedSession::Streamer(streamer) => {(&streamer.dtls_actor, &streamer.keepalive_handle)}};
+                            keepalive_handle.sender.send(actors::keepalive_actor::Message::UpdateTTL).unwrap();
                             dtls_actor_handle.sender.send(actors::dtls_actor::Message::ReadPacket(packet)).unwrap()
                         }
                     }
                 }
             },
-            () = &mut sleep_one_sec => {
-                master.prune_stale_sessions();
-                sleep_one_sec.as_mut().reset(Instant::now() + Duration::from_secs(1));
-            },
-
         }
     }
 }
