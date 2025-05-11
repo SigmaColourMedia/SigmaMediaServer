@@ -1,7 +1,7 @@
 use std::io::Read;
 
 use bytes::Bytes;
-use log::{debug, warn};
+use log::{debug, trace, warn};
 
 use rtcp::Unmarshall;
 
@@ -39,6 +39,8 @@ impl MediaIngestActor {
                     Ok(packet) => {
                         let bytes = Bytes::from(packet);
                         let header = RTPHeader::unmarshall(bytes).unwrap();
+
+                        // trace!(target: "Media Ingest Actor", "processing SEQ {}", header.seq);
                         self.rr_actor_handle
                             .sender
                             .send(actors::receiver_report_actor::Message::FeedRTP(header))
@@ -77,6 +79,6 @@ impl MediaIngestActorHandle {
 async fn run(mut actor: MediaIngestActor) {
     while let Some(msg) = actor.receiver.recv().await {
         actor.handle_message(msg).await;
-    };
+    }
     debug!(target: "Media Ingest Actor", "Dropping Actor")
 }

@@ -12,13 +12,14 @@ pub mod nominated_stun_actor;
 pub mod receiver_report_actor;
 pub mod rust_hyper;
 pub mod session_master;
+pub mod session_socket_actor;
+pub mod udp_io_actor;
 pub mod unset_stun_actor;
 
 #[derive(Debug)]
 pub enum MessageEvent {
     NominateSession(SessionPointer),
     InitStreamer(NegotiatedSession),
-    ForwardPacket(Datagram),
     DebugSession(tokio::sync::oneshot::Sender<String>),
 }
 
@@ -31,4 +32,3 @@ pub struct SessionPointer {
 pub fn get_event_bus() -> &'static tokio::sync::mpsc::UnboundedSender<MessageEvent> {
     EVENT_BUS.get().unwrap()
 }
-pub type Datagram = (Vec<u8>, SocketAddr);

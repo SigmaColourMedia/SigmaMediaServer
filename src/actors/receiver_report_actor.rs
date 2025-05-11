@@ -9,6 +9,7 @@ use sdp::NegotiatedSession;
 
 use crate::actors::{get_event_bus, MessageEvent};
 use crate::actors::dtls_actor::{CryptoResult, DTLSActorHandle};
+use crate::actors::session_socket_actor::SessionSocketActorHandle;
 use crate::media_header::RTPHeader;
 use crate::rtp_reporter::RTPReporter;
 
@@ -22,29 +23,40 @@ pub enum Message {
 
 struct ReceiverReportActor {
     receiver: Receiver,
-    rtp_reporter: Option<RTPReporter>,
+    negotiated_session: NegotiatedSession,
+    video_rtp_reporter: Option<RTPReporter>,
     dtls_actor_handle: DTLSActorHandle,
-    socket_addr: SocketAddr,
-    _host_ssrc: u32,
+    session_socket_actor_handle: SessionSocketActorHandle,
 }
 
 impl ReceiverReportActor {
     pub async fn handle_message(&mut self, message: Message) {
         match message {
-            Message::FeedRTP(header) => match self.rtp_reporter.as_mut() {
-                None => {
-                    let _ = self.rtp_reporter.insert(RTPReporter::new(
-                        header.seq,
-                        self._host_ssrc,
-                        header.ssrc,
-                    ));
+            Message::FeedRTP(header) => {
+                let is_video_packet = self
+                    .negotiated_session
+                    .video_session
+                    .remote_ssrc
+                    .is_some_and(|ssrc| ssrc.eq(&header.ssrc));
+
+                if is_video_packet {
+                    match self.video_rtp_reporter.as_mut() {
+                        None => {
+                            let _ = self.video_rtp_reporter.insert(RTPReporter::new(
+                                header.seq,
+                                self.negotiated_session.video_session.host_ssrc,
+                                header.ssrc,
+                            ));
+                        }
+                        Some(rtp_reporter) => {
+                            rtp_reporter.feed_rtp(header);
+                        }
+                    }
                 }
-                Some(rtp_reporter) => {
-                    rtp_reporter.feed_rtp(header);
-                }
-            },
+            }
             Message::SendReport => {
-                if let Some(rtp_reporter) = self.rtp_reporter.as_mut() {
+                // Supports only video RR
+                if let Some(rtp_reporter) = self.video_rtp_reporter.as_mut() {
                     let (report, has_nack) = rtp_reporter.generate_receiver_report();
 
                     // Don't send report if no Generic NACK is present
@@ -64,13 +76,13 @@ impl ReceiverReportActor {
 
                     match crypto_result {
                         Ok(encoded_packet) => {
-                            debug!(target: "RR Actor","Forwarding RTCP RR to {}", self.socket_addr);
+                            debug!(target: "RR Actor","Forwarding RTCP RR");
 
-                            get_event_bus()
-                                .send(MessageEvent::ForwardPacket((
+                            self.session_socket_actor_handle
+                                .sender
+                                .send(crate::actors::session_socket_actor::Message::ForwardPacket(
                                     encoded_packet,
-                                    self.socket_addr,
-                                )))
+                                ))
                                 .unwrap();
                         }
                         Err(err) => {
@@ -89,17 +101,17 @@ pub struct ReceiverReportActorHandle {
 
 impl ReceiverReportActorHandle {
     pub fn new(
-        negotiated_session: &NegotiatedSession,
-        socket_addr: SocketAddr,
+        negotiated_session: NegotiatedSession,
+        session_socket_handle: SessionSocketActorHandle,
         dtls_actor_handle: DTLSActorHandle,
     ) -> Self {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<Message>();
         let actor = ReceiverReportActor {
+            negotiated_session,
+            session_socket_actor_handle: session_socket_handle,
             receiver,
             dtls_actor_handle,
-            rtp_reporter: None,
-            socket_addr,
-            _host_ssrc: negotiated_session.video_session.host_ssrc,
+            video_rtp_reporter: None,
         };
         tokio::spawn(run(actor));
 

@@ -1,4 +1,4 @@
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -11,6 +11,7 @@ use crate::actors::get_packet_type::{get_packet_type, PacketType};
 use crate::actors::MessageEvent;
 use crate::actors::rust_hyper::start_http_server;
 use crate::actors::session_master::{NominatedSession, SessionMaster, UnsetSession};
+use crate::actors::udp_io_actor::UDPIOActorHandle;
 use crate::config::get_global_config;
 use crate::stun::ICEStunMessageType;
 
@@ -35,14 +36,19 @@ async fn main() {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<MessageEvent>();
     EVENT_BUS.set(tx).unwrap();
 
-    let mut master = SessionMaster::new();
+    let udp_socket = Arc::new(
+        UdpSocket::bind(get_global_config().udp_server_config.address)
+            .await
+            .unwrap(),
+    );
+    let socket_io_actor_handle = UDPIOActorHandle::new(udp_socket.clone());
+
+    let mut master = SessionMaster::new(socket_io_actor_handle);
 
     tokio::task::spawn(async move {
         start_http_server().await;
     });
-    let udp_socket = UdpSocket::bind(get_global_config().udp_server_config.address)
-        .await
-        .unwrap();
+
     let sleep_one_sec = tokio::time::sleep(Duration::from_secs(1));
     tokio::pin!(sleep_one_sec);
     loop {
@@ -58,11 +64,6 @@ async fn main() {
                     MessageEvent::InitStreamer(negotiated_session) => {
                         debug!(target: "Main","Assigning new streamer session with ICE-host username:{}", &negotiated_session.ice_credentials.host_username);
                         master.add_streamer(negotiated_session);
-                    }
-                    MessageEvent::ForwardPacket((packet, remote)) => {
-                        if let Err(_err) = udp_socket.send_to(&packet, remote).await {
-                            warn!(target: "Main", "Error sending packet to remote socket {}", remote);
-                        }
                     }
                     MessageEvent::DebugSession(tx) => {
                         tx.send(format!("{:#?}", master)).unwrap()
@@ -117,7 +118,6 @@ async fn main() {
             () = &mut sleep_one_sec => {
                 master.prune_stale_sessions();
                 sleep_one_sec.as_mut().reset(Instant::now() + Duration::from_secs(1));
-
             },
 
         }

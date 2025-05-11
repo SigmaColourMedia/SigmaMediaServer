@@ -1,15 +1,13 @@
 use std::{io, mem};
 use std::collections::VecDeque;
 use std::io::{Error, ErrorKind, Read, Write};
-use std::net::SocketAddr;
 
 use log::{debug, trace, warn};
 use openssl::ssl::{HandshakeError, MidHandshakeSslStream};
 use srtp::openssl::{Config, InboundSession, OutboundSession};
 
-use crate::actors::MessageEvent;
+use crate::actors::session_socket_actor::SessionSocketActorHandle;
 use crate::config::get_global_config;
-use crate::EVENT_BUS;
 
 type Sender = tokio::sync::mpsc::UnboundedSender<Message>;
 type Receiver = tokio::sync::mpsc::UnboundedReceiver<Message>;
@@ -40,8 +38,8 @@ struct DTLSActor {
 }
 
 impl DTLSActor {
-    fn new(receiver: Receiver, socket_addr: SocketAddr) -> Self {
-        let dtls_negotiator = DTLSNegotiator::new(socket_addr);
+    fn new(receiver: Receiver, session_socket_actor_handle: SessionSocketActorHandle) -> Self {
+        let dtls_negotiator = DTLSNegotiator::new(session_socket_actor_handle);
         let mid_handshake_stream = get_global_config()
             .ssl_config
             .acceptor
@@ -79,8 +77,8 @@ impl DTLSActor {
                                     },
                                 )
                                 .expect("SRTP Session Pair setup failure");
-
-                                debug!(target: "DTLS Actor", "DTLS setup complete with remote: {}", srtp_stream.get_ref().socket_addr);
+                                
+                                debug!(target: "DTLS Actor", "DTLS handshake complete");
 
                                 SSLStream::Established(SRTPSessionPair {
                                     outbound_session: outbound,
@@ -145,9 +143,9 @@ pub struct DTLSActorHandle {
 }
 
 impl DTLSActorHandle {
-    pub fn new(socket_addr: SocketAddr) -> Self {
+    pub fn new(session_socket_actor_handle: SessionSocketActorHandle) -> Self {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<Message>();
-        let actor = DTLSActor::new(receiver, socket_addr);
+        let actor = DTLSActor::new(receiver, session_socket_actor_handle);
         tokio::spawn(run(actor));
 
         Self { sender }
@@ -156,7 +154,7 @@ impl DTLSActorHandle {
 async fn run(mut actor: DTLSActor) {
     while let Some(msg) = actor.receiver.recv().await {
         actor.handle_message(msg).await;
-    };
+    }
 
     debug!(target: "DTLS Actor", "Dropping Actor");
 }
@@ -173,14 +171,14 @@ struct SRTPSessionPair {
 }
 #[derive(Debug)]
 struct DTLSNegotiator {
-    socket_addr: SocketAddr,
+    session_socket_handle: SessionSocketActorHandle,
     buffer: VecDeque<Vec<u8>>,
 }
 
 impl DTLSNegotiator {
-    pub fn new(socket_addr: SocketAddr) -> Self {
+    pub fn new(session_socket_actor_handle: SessionSocketActorHandle) -> Self {
         Self {
-            socket_addr,
+            session_socket_handle: session_socket_actor_handle,
             buffer: VecDeque::new(),
         }
     }
@@ -188,16 +186,13 @@ impl DTLSNegotiator {
 
 impl Write for DTLSNegotiator {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match EVENT_BUS.get().unwrap().send(MessageEvent::ForwardPacket((
-            buf.to_vec(),
-            self.socket_addr,
-        ))) {
-            Ok(_) => Ok(buf.len()),
-            Err(err) => {
-                warn!(target: "DTLSNegotiator", "Error writing to event_producer channel {}", err);
-                Err(Error::from(ErrorKind::ConnectionAborted))
-            }
-        }
+        self.session_socket_handle
+            .sender
+            .send(crate::actors::session_socket_actor::Message::ForwardPacket(
+                buf.to_vec(),
+            ))
+            .unwrap();
+        Ok(buf.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {

@@ -5,6 +5,7 @@ use log::{debug, trace, warn};
 use sdp::NegotiatedSession;
 
 use crate::actors::{get_event_bus, MessageEvent};
+use crate::actors::session_socket_actor::SessionSocketActorHandle;
 use crate::stun::{create_stun_success, ICEStunMessageType};
 
 type Sender = tokio::sync::mpsc::UnboundedSender<Message>;
@@ -18,6 +19,7 @@ pub enum Message {
 Respond to authorized ICE Live Check requests
  */
 struct NominatedSTUNActor {
+    session_socket_actor_handle: SessionSocketActorHandle,
     receiver: Receiver,
     media_session: NegotiatedSession,
 }
@@ -36,11 +38,12 @@ impl NominatedSTUNActor {
                         &remote_addr,
                         &mut packet,
                     ) {
-                        Ok(bytes_written) => get_event_bus()
-                            .send(MessageEvent::ForwardPacket((
+                        Ok(bytes_written) => self
+                            .session_socket_actor_handle
+                            .sender
+                            .send(crate::actors::session_socket_actor::Message::ForwardPacket(
                                 packet[..bytes_written].to_vec(),
-                                remote_addr,
-                            )))
+                            ))
                             .unwrap(),
                         Err(_) => {
                             warn!(target: "Nominated STUN", "Error creating a STUN success response for STUN message {:#?}", stun_packet)
@@ -60,11 +63,15 @@ pub struct NominatedSTUNActorHandle {
     pub sender: Sender,
 }
 impl NominatedSTUNActorHandle {
-    pub fn new(media_session: NegotiatedSession) -> Self {
+    pub fn new(
+        media_session: NegotiatedSession,
+        session_socket_actor_handle: SessionSocketActorHandle,
+    ) -> Self {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<Message>();
         let actor = NominatedSTUNActor {
             media_session,
             receiver,
+            session_socket_actor_handle,
         };
         tokio::spawn(run(actor));
 

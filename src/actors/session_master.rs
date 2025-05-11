@@ -12,7 +12,9 @@ use crate::actors::dtls_actor::DTLSActorHandle;
 use crate::actors::media_ingest_actor::MediaIngestActorHandle;
 use crate::actors::nominated_stun_actor::NominatedSTUNActorHandle;
 use crate::actors::receiver_report_actor::ReceiverReportActorHandle;
+use crate::actors::session_socket_actor::SessionSocketActorHandle;
 use crate::actors::SessionPointer;
+use crate::actors::udp_io_actor::UDPIOActorHandle;
 use crate::actors::unset_stun_actor::UnsetSTUNActorHandle;
 use crate::ice_registry::SessionUsername;
 
@@ -23,14 +25,16 @@ pub struct SessionMaster {
     nominated_map: NominatedSessionMap,
     room_map: HashMap<usize, HashSet<usize>>,
     unset_map: UnsetSessionMap,
+    socket_io_actor_handle: UDPIOActorHandle,
 }
 
 impl SessionMaster {
-    pub fn new() -> Self {
+    pub fn new(socket_io_actor_handle: UDPIOActorHandle) -> Self {
         Self {
             nominated_map: NominatedSessionMap::new(),
             unset_map: UnsetSessionMap::new(),
             room_map: HashMap::new(),
+            socket_io_actor_handle,
         }
     }
 
@@ -56,8 +60,9 @@ impl SessionMaster {
         self.unset_map
             .ice_username_map
             .retain(|_, id| self.nominated_map.session_map.get(id).is_some());
-        
-        self.room_map.retain(|id,_| self.nominated_map.session_map.get(id).is_some());
+
+        self.room_map
+            .retain(|id, _| self.nominated_map.session_map.get(id).is_some());
     }
 
     pub fn get_unset_session(&self, session_username: &SessionUsername) -> Option<&UnsetSession> {
@@ -67,7 +72,10 @@ impl SessionMaster {
             .and_then(|id| self.unset_map.session_map.get(id))
     }
 
-    pub fn get_unset_session_mut(&mut self, session_username: &SessionUsername) -> Option<&mut UnsetSession> {
+    pub fn get_unset_session_mut(
+        &mut self,
+        session_username: &SessionUsername,
+    ) -> Option<&mut UnsetSession> {
         self.unset_map
             .ice_username_map
             .get_mut(session_username)
@@ -87,15 +95,18 @@ impl SessionMaster {
             .and_then(|id| self.nominated_map.session_map.get(id))
     }
     pub fn add_streamer(&mut self, negotiated_session: NegotiatedSession) {
+        let id = random::<usize>();
         let session_username = SessionUsername {
             host: negotiated_session.ice_credentials.host_username.clone(),
             remote: negotiated_session.ice_credentials.remote_username.clone(),
         };
-        let id = random::<usize>();
         let unset_session = UnsetSession::Streamer(UnsetSessionData {
             ttl: Instant::now(),
             negotiated_session: negotiated_session.clone(),
-            stun_actor_handle: UnsetSTUNActorHandle::new(negotiated_session),
+            stun_actor_handle: UnsetSTUNActorHandle::new(
+                negotiated_session,
+                self.socket_io_actor_handle.clone(),
+            ),
         });
         trace!(target: "Session Master", "Created streamer unset_session {:#?}", unset_session);
 
@@ -118,10 +129,14 @@ impl SessionMaster {
 
         match unset_session {
             UnsetSession::Streamer(session_data) => {
-                let dtls_handle = DTLSActorHandle::new(remote_addr);
+                let session_socket_handle = SessionSocketActorHandle::new(
+                    self.socket_io_actor_handle.clone(),
+                    remote_addr.clone(),
+                );
+                let dtls_handle = DTLSActorHandle::new(session_socket_handle.clone());
                 let rr_handle = ReceiverReportActorHandle::new(
-                    &session_data.negotiated_session,
-                    remote_addr,
+                    session_data.negotiated_session.clone(),
+                    session_socket_handle.clone(),
                     dtls_handle.clone(),
                 );
 
@@ -135,6 +150,7 @@ impl SessionMaster {
                     dtls_actor: dtls_handle,
                     stun_actor_handle: NominatedSTUNActorHandle::new(
                         session_data.negotiated_session,
+                        session_socket_handle,
                     ),
                 });
                 trace!(target: "Session Master", "Created nominated_session {:#?}", nominated_session);
@@ -186,12 +202,10 @@ pub enum NominatedSession {
     Streamer(StreamerSessionData),
 }
 
-impl NominatedSession{
-    pub fn update_ttl(&mut self){
-        match self{
-            NominatedSession::Streamer(streamer) => {
-                streamer.ttl = Instant::now()
-            }
+impl NominatedSession {
+    pub fn update_ttl(&mut self) {
+        match self {
+            NominatedSession::Streamer(streamer) => streamer.ttl = Instant::now(),
         }
     }
 }
@@ -202,22 +216,18 @@ pub enum UnsetSession {
     Viewer(UnsetSessionData),
 }
 
-impl UnsetSession{
-    pub fn update_ttl(&mut self){
+impl UnsetSession {
+    pub fn update_ttl(&mut self) {
         match self {
-            UnsetSession::Streamer(streamer) => {
-                streamer.ttl = Instant::now()
-            }
-            UnsetSession::Viewer(viewer) => {
-                viewer.ttl = Instant::now()
-            }
+            UnsetSession::Streamer(streamer) => streamer.ttl = Instant::now(),
+            UnsetSession::Viewer(viewer) => viewer.ttl = Instant::now(),
         }
     }
 }
 
 #[derive(Debug)]
 pub struct UnsetSessionData {
-     ttl: Instant,
+    ttl: Instant,
     pub negotiated_session: NegotiatedSession,
     pub stun_actor_handle: UnsetSTUNActorHandle,
 }
