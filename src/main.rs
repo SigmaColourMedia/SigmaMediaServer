@@ -7,6 +7,8 @@ use rand::random;
 use tokio::net::UdpSocket;
 use tokio::time::Instant;
 
+use sdp::SDPResolver;
+
 use crate::actors::get_packet_type::{get_packet_type, PacketType};
 use crate::actors::MessageEvent;
 use crate::actors::rust_hyper::start_http_server;
@@ -45,8 +47,14 @@ async fn main() {
 
     let mut master = SessionMaster::new(socket_io_actor_handle);
 
+    let sdp_resolver = Arc::new(SDPResolver::new(
+        format!("sha-256 {}", get_global_config().ssl_config.fingerprint).as_str(),
+        get_global_config().udp_server_config.address,
+    ));
+    let sdp_res_clone = sdp_resolver.clone();
+
     tokio::task::spawn(async move {
-        start_http_server().await;
+        start_http_server(sdp_res_clone).await;
     });
 
     loop {
@@ -56,7 +64,7 @@ async fn main() {
             Some(message) = rx.recv() => {
                 match message {
                     MessageEvent::NominateSession(session_pointer) => {
-                        debug!(target: "Main", "Nominating session with ICE-host username:{}",session_pointer.session_username.host);
+                        debug!(target: "Main", "Nominating session with username:{}",session_pointer.session_username.host);
                         master.nominate_session(session_pointer);
                     }
                     MessageEvent::InitStreamer(negotiated_session) => {
@@ -69,7 +77,23 @@ async fn main() {
                         master.remove_session(id);
                     }
                     MessageEvent::GetRoomThumbnail(id,oneshot) => {
-                        oneshot.send(master.get_room_thumbnail(id).await);
+                        oneshot.send(master.get_room_thumbnail(id).await).unwrap();
+                    }
+                    MessageEvent::InitViewer(sdp, room_id, oneshot) => {
+                        let viewer_session_data = master.get_room_negotiated_session(room_id).and_then(|room_session| {
+                            sdp_resolver.accept_viewer_offer(&sdp,room_session).ok()
+                        });
+
+                        match viewer_session_data{
+                            None => oneshot.send(None).unwrap(),
+                            Some(negotiated_session) => {
+                                let sdp_answer = String::from(negotiated_session.sdp_answer.clone());
+                                oneshot.send(Some(sdp_answer)).unwrap();
+                                master.add_viewer(room_id, negotiated_session);
+                            }
+                        }
+
+
                     }}
             },
             Ok((bytes_read, remote_addr)) = udp_socket.recv_from(&mut buffer) => {

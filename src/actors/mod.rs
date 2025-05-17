@@ -19,13 +19,17 @@ pub mod thumbnail_generator_actor;
 pub mod udp_io_actor;
 pub mod unset_stun_actor;
 
+type SessionID = usize;
+type Oneshot<T> = tokio::sync::oneshot::Sender<T>;
+
 #[derive(Debug)]
 pub enum MessageEvent {
     NominateSession(SessionPointer),
     InitStreamer(NegotiatedSession),
-    GetRoomThumbnail(usize, tokio::sync::oneshot::Sender<Option<ImageData>>),
-    TerminateSession(usize),
-    DebugSession(tokio::sync::oneshot::Sender<String>),
+    InitViewer(String, SessionID, Oneshot<Option<String>>),
+    GetRoomThumbnail(SessionID, Oneshot<Option<ImageData>>),
+    TerminateSession(SessionID),
+    DebugSession(Oneshot<String>),
 }
 
 #[derive(Debug)]

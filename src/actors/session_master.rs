@@ -1,10 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::time::Duration;
 
 use log::{debug, trace};
 use rand::random;
-use tokio::time::Instant;
 
 use sdp::NegotiatedSession;
 use thumbnail_image_extractor::ImageData;
@@ -106,12 +104,38 @@ impl SessionMaster {
             .and_then(|id| self.nominated_map.session_map.get_mut(id))
     }
 
+    pub fn get_room_negotiated_session(&self, id: usize) -> Option<&NegotiatedSession> {
+        self.room_map.get(&id).map(|room| &room.host_session)
+    }
+
     pub fn get_session(&self, remote_addr: &SocketAddr) -> Option<&NominatedSession> {
         self.nominated_map
             .address_map
             .get(remote_addr)
             .and_then(|id| self.nominated_map.session_map.get(id))
     }
+    pub fn add_viewer(&mut self, room_id: usize, negotiated_session: NegotiatedSession) {
+        let id = random::<usize>();
+        let session_username = SessionUsername {
+            host: negotiated_session.ice_credentials.host_username.clone(),
+            remote: negotiated_session.ice_credentials.remote_username.clone(),
+        };
+        let unset_session = UnsetSession::Viewer(UnsetViewerSession {
+            keepalive_handle: KeepaliveActorHandle::new(id),
+            negotiated_session: negotiated_session.clone(),
+            stun_actor_handle: UnsetSTUNActorHandle::new(
+                negotiated_session,
+                self.socket_io_actor_handle.clone(),
+            ),
+            _target_room_id: room_id,
+            _ice_username: session_username.clone(),
+        });
+        trace!(target: "Session Master", "Created Viewer Unset Session {:#?}", unset_session);
+
+        self.unset_map.ice_username_map.insert(session_username, id);
+        self.unset_map.session_map.insert(id, unset_session);
+    }
+
     pub fn add_streamer(&mut self, negotiated_session: NegotiatedSession) {
         let id = random::<usize>();
 
@@ -119,7 +143,7 @@ impl SessionMaster {
             host: negotiated_session.ice_credentials.host_username.clone(),
             remote: negotiated_session.ice_credentials.remote_username.clone(),
         };
-        let unset_session = UnsetSession::Streamer(UnsetSessionData {
+        let unset_session = UnsetSession::Streamer(UnsetStreamerSession {
             keepalive_handle: KeepaliveActorHandle::new(id),
             negotiated_session: negotiated_session.clone(),
             stun_actor_handle: UnsetSTUNActorHandle::new(
@@ -128,7 +152,7 @@ impl SessionMaster {
             ),
             _ice_username: session_username.clone(),
         });
-        trace!(target: "Session Master", "Created streamer unset_session {:#?}", unset_session);
+        trace!(target: "Session Master", "Created Streamer Unset Session {:#?}", unset_session);
 
         self.unset_map.ice_username_map.insert(session_username, id);
         self.unset_map.session_map.insert(id, unset_session);
@@ -179,14 +203,14 @@ impl SessionMaster {
                     ),
                     _socket_address: remote_addr.clone(),
                 });
-                trace!(target: "Session Master", "Created nominated_session {:#?}", nominated_session);
+                trace!(target: "Session Master", "Created NominatedSession {:#?}", nominated_session);
 
                 self.nominated_map.address_map.insert(remote_addr, id);
                 self.nominated_map.session_map.insert(id, nominated_session);
                 self.room_map
                     .insert(id, Room::new(session_data.negotiated_session));
-
-                debug!(target: "Main","Opened Room with ID:{}", id);
+                debug!(target: "Session Master","Nominated Streamer Session with ID: {}", id);
+                debug!(target: "Session Master","Opened Room with ID: {}", id);
             }
             UnsetSession::Viewer(_) => {
                 // todo support Viewer
@@ -267,8 +291,8 @@ impl NominatedSession {
 
 #[derive(Debug)]
 pub enum UnsetSession {
-    Streamer(UnsetSessionData),
-    Viewer(UnsetSessionData),
+    Streamer(UnsetStreamerSession),
+    Viewer(UnsetViewerSession),
 }
 
 impl UnsetSession {
@@ -295,10 +319,19 @@ impl UnsetSession {
 }
 
 #[derive(Debug)]
-pub struct UnsetSessionData {
+pub struct UnsetStreamerSession {
     pub keepalive_handle: KeepaliveActorHandle,
     pub negotiated_session: NegotiatedSession,
     pub stun_actor_handle: UnsetSTUNActorHandle,
+    _ice_username: SessionUsername,
+}
+
+#[derive(Debug)]
+pub struct UnsetViewerSession {
+    pub keepalive_handle: KeepaliveActorHandle,
+    pub negotiated_session: NegotiatedSession,
+    pub stun_actor_handle: UnsetSTUNActorHandle,
+    _target_room_id: usize,
     _ice_username: SessionUsername,
 }
 

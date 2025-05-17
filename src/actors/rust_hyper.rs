@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, Limited};
-use hyper::{body::Incoming as IncomingBody, Request, Response};
+use hyper::{body::Incoming as IncomingBody, Method, Request, Response};
 use hyper::server::conn::http1;
 use hyper::service::{Service, service_fn};
 use hyper_util::rt::TokioIo;
@@ -22,16 +22,11 @@ struct WHIPService {
     sdp_resolver: SDPResolver,
 }
 
-pub async fn start_http_server() {
+pub async fn start_http_server(sdp_resolver: Arc<SDPResolver>) {
     let listener = TcpListener::bind(get_global_config().tcp_server_config.address)
         .await
         .unwrap();
     info!(target: "HTTP", "Listening on {}", get_global_config().tcp_server_config.address);
-
-    let sdp_resolver = Arc::new(SDPResolver::new(
-        format!("sha-256 {}", get_global_config().ssl_config.fingerprint).as_str(),
-        get_global_config().udp_server_config.address,
-    ));
 
     loop {
         let sdp_resolver = sdp_resolver.clone();
@@ -43,10 +38,12 @@ pub async fn start_http_server() {
             let sdp_resolver = sdp_resolver.clone();
 
             async move {
-                match req.uri().path() {
-                    "/thumbnail" => thumbnail_route(req).await,
-                    "/whip" => whip_route(req, sdp_resolver).await,
-                    "/debug/session" => session_debug_route(req).await,
+                match (req.method(), req.uri().path()) {
+                    (&Method::GET, "/thumbnail") => thumbnail_route(req).await,
+                    (&Method::POST, "/whip") => whip_route(req, sdp_resolver).await,
+                    (&Method::POST, "/whep") => whep_route(req).await,
+                    (&Method::OPTIONS, _) => options_route(req).await,
+                    (&Method::GET, "/debug/session") => session_debug_route(req).await,
                     _ => error_route(HTTPError::NotFound).await,
                 }
             }
@@ -129,28 +126,6 @@ async fn whip_route(req: Request<IncomingBody>, sdp_resolver: Arc<SDPResolver>) 
     }
 }
 
-async fn session_debug_route(req: Request<IncomingBody>) -> RouteResult {
-    let res = session_debug_resolver(req).await;
-    match res {
-        Ok(res) => Ok(res),
-        Err(err) => error_route(err).await,
-    }
-}
-
-async fn session_debug_resolver(req: Request<IncomingBody>) -> Result<HTTPResponse, HTTPError> {
-    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
-
-    get_event_bus()
-        .send(MessageEvent::DebugSession(tx))
-        .unwrap();
-
-    let res = rx.await.unwrap();
-
-    Ok(Response::builder()
-        .body(Full::new(Bytes::from(res)))
-        .unwrap())
-}
-
 async fn whip_resolver(
     req: Request<IncomingBody>,
     sdp_resolver: Arc<SDPResolver>,
@@ -191,6 +166,98 @@ async fn whip_resolver(
             format!("{}/whip", get_global_config().tcp_server_config.address),
         )
         .body(Full::new(Bytes::from(String::from(sdp))))
+        .unwrap())
+}
+
+async fn whep_route(req: Request<IncomingBody>) -> RouteResult {
+    let res = whep_resolver(req).await;
+    match res {
+        Ok(res) => Ok(res),
+        Err(err) => error_route(err).await,
+    }
+}
+
+async fn whep_resolver(req: Request<IncomingBody>) -> Result<HTTPResponse, HTTPError> {
+    let room_id = req
+        .uri()
+        .query()
+        .and_then(|query| query.split("&").find(|item| item.starts_with("target_id=")))
+        .and_then(|param| param.split_once("target_id="))
+        .and_then(|(_, id)| id.parse::<usize>().ok())
+        .ok_or(HTTPError::BadRequest)?;
+
+    let sdp = req
+        .into_body()
+        .collect()
+        .await
+        .or(Err(HTTPError::BadRequest))
+        .map(|item| item.to_bytes().to_vec())
+        .and_then(|bytes| String::from_utf8(bytes).or(Err(HTTPError::BadRequest)))?;
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<String>>();
+    get_event_bus()
+        .send(MessageEvent::InitViewer(sdp, room_id, tx))
+        .unwrap();
+    let sdp_response = rx.await.unwrap();
+
+    match sdp_response {
+        None => Err(HTTPError::NotFound),
+        Some(sdp_answer) => Ok(Response::builder()
+            .status(200)
+            .header("content-type", "application/sdp")
+            .header(
+                "Access-Control-Allow-Origin",
+                &get_global_config().frontend_url,
+            )
+            .header(
+                "location",
+                format!("{}/whep", get_global_config().tcp_server_config.address),
+            )
+            .body(Full::new(Bytes::from(sdp_answer)))
+            .unwrap()),
+    }
+}
+
+async fn options_route(req: Request<IncomingBody>) -> RouteResult {
+    let res = options_resolver(req).await;
+    match res {
+        Ok(res) => Ok(res),
+        Err(err) => error_route(err).await,
+    }
+}
+
+async fn options_resolver(_: Request<IncomingBody>) -> Result<HTTPResponse, HTTPError> {
+    Ok(Response::builder()
+        .status(200)
+        .header("Access-Control-Allow-Method", "POST")
+        .header("Access-Control-Allow-Headers", "content-type")
+        .header(
+            "Access-Control-Allow-Origin",
+            &get_global_config().frontend_url,
+        )
+        .body(Full::new(Bytes::new()))
+        .unwrap())
+}
+
+async fn session_debug_route(req: Request<IncomingBody>) -> RouteResult {
+    let res = session_debug_resolver(req).await;
+    match res {
+        Ok(res) => Ok(res),
+        Err(err) => error_route(err).await,
+    }
+}
+
+async fn session_debug_resolver(_: Request<IncomingBody>) -> Result<HTTPResponse, HTTPError> {
+    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+
+    get_event_bus()
+        .send(MessageEvent::DebugSession(tx))
+        .unwrap();
+
+    let res = rx.await.unwrap();
+
+    Ok(Response::builder()
+        .body(Full::new(Bytes::from(res)))
         .unwrap())
 }
 
