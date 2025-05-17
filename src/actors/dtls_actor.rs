@@ -2,7 +2,7 @@ use std::{io, mem};
 use std::collections::VecDeque;
 use std::io::{Error, ErrorKind, Read, Write};
 
-use log::{debug, trace, warn};
+use log::{debug, trace};
 use openssl::ssl::{HandshakeError, MidHandshakeSslStream};
 use srtp::openssl::{Config, InboundSession, OutboundSession};
 
@@ -34,105 +34,121 @@ pub enum CryptoError {
  */
 struct DTLSActor {
     receiver: Receiver,
-    ssl_stream: SSLStream,
+    crypto: Crypto,
 }
 
 impl DTLSActor {
-    fn new(receiver: Receiver, session_socket_actor_handle: SessionSocketActorHandle) -> Self {
-        let dtls_negotiator = DTLSNegotiator::new(session_socket_actor_handle);
+    pub async fn handle_message(&mut self, message: Message) {
+        match message {
+            Message::ReadPacket(packet) => self.crypto.read_packet(packet),
+            Message::DecodeSRTP(packet, oneshot) => {
+                oneshot.send(self.crypto.decode_srtp(packet)).unwrap()
+            }
+            Message::EncodeRTCP(packet, oneshot) => {
+                oneshot.send(self.crypto.encode_rtcp(packet)).unwrap()
+            }
+        }
+    }
+}
+
+struct Crypto {
+    ssl_stream: SSLStream,
+}
+
+impl Crypto {
+    fn new(ss_handle: SessionSocketActorHandle) -> Self {
+        let dtls_negotiator = DTLSNegotiator::new(ss_handle);
         let mid_handshake_stream = get_global_config()
             .ssl_config
             .acceptor
-            .accept(dtls_negotiator);
+            .accept(dtls_negotiator)
+            .unwrap_err();
 
-        if let Err(HandshakeError::WouldBlock(mid_handshake)) = mid_handshake_stream {
-            Self {
-                ssl_stream: SSLStream::MidHandshake(mid_handshake),
-                receiver,
+        match mid_handshake_stream {
+            HandshakeError::SetupFailure(err) => {
+                panic!("DTLS setup failure {}", err);
             }
-        } else {
-            panic!(
-                "Should open mid-handshake SSL stream {:?}",
-                mid_handshake_stream
-            );
+            HandshakeError::Failure(mid_handshake) => Self {
+                ssl_stream: SSLStream::MidHandshake(mid_handshake),
+            },
+            HandshakeError::WouldBlock(mid_handshake) => Self {
+                ssl_stream: SSLStream::MidHandshake(mid_handshake),
+            },
         }
     }
 
-    pub async fn handle_message(&mut self, message: Message) {
-        match message {
-            Message::ReadPacket(packet) => {
-                let ssl_stream = mem::replace(&mut self.ssl_stream, SSLStream::Shutdown);
-                let ssl_stream = match ssl_stream {
-                    SSLStream::MidHandshake(mut mid_handshake) => {
-                        mid_handshake.get_mut().buffer.push_back(packet);
+    // todo Add support for reading DTLS packets
+    fn read_packet(&mut self, packet: Vec<u8>) {
+        let ssl_stream = mem::replace(&mut self.ssl_stream, SSLStream::Shutdown);
+        let ssl_stream = match ssl_stream {
+            SSLStream::MidHandshake(mut mid_handshake) => {
+                mid_handshake.get_mut().buffer.push_back(packet);
 
-                        match mid_handshake.handshake() {
-                            Ok(srtp_stream) => {
-                                let (inbound, outbound) = srtp::openssl::session_pair(
-                                    srtp_stream.ssl(),
-                                    Config {
-                                        window_size: 512,
-                                        encrypt_extension_headers: &vec![],
-                                        allow_repeat_tx: true,
-                                    },
-                                )
-                                .expect("SRTP Session Pair setup failure");
-                                
-                                debug!(target: "DTLS Actor", "DTLS handshake complete");
-
-                                SSLStream::Established(SRTPSessionPair {
-                                    outbound_session: outbound,
-                                    inbound_session: inbound,
-                                })
-                            }
-                            Err(err) => match err {
-                                HandshakeError::SetupFailure(err) => {
-                                    debug!(target: "DTLS Actor", "DTLS Setup failure: {}", err);
-                                    SSLStream::Shutdown
-                                }
-                                HandshakeError::Failure(err) => {
-                                    debug!(target: "DTLS Actor", "Handshake failure: {:?}", err);
-                                    SSLStream::Shutdown
-                                }
-                                HandshakeError::WouldBlock(ssl_stream) => {
-                                    SSLStream::MidHandshake(ssl_stream)
-                                }
+                match mid_handshake.handshake() {
+                    Ok(srtp_stream) => {
+                        let (inbound, outbound) = srtp::openssl::session_pair(
+                            srtp_stream.ssl(),
+                            Config {
+                                window_size: 512,
+                                encrypt_extension_headers: &vec![],
+                                allow_repeat_tx: true,
                             },
+                        )
+                        .expect("SRTP Session Pair setup failure");
+
+                        debug!(target: "Crypto", "DTLS handshake complete");
+
+                        SSLStream::Established(SRTPSessionPair {
+                            outbound_session: outbound,
+                            inbound_session: inbound,
+                        })
+                    }
+                    Err(err) => match err {
+                        HandshakeError::SetupFailure(err) => {
+                            debug!(target: "Crypto", "DTLS Setup failure: {}", err);
+                            SSLStream::Shutdown
                         }
-                    }
-                    SSLStream::Shutdown => {
-                        trace!(target: "DTLS Actor", "Message received in SSLStream:Shutdown state");
-                        SSLStream::Shutdown
-                    }
-                    SSLStream::Established(srtp_session) => {
-                        trace!(target: "DTLS Actor", "Message received in SSLStream:Established state");
-                        SSLStream::Established(srtp_session)
-                    }
-                };
-                self.ssl_stream = ssl_stream
+                        HandshakeError::Failure(ssl_stream) => {
+                            debug!(target: "Crypto", "Handshake failure: {:?}", ssl_stream);
+                            SSLStream::MidHandshake(ssl_stream)
+                        }
+                        HandshakeError::WouldBlock(ssl_stream) => {
+                            SSLStream::MidHandshake(ssl_stream)
+                        }
+                    },
+                }
             }
-            Message::DecodeSRTP(mut srtp_packet, oneshot) => match &mut self.ssl_stream {
-                SSLStream::Established(srtp_session) => {
-                    match srtp_session.inbound_session.unprotect(&mut srtp_packet) {
-                        Ok(_) => oneshot.send(Ok(srtp_packet)).unwrap(),
-                        Err(err) => oneshot.send(Err(CryptoError::DecodingError(err))).unwrap(),
-                    }
-                }
-                _ => {
-                    oneshot.send(Err(CryptoError::InvalidSSLState)).unwrap();
-                }
-            },
-            Message::EncodeRTCP(mut packet, oneshot) => match &mut self.ssl_stream {
-                SSLStream::Established(srtp_session) => {
-                    match srtp_session.outbound_session.protect_rtcp(&mut packet) {
-                        Ok(_) => oneshot.send(Ok(packet)).unwrap(),
-                        Err(err) => oneshot.send(Err(CryptoError::EncodingError(err))).unwrap(),
-                    }
-                }
-                _ => {
-                    oneshot.send(Err(CryptoError::InvalidSSLState)).unwrap();
-                }
-            },
+            SSLStream::Shutdown => {
+                trace!(target: "Crypto", "Message received in SSLStream:Shutdown state");
+                SSLStream::Shutdown
+            }
+            SSLStream::Established(srtp_session) => {
+                trace!(target: "Crypto", "Message received in SSLStream:Established state");
+                SSLStream::Established(srtp_session)
+            }
+        };
+        self.ssl_stream = ssl_stream
+    }
+
+    fn decode_srtp(&mut self, mut packet: Vec<u8>) -> CryptoResult {
+        match &mut self.ssl_stream {
+            SSLStream::Established(ssl_stream) => ssl_stream
+                .inbound_session
+                .unprotect(&mut packet)
+                .map(|_| packet)
+                .map_err(|err| CryptoError::DecodingError(err)),
+            _ => Err(CryptoError::InvalidSSLState),
+        }
+    }
+
+    fn encode_rtcp(&mut self, mut packet: Vec<u8>) -> CryptoResult {
+        match &mut self.ssl_stream {
+            SSLStream::Established(ssl_stream) => ssl_stream
+                .outbound_session
+                .protect_rtcp(&mut packet)
+                .map(|_| packet)
+                .map_err(|err| CryptoError::EncodingError(err)),
+            _ => Err(CryptoError::InvalidSSLState),
         }
     }
 }
@@ -145,7 +161,8 @@ pub struct DTLSActorHandle {
 impl DTLSActorHandle {
     pub fn new(session_socket_actor_handle: SessionSocketActorHandle) -> Self {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<Message>();
-        let actor = DTLSActor::new(receiver, session_socket_actor_handle);
+        let crypto = Crypto::new(session_socket_actor_handle);
+        let actor = DTLSActor { crypto, receiver };
         tokio::spawn(run(actor));
 
         Self { sender }
