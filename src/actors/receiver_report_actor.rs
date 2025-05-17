@@ -17,7 +17,7 @@ type Sender = tokio::sync::mpsc::UnboundedSender<Message>;
 type Receiver = tokio::sync::mpsc::UnboundedReceiver<Message>;
 
 pub enum Message {
-    FeedRTP(RTPHeader),
+    FeedVideoRTP(RTPHeader),
     SendReport,
 }
 
@@ -32,14 +32,7 @@ struct ReceiverReportActor {
 impl ReceiverReportActor {
     pub async fn handle_message(&mut self, message: Message) {
         match message {
-            Message::FeedRTP(header) => {
-                let is_video_packet = self
-                    .negotiated_session
-                    .video_session
-                    .remote_ssrc
-                    .is_some_and(|ssrc| ssrc.eq(&header.ssrc));
-
-                if is_video_packet {
+            Message::FeedVideoRTP(header) => {
                     match self.video_rtp_reporter.as_mut() {
                         None => {
                             let _ = self.video_rtp_reporter.insert(RTPReporter::new(
@@ -52,7 +45,7 @@ impl ReceiverReportActor {
                             rtp_reporter.feed_rtp(header);
                         }
                     }
-                }
+                
             }
             Message::SendReport => {
                 // Only video RR is supported

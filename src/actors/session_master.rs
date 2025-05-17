@@ -15,6 +15,7 @@ use crate::actors::nominated_stun_actor::NominatedSTUNActorHandle;
 use crate::actors::receiver_report_actor::ReceiverReportActorHandle;
 use crate::actors::session_socket_actor::SessionSocketActorHandle;
 use crate::actors::SessionPointer;
+use crate::actors::thumbnail_generator_actor::ThumbnailGeneratorActorHandle;
 use crate::actors::udp_io_actor::UDPIOActorHandle;
 use crate::actors::unset_stun_actor::UnsetSTUNActorHandle;
 use crate::ice_registry::SessionUsername;
@@ -133,6 +134,8 @@ impl SessionMaster {
                     session_socket_handle.clone(),
                     dtls_handle.clone(),
                 );
+                let thumbnail_handle = ThumbnailGeneratorActorHandle::new();
+
                 let id = random::<usize>();
 
                 let nominated_session = NominatedSession::Streamer(StreamerSessionData {
@@ -140,7 +143,10 @@ impl SessionMaster {
                     media_digest_actor_handle: MediaIngestActorHandle::new(
                         dtls_handle.clone(),
                         rr_handle,
+                        thumbnail_handle.clone(),
+                        session_data.negotiated_session.clone(),
                     ),
+                    thumbnail_generator_handle: thumbnail_handle,
                     dtls_actor: dtls_handle,
                     stun_actor_handle: NominatedSTUNActorHandle::new(
                         session_data.negotiated_session.clone(),
@@ -152,7 +158,8 @@ impl SessionMaster {
 
                 self.nominated_map.address_map.insert(remote_addr, id);
                 self.nominated_map.session_map.insert(id, nominated_session);
-                self.room_map.insert(id, Room::new(session_data.negotiated_session));
+                self.room_map
+                    .insert(id, Room::new(session_data.negotiated_session));
             }
             UnsetSession::Viewer(_) => {
                 // todo support Viewer
@@ -162,16 +169,16 @@ impl SessionMaster {
 }
 
 #[derive(Debug)]
-struct Room{
+struct Room {
     viewers_ids: HashSet<usize>,
-    host_session: NegotiatedSession
+    host_session: NegotiatedSession,
 }
 
-impl Room{
-    pub fn new(negotiated_session: NegotiatedSession) -> Self{
-        Self{
+impl Room {
+    pub fn new(negotiated_session: NegotiatedSession) -> Self {
+        Self {
             host_session: negotiated_session,
-            viewers_ids: HashSet::new()
+            viewers_ids: HashSet::new(),
         }
     }
 }
@@ -229,6 +236,7 @@ pub struct UnsetSessionData {
 pub struct StreamerSessionData {
     pub keepalive_handle: KeepaliveActorHandle,
     pub stun_actor_handle: NominatedSTUNActorHandle,
+    pub thumbnail_generator_handle: ThumbnailGeneratorActorHandle,
     pub media_digest_actor_handle: MediaIngestActorHandle,
     pub dtls_actor: DTLSActorHandle,
     _socket_address: SocketAddr,
