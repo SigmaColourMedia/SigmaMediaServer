@@ -38,28 +38,39 @@ impl SessionMaster {
     }
 
     pub fn remove_session(&mut self, id: usize) {
-        self.nominated_map
-            .session_map
-            .remove(&id)
-            .map(|session| {
-                self.nominated_map.address_map.remove(session.get_address());
-                match session{
-                    NominatedSession::Streamer(_) => {
-                        debug!(target: "Session Master", "Removing Nominated Streamer ID {} at address: {}", id, session.get_address());
-                        debug!(target: "Session Master", "Removing Room ID {}", id);
-                        self.room_map.remove(&id);
+        // Nominated Session removal
+        if let Some(session) = self.nominated_map.session_map.remove(&id) {
+            self.nominated_map.address_map.remove(session.get_address());
+
+            match session {
+                // Remove all Viewers
+                NominatedSession::Streamer(_) => {
+                    debug!(target: "Session Master", "Removing Nominated Streamer ID {} at address: {}", id, session.get_address());
+                    let viewers = self.room_map.get(&id).unwrap().viewers_ids.clone();
+                    for viewer_id in viewers {
+                        debug!(target: "Session Master", "Removing Viewer of {}", id);
+                        self.remove_session(viewer_id)
                     }
-                    NominatedSession::Viewer(viewer) => {
-                        debug!(target: "Session Master", "Removing Nominated Viewer ID {} at address: {}", id, viewer._socket_address);
-                       // Host room may have been already offline
-                        self.room_map.get_mut(&viewer._target_room_id).map(|room| {
-                            debug!(target: "Session Master", "Removing Viewer ID {} from Room ID {}", id, viewer._target_room_id);
-                            room.viewers_ids.remove(&id);
-                        });
-                    }
-                };
-            });
-        self.unset_map.session_map.remove(&id).and_then(|session| {
+                    debug!(target: "Session Master", "Removing Room ID {}", id);
+                    self.room_map.remove(&id);
+                }
+                // Remove viewer from Room
+                NominatedSession::Viewer(viewer) => {
+                    debug!(target: "Session Master", "Removing Nominated Viewer ID {} at address: {}", id, viewer._socket_address);
+                    debug!(target: "Session Master", "Removing Viewer ID {} from Room ID {}", id, viewer._target_room_id);
+                    self.room_map
+                        .get_mut(&viewer._target_room_id)
+                        .expect("Streamer Room must exist before Viewer is deleted")
+                        .viewers_ids
+                        .remove(&id);
+                }
+            }
+        } 
+        // Unset Session Removal
+        else if let Some(session) = self.unset_map.session_map.remove(&id) {
+            self.unset_map
+                .ice_username_map
+                .remove(session.get_username());
             match session {
                 UnsetSession::Streamer(_) => {
                     debug!(target: "Session Master", "Removing Unset Streamer Session ID {}", id);
@@ -68,10 +79,7 @@ impl SessionMaster {
                     debug!(target: "Session Master", "Removing Unset Viewer Session ID {}", id);
                 }
             };
-            self.unset_map
-                .ice_username_map
-                .remove(session.get_username())
-        });
+        }
     }
 
     pub fn get_unset_session(&self, session_username: &SessionUsername) -> Option<&UnsetSession> {
