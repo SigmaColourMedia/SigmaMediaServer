@@ -83,5 +83,5 @@ async fn run(mut actor: NominatedSTUNActor) {
     while let Some(msg) = actor.receiver.recv().await {
         actor.handle_message(msg).await
     }
-    debug!(target: "Nominated STUN", "Dropping actor")
+    trace!(target: "Nominated STUN", "Dropping actor")
 }

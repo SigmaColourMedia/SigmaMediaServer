@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use log::{debug, warn};
+use log::{debug, trace, warn};
 use tokio::select;
 use tokio::time::Instant;
 
@@ -32,21 +32,18 @@ struct ReceiverReportActor {
 impl ReceiverReportActor {
     pub async fn handle_message(&mut self, message: Message) {
         match message {
-            Message::FeedVideoRTP(header) => {
-                    match self.video_rtp_reporter.as_mut() {
-                        None => {
-                            let _ = self.video_rtp_reporter.insert(RTPReporter::new(
-                                header.seq,
-                                self.negotiated_session.video_session.host_ssrc,
-                                header.ssrc,
-                            ));
-                        }
-                        Some(rtp_reporter) => {
-                            rtp_reporter.feed_rtp(header);
-                        }
-                    }
-                
-            }
+            Message::FeedVideoRTP(header) => match self.video_rtp_reporter.as_mut() {
+                None => {
+                    let _ = self.video_rtp_reporter.insert(RTPReporter::new(
+                        header.seq,
+                        self.negotiated_session.video_session.host_ssrc,
+                        header.ssrc,
+                    ));
+                }
+                Some(rtp_reporter) => {
+                    rtp_reporter.feed_rtp(header);
+                }
+            },
             Message::SendReport => {
                 // Only video RR is supported
                 if let Some(rtp_reporter) = self.video_rtp_reporter.as_mut() {
@@ -120,7 +117,7 @@ async fn run(mut actor: ReceiverReportActor) {
             msg_option = actor.receiver.recv() => {
                 match msg_option{
                     None => {
-                        debug!(target: "RR Actor", "Dropping Actor");
+                        trace!(target: "RR Actor", "Dropping Actor");
                         break
                     }
                     Some(msg) => {

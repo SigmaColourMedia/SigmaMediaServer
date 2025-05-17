@@ -107,7 +107,7 @@ async fn thumbnail_resolver(req: Request<IncomingBody>) -> Result<HTTPResponse, 
         .send(MessageEvent::GetRoomThumbnail(room_id, tx))
         .unwrap();
     let image_data = rx.await.unwrap().ok_or(HTTPError::NotFound)?;
-
+    // todo Encoding takes some time. See if moved to thumbnail_generator_actor would help. Maybe create thumbnail only once in a while?
     let encoder = webp::Encoder::new(
         &image_data.data_buffer,
         PixelLayout::Rgb,

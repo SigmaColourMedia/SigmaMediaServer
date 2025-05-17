@@ -108,5 +108,5 @@ async fn run(mut actor: UnsetSTUNActor) {
     while let Some(msg) = actor.receiver.recv().await {
         actor.handle_message(msg).await;
     }
-    debug!(target: "Unset STUN", "Dropping actor")
+    trace!(target: "Unset STUN", "Dropping actor")
 }

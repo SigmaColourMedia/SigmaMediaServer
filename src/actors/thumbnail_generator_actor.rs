@@ -1,4 +1,4 @@
-use log::debug;
+use log::{debug, trace};
 
 use thumbnail_image_extractor::{ImageData, ThumbnailExtractor};
 
@@ -50,5 +50,5 @@ async fn run(mut actor: ThumbnailGeneratorActor) {
     while let Some(msg) = actor.receiver.recv().await {
         actor.handle_message(msg).await;
     }
-    debug!(target: "Thumbnail Generator Actor", "Dropping Actor")
+    trace!(target: "Thumbnail Generator Actor", "Dropping Actor")
 }

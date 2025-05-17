@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use log::{debug, warn};
+use log::{debug, trace, warn};
 use tokio::net::UdpSocket;
 
 type Sender = tokio::sync::mpsc::UnboundedSender<Message>;
@@ -21,7 +21,7 @@ impl UDPIOActor {
         match message {
             Message::ForwardPacket(((packet, remote))) => {
                 if let Err(err) = self.socket_handle.send_to(&packet, &remote).await {
-                    warn!(target: "UDPIO Actor", "Error writing to remote:{} with error:{}", remote, err);
+                    warn!(target: "UDP IO Actor", "Error writing to remote:{} with error:{}", remote, err);
                 }
             }
         }
@@ -52,5 +52,5 @@ async fn run(mut actor: UDPIOActor) {
         actor.handle_message(msg).await;
     }
 
-    debug!(target: "UDPIO Actor", "Dropping Actor");
+    trace!(target: "UDP IO Actor", "Dropping Actor");
 }

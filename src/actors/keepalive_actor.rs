@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use log::debug;
+use log::{debug, trace};
 use tokio::select;
 use tokio::time::Instant;
 
@@ -60,7 +60,7 @@ async fn run(mut actor: KeepaliveActor) {
             msg_option = actor.receiver.recv() => {
                 match msg_option{
                     None => {
-                        debug!(target: "Keepalive Actor", "Dropping Actor");
+                        trace!(target: "Keepalive Actor", "Dropping Actor");
                         break
                     }
                     Some(msg) => {

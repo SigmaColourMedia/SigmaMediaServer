@@ -173,7 +173,7 @@ async fn run(mut actor: DTLSActor) {
         actor.handle_message(msg).await;
     }
 
-    debug!(target: "DTLS Actor", "Dropping Actor");
+    trace!(target: "DTLS Actor", "Dropping Actor");
 }
 
 enum SSLStream {

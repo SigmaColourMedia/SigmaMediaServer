@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use log::debug;
+use log::{debug, trace};
 
 use crate::actors::udp_io_actor::UDPIOActorHandle;
 
@@ -56,5 +56,5 @@ async fn run(mut actor: SessionSocketActor) {
         actor.handle_message(msg).await;
     }
 
-    debug!(target: "SessionSocket Actor", "Dropping Actor");
+    trace!(target: "SessionSocket Actor", "Dropping Actor");
 }

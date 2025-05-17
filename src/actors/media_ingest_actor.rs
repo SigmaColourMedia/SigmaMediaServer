@@ -118,5 +118,5 @@ async fn run(mut actor: MediaIngestActor) {
     while let Some(msg) = actor.receiver.recv().await {
         actor.handle_message(msg).await;
     }
-    debug!(target: "Media Ingest Actor", "Dropping Actor")
+    trace!(target: "Media Ingest Actor", "Dropping Actor")
 }
