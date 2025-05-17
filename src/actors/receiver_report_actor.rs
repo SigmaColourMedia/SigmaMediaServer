@@ -55,8 +55,9 @@ impl ReceiverReportActor {
                 }
             }
             Message::SendReport => {
-                // Supports only video RR
+                // Only video RR is supported
                 if let Some(rtp_reporter) = self.video_rtp_reporter.as_mut() {
+                    // todo See if there's a better way to indicate NACK presence
                     let (report, has_nack) = rtp_reporter.generate_receiver_report();
 
                     // Don't send report if no Generic NACK is present
