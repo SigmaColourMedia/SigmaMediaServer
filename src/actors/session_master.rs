@@ -7,6 +7,7 @@ use rand::random;
 use tokio::time::Instant;
 
 use sdp::NegotiatedSession;
+use thumbnail_image_extractor::ImageData;
 
 use crate::actors::dtls_actor::DTLSActorHandle;
 use crate::actors::keepalive_actor::KeepaliveActorHandle;
@@ -64,6 +65,22 @@ impl SessionMaster {
             .ice_username_map
             .get(session_username)
             .and_then(|id| self.unset_map.session_map.get(id))
+    }
+    pub async fn get_room_thumbnail(&self, id: usize) -> Option<ImageData>{
+        
+        let thumbnail_generator_handle = 
+        self.nominated_map.session_map.get(&id).and_then(|session| match session { NominatedSession::Streamer(streamer) => {
+            Some(&streamer.thumbnail_generator_handle)
+        } });
+        
+       match thumbnail_generator_handle {
+           None => None,
+           Some(handle) => {
+               let (tx, rx) = tokio::sync::oneshot::channel::<Option<ImageData>>();
+               handle.sender.send(crate::actors::thumbnail_generator_actor::Message::GetPicture(tx)).unwrap();
+               rx.await.unwrap()
+           }
+       }
     }
 
     pub fn get_unset_session_mut(

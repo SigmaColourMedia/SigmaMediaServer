@@ -49,8 +49,6 @@ async fn main() {
         start_http_server().await;
     });
 
-    let sleep_one_sec = tokio::time::sleep(Duration::from_secs(1));
-    tokio::pin!(sleep_one_sec);
     loop {
         let mut buffer = [0u8; 2500];
 
@@ -70,6 +68,9 @@ async fn main() {
                     }
                     MessageEvent::TerminateSession(id) => {
                         master.remove_session(id);
+                    }
+                    MessageEvent::GetRoomThumbnail(id,oneshot) => {
+                        oneshot.send(master.get_room_thumbnail(id).await);
                     }}
             },
             Ok((bytes_read, remote_addr)) = udp_socket.recv_from(&mut buffer) => {

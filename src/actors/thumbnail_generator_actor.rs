@@ -25,9 +25,7 @@ impl ThumbnailGeneratorActor {
     pub async fn handle_message(&mut self, message: Message) {
         match message {
             Message::ReadPacket(packet) => {
-               if let Some(_) = self.thumbnail_extractor.try_extract_thumbnail(&packet) {
-                   debug!("Got picture")
-               };
+                if let Some(_) = self.thumbnail_extractor.try_extract_thumbnail(&packet) {};
             }
             Message::GetPicture(sender) => sender
                 .send(self.thumbnail_extractor.last_picture.clone())

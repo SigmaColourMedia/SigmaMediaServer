@@ -8,8 +8,11 @@ use hyper::service::{Service, service_fn};
 use hyper_util::rt::TokioIo;
 use log::{debug, error, info};
 use tokio::net::TcpListener;
+use tokio::time::Instant;
+use webp::PixelLayout;
 
 use sdp::SDPResolver;
+use thumbnail_image_extractor::ImageData;
 
 use crate::actors::{get_event_bus, MessageEvent};
 use crate::config::get_global_config;
@@ -41,6 +44,7 @@ pub async fn start_http_server() {
 
             async move {
                 match req.uri().path() {
+                    "/thumbnail" => thumbnail_route(req).await,
                     "/whip" => whip_route(req, sdp_resolver).await,
                     "/debug/session" => session_debug_route(req).await,
                     _ => error_route(HTTPError::NotFound).await,
@@ -81,6 +85,42 @@ async fn error_route(http_error: HTTPError) -> RouteResult {
     }
 }
 
+async fn thumbnail_route(req: Request<IncomingBody>) -> RouteResult {
+    let res = thumbnail_resolver(req).await;
+    match res {
+        Ok(res) => Ok(res),
+        Err(err) => error_route(err).await,
+    }
+}
+
+async fn thumbnail_resolver(req: Request<IncomingBody>) -> Result<HTTPResponse, HTTPError> {
+    let room_id = req
+        .uri()
+        .query()
+        .and_then(|query| query.split("&").find(|item| item.starts_with("room_id=")))
+        .and_then(|param| param.split_once("room_id="))
+        .and_then(|(_, id)| id.parse::<usize>().ok())
+        .ok_or(HTTPError::BadRequest)?;
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<ImageData>>();
+    get_event_bus()
+        .send(MessageEvent::GetRoomThumbnail(room_id, tx))
+        .unwrap();
+    let image_data = rx.await.unwrap().ok_or(HTTPError::NotFound)?;
+
+    let encoder = webp::Encoder::new(
+        &image_data.data_buffer,
+        PixelLayout::Rgb,
+        image_data.width as u32,
+        image_data.height as u32,
+    );
+
+    let encoded = encoder.encode(75.0);
+    Ok(Response::builder()
+        .body(Full::new(Bytes::from(encoded.to_vec())))
+        .unwrap())
+}
+
 async fn whip_route(req: Request<IncomingBody>, sdp_resolver: Arc<SDPResolver>) -> RouteResult {
     let res = whip_resolver(req, sdp_resolver).await;
     match res {
@@ -89,7 +129,7 @@ async fn whip_route(req: Request<IncomingBody>, sdp_resolver: Arc<SDPResolver>) 
     }
 }
 
-async fn session_debug_route(req: Request<IncomingBody>) -> RouteResult{
+async fn session_debug_route(req: Request<IncomingBody>) -> RouteResult {
     let res = session_debug_resolver(req).await;
     match res {
         Ok(res) => Ok(res),
@@ -97,14 +137,18 @@ async fn session_debug_route(req: Request<IncomingBody>) -> RouteResult{
     }
 }
 
-async fn session_debug_resolver(req: Request<IncomingBody>) -> Result<HTTPResponse, HTTPError>{
+async fn session_debug_resolver(req: Request<IncomingBody>) -> Result<HTTPResponse, HTTPError> {
     let (tx, rx) = tokio::sync::oneshot::channel::<String>();
-    
-    get_event_bus().send(MessageEvent::DebugSession(tx)).unwrap();
-    
+
+    get_event_bus()
+        .send(MessageEvent::DebugSession(tx))
+        .unwrap();
+
     let res = rx.await.unwrap();
-    
-    Ok(Response::builder().body(Full::new(Bytes::from(res))).unwrap())
+
+    Ok(Response::builder()
+        .body(Full::new(Bytes::from(res)))
+        .unwrap())
 }
 
 async fn whip_resolver(

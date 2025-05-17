@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 
 use sdp::NegotiatedSession;
+use thumbnail_image_extractor::ImageData;
 
 use crate::EVENT_BUS;
 use crate::ice_registry::SessionUsername;
@@ -22,6 +23,7 @@ pub mod unset_stun_actor;
 pub enum MessageEvent {
     NominateSession(SessionPointer),
     InitStreamer(NegotiatedSession),
+    GetRoomThumbnail(usize, tokio::sync::oneshot::Sender<Option<ImageData>>),
     TerminateSession(usize),
     DebugSession(tokio::sync::oneshot::Sender<String>),
 }
