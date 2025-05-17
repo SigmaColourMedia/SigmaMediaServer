@@ -66,21 +66,28 @@ impl SessionMaster {
             .get(session_username)
             .and_then(|id| self.unset_map.session_map.get(id))
     }
-    pub async fn get_room_thumbnail(&self, id: usize) -> Option<ImageData>{
-        
-        let thumbnail_generator_handle = 
-        self.nominated_map.session_map.get(&id).and_then(|session| match session { NominatedSession::Streamer(streamer) => {
-            Some(&streamer.thumbnail_generator_handle)
-        } });
-        
-       match thumbnail_generator_handle {
-           None => None,
-           Some(handle) => {
-               let (tx, rx) = tokio::sync::oneshot::channel::<Option<ImageData>>();
-               handle.sender.send(crate::actors::thumbnail_generator_actor::Message::GetPicture(tx)).unwrap();
-               rx.await.unwrap()
-           }
-       }
+    pub async fn get_room_thumbnail(&self, id: usize) -> Option<ImageData> {
+        let thumbnail_generator_handle =
+            self.nominated_map
+                .session_map
+                .get(&id)
+                .and_then(|session| match session {
+                    NominatedSession::Streamer(streamer) => {
+                        Some(&streamer.thumbnail_generator_handle)
+                    }
+                });
+
+        match thumbnail_generator_handle {
+            None => None,
+            Some(handle) => {
+                let (tx, rx) = tokio::sync::oneshot::channel::<Option<ImageData>>();
+                handle
+                    .sender
+                    .send(crate::actors::thumbnail_generator_actor::Message::GetPicture(tx))
+                    .unwrap();
+                rx.await.unwrap()
+            }
+        }
     }
 
     pub fn get_unset_session_mut(
@@ -107,6 +114,7 @@ impl SessionMaster {
     }
     pub fn add_streamer(&mut self, negotiated_session: NegotiatedSession) {
         let id = random::<usize>();
+
         let session_username = SessionUsername {
             host: negotiated_session.ice_credentials.host_username.clone(),
             remote: negotiated_session.ice_credentials.remote_username.clone(),
@@ -177,6 +185,8 @@ impl SessionMaster {
                 self.nominated_map.session_map.insert(id, nominated_session);
                 self.room_map
                     .insert(id, Room::new(session_data.negotiated_session));
+
+                debug!(target: "Main","Opened Room with ID:{}", id);
             }
             UnsetSession::Viewer(_) => {
                 // todo support Viewer
@@ -235,10 +245,53 @@ pub enum NominatedSession {
     Streamer(StreamerSessionData),
 }
 
+impl NominatedSession {
+    pub fn get_stun_handle(&self) -> &NominatedSTUNActorHandle {
+        match self {
+            NominatedSession::Streamer(streamer) => &streamer.stun_actor_handle,
+        }
+    }
+
+    pub fn get_keepalive_handle(&self) -> &KeepaliveActorHandle {
+        match self {
+            NominatedSession::Streamer(streamer) => &streamer.keepalive_handle,
+        }
+    }
+
+    pub fn get_dtls_handle(&self) -> &DTLSActorHandle {
+        match self {
+            NominatedSession::Streamer(streamer) => &streamer.dtls_actor,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum UnsetSession {
     Streamer(UnsetSessionData),
     Viewer(UnsetSessionData),
+}
+
+impl UnsetSession {
+    pub fn get_stun_handle(&self) -> &UnsetSTUNActorHandle {
+        match self {
+            UnsetSession::Streamer(streamer) => &streamer.stun_actor_handle,
+            UnsetSession::Viewer(viewer) => &viewer.stun_actor_handle,
+        }
+    }
+
+    pub fn get_session_username(&self) -> &SessionUsername {
+        match self {
+            UnsetSession::Streamer(streamer) => &streamer._ice_username,
+            UnsetSession::Viewer(viewer) => &viewer._ice_username,
+        }
+    }
+
+    pub fn get_keepalive_handle(&self) -> &KeepaliveActorHandle {
+        match self {
+            UnsetSession::Streamer(streamer) => &streamer.keepalive_handle,
+            UnsetSession::Viewer(viewer) => &viewer.keepalive_handle,
+        }
+    }
 }
 
 #[derive(Debug)]
