@@ -11,14 +11,15 @@ use sdp::SDPResolver;
 
 use crate::actors::get_packet_type::{get_packet_type, PacketType};
 use crate::actors::MessageEvent;
-use crate::actors::rust_hyper::start_http_server;
 use crate::actors::session_master::{NominatedSession, SessionMaster, UnsetSession};
 use crate::actors::udp_io_actor::UDPIOActorHandle;
+use crate::api::server::start_http_server;
 use crate::config::get_global_config;
 use crate::stun::ICEStunMessageType;
 
 mod acceptor;
 mod actors;
+mod api;
 mod client;
 mod config;
 mod http;

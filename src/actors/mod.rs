@@ -12,7 +12,6 @@ pub mod keepalive_actor;
 pub mod media_ingest_actor;
 pub mod nominated_stun_actor;
 pub mod receiver_report_actor;
-pub mod rust_hyper;
 pub mod session_master;
 pub mod session_socket_actor;
 pub mod thumbnail_generator_actor;
