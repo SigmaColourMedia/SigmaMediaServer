@@ -22,7 +22,7 @@ use crate::ice_registry::SessionUsername;
 #[derive(Debug)]
 pub struct SessionMaster {
     nominated_map: NominatedSessionMap,
-    room_map: HashMap<usize, HashSet<usize>>,
+    room_map: HashMap<usize, Room>,
     unset_map: UnsetSessionMap,
     socket_io_actor_handle: UDPIOActorHandle,
 }
@@ -137,14 +137,13 @@ impl SessionMaster {
 
                 let nominated_session = NominatedSession::Streamer(StreamerSessionData {
                     keepalive_handle: KeepaliveActorHandle::new(id),
-                    negotiated_session: session_data.negotiated_session.clone(),
                     media_digest_actor_handle: MediaIngestActorHandle::new(
                         dtls_handle.clone(),
                         rr_handle,
                     ),
                     dtls_actor: dtls_handle,
                     stun_actor_handle: NominatedSTUNActorHandle::new(
-                        session_data.negotiated_session,
+                        session_data.negotiated_session.clone(),
                         session_socket_handle,
                     ),
                     _socket_address: remote_addr.clone(),
@@ -153,11 +152,26 @@ impl SessionMaster {
 
                 self.nominated_map.address_map.insert(remote_addr, id);
                 self.nominated_map.session_map.insert(id, nominated_session);
-                self.room_map.insert(id, HashSet::new());
+                self.room_map.insert(id, Room::new(session_data.negotiated_session));
             }
             UnsetSession::Viewer(_) => {
                 // todo support Viewer
             }
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Room{
+    viewers_ids: HashSet<usize>,
+    host_session: NegotiatedSession
+}
+
+impl Room{
+    pub fn new(negotiated_session: NegotiatedSession) -> Self{
+        Self{
+            host_session: negotiated_session,
+            viewers_ids: HashSet::new()
         }
     }
 }
@@ -217,6 +231,5 @@ pub struct StreamerSessionData {
     pub stun_actor_handle: NominatedSTUNActorHandle,
     pub media_digest_actor_handle: MediaIngestActorHandle,
     pub dtls_actor: DTLSActorHandle,
-    pub negotiated_session: NegotiatedSession,
     _socket_address: SocketAddr,
 }
