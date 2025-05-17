@@ -38,24 +38,40 @@ impl SessionMaster {
     }
 
     pub fn remove_session(&mut self, id: usize) {
-        debug!(target: "Session Master", "Removing session {}", id);
         self.nominated_map
             .session_map
             .remove(&id)
-            .and_then(|session| {
-                let address = match session {
-                    NominatedSession::Streamer(streamer) => streamer._socket_address,
+            .map(|session| {
+                self.nominated_map.address_map.remove(session.get_address());
+                match session{
+                    NominatedSession::Streamer(_) => {
+                        debug!(target: "Session Master", "Removing Nominated Streamer ID {} at address: {}", id, session.get_address());
+                        debug!(target: "Session Master", "Removing Room ID {}", id);
+                        self.room_map.remove(&id);
+                    }
+                    NominatedSession::Viewer(viewer) => {
+                        debug!(target: "Session Master", "Removing Nominated Viewer ID {} at address: {}", id, viewer._socket_address);
+                       // Host room may have been already offline
+                        self.room_map.get_mut(&viewer._target_room_id).map(|room| {
+                            debug!(target: "Session Master", "Removing Viewer ID {} from Room ID {}", id, viewer._target_room_id);
+                            room.viewers_ids.remove(&id);
+                        });
+                    }
                 };
-                self.nominated_map.address_map.remove(&address)
             });
         self.unset_map.session_map.remove(&id).and_then(|session| {
-            let username = match session {
-                UnsetSession::Streamer(streamer) => streamer._ice_username,
-                UnsetSession::Viewer(viewer) => viewer._ice_username,
+            match session {
+                UnsetSession::Streamer(_) => {
+                    debug!(target: "Session Master", "Removing Unset Streamer Session ID {}", id);
+                }
+                UnsetSession::Viewer(_) => {
+                    debug!(target: "Session Master", "Removing Unset Viewer Session ID {}", id);
+                }
             };
-            self.unset_map.ice_username_map.remove(&username)
+            self.unset_map
+                .ice_username_map
+                .remove(session.get_username())
         });
-        self.room_map.remove(&id);
     }
 
     pub fn get_unset_session(&self, session_username: &SessionUsername) -> Option<&UnsetSession> {
@@ -73,6 +89,7 @@ impl SessionMaster {
                     NominatedSession::Streamer(streamer) => {
                         Some(&streamer.thumbnail_generator_handle)
                     }
+                    _ => None,
                 });
 
         match thumbnail_generator_handle {
@@ -212,8 +229,37 @@ impl SessionMaster {
                 debug!(target: "Session Master","Nominated Streamer Session with ID: {}", id);
                 debug!(target: "Session Master","Opened Room with ID: {}", id);
             }
-            UnsetSession::Viewer(_) => {
+            UnsetSession::Viewer(session_data) => {
                 // todo support Viewer
+                let session_socket_handle = SessionSocketActorHandle::new(
+                    self.socket_io_actor_handle.clone(),
+                    remote_addr.clone(),
+                );
+                let dtls_handle = DTLSActorHandle::new(session_socket_handle.clone());
+
+                let id = random::<usize>();
+
+                let nominated_session = NominatedSession::Viewer(ViewerSessionData {
+                    keepalive_handle: KeepaliveActorHandle::new(id),
+                    dtls_actor: dtls_handle,
+                    stun_actor_handle: NominatedSTUNActorHandle::new(
+                        session_data.negotiated_session.clone(),
+                        session_socket_handle,
+                    ),
+                    _socket_address: remote_addr.clone(),
+                    _target_room_id: session_data._target_room_id,
+                });
+                trace!(target: "Session Master", "Created NominatedSession {:#?}", nominated_session);
+
+                self.nominated_map.address_map.insert(remote_addr, id);
+                self.nominated_map.session_map.insert(id, nominated_session);
+                self.room_map
+                    .get_mut(&session_data._target_room_id)
+                    .expect("Host room must exist for viewer to be nominated")
+                    .viewers_ids
+                    .insert(id);
+
+                debug!(target: "Session Master","Nominated Viewer Session with ID: {}", id);
             }
         }
     }
@@ -267,24 +313,35 @@ impl UnsetSessionMap {
 #[derive(Debug)]
 pub enum NominatedSession {
     Streamer(StreamerSessionData),
+    Viewer(ViewerSessionData),
 }
 
 impl NominatedSession {
     pub fn get_stun_handle(&self) -> &NominatedSTUNActorHandle {
         match self {
             NominatedSession::Streamer(streamer) => &streamer.stun_actor_handle,
+            NominatedSession::Viewer(viewer) => &viewer.stun_actor_handle,
         }
     }
 
     pub fn get_keepalive_handle(&self) -> &KeepaliveActorHandle {
         match self {
             NominatedSession::Streamer(streamer) => &streamer.keepalive_handle,
+            NominatedSession::Viewer(viewer) => &viewer.keepalive_handle,
         }
     }
 
     pub fn get_dtls_handle(&self) -> &DTLSActorHandle {
         match self {
             NominatedSession::Streamer(streamer) => &streamer.dtls_actor,
+            NominatedSession::Viewer(viewer) => &viewer.dtls_actor,
+        }
+    }
+
+    pub fn get_address(&self) -> &SocketAddr {
+        match self {
+            NominatedSession::Streamer(streamer) => &streamer._socket_address,
+            NominatedSession::Viewer(viewer) => &viewer._socket_address,
         }
     }
 }
@@ -303,7 +360,7 @@ impl UnsetSession {
         }
     }
 
-    pub fn get_session_username(&self) -> &SessionUsername {
+    pub fn get_username(&self) -> &SessionUsername {
         match self {
             UnsetSession::Streamer(streamer) => &streamer._ice_username,
             UnsetSession::Viewer(viewer) => &viewer._ice_username,
@@ -343,4 +400,13 @@ pub struct StreamerSessionData {
     pub media_digest_actor_handle: MediaIngestActorHandle,
     pub dtls_actor: DTLSActorHandle,
     _socket_address: SocketAddr,
+}
+
+#[derive(Debug)]
+pub struct ViewerSessionData {
+    pub keepalive_handle: KeepaliveActorHandle,
+    pub stun_actor_handle: NominatedSTUNActorHandle,
+    pub dtls_actor: DTLSActorHandle,
+    _socket_address: SocketAddr,
+    _target_room_id: usize,
 }

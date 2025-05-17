@@ -65,7 +65,6 @@ async fn main() {
             Some(message) = rx.recv() => {
                 match message {
                     MessageEvent::NominateSession(session_pointer) => {
-                        debug!(target: "Main", "Nominating session with username:{}",session_pointer.session_username.host);
                         master.nominate_session(session_pointer);
                     }
                     MessageEvent::InitStreamer(negotiated_session) => {
@@ -108,7 +107,8 @@ async fn main() {
                                 NominatedSession::Streamer(streamer) => {
                                     streamer.keepalive_handle.sender.send(actors::keepalive_actor::Message::UpdateTTL).unwrap();
                                     streamer.media_digest_actor_handle.sender.send(actors::media_ingest_actor::Message::ReadPacket(packet)).unwrap();
-                                }
+                                },
+                                _ => {}
                             }
                         }
                     }

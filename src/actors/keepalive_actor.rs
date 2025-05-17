@@ -6,7 +6,7 @@ use tokio::time::Instant;
 
 use crate::actors::{get_event_bus, MessageEvent};
 
-static MAX_TTL: Duration = Duration::from_secs(5);
+static MAX_TTL: Duration = Duration::from_secs(10);
 
 type Sender = tokio::sync::mpsc::UnboundedSender<Message>;
 type Receiver = tokio::sync::mpsc::UnboundedReceiver<Message>;
