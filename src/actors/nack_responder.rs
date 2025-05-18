@@ -1,11 +1,7 @@
-use bytes::Bytes;
-use log::{debug, trace};
+use log::trace;
 
-use rtcp::Unmarshall;
-
+use crate::actors::rtp_cache::RTPCache;
 use crate::actors::session_socket_actor::SessionSocketActorHandle;
-use crate::media_header::RTPHeader;
-use crate::rtp_replay_buffer::ReplayBuffer;
 
 type Sender = tokio::sync::mpsc::UnboundedSender<Message>;
 type Receiver = tokio::sync::mpsc::UnboundedReceiver<Message>;
@@ -17,16 +13,16 @@ pub enum Message {
 
 struct NackResponderActor {
     receiver: Receiver,
-    replay_buffer: ReplayBuffer,
+    rtp_cache: RTPCache,
     socket_handle: SessionSocketActorHandle,
 }
 
 impl NackResponderActor {
     pub async fn handle_message(&mut self, message: Message) {
         match message {
-            Message::RegisterPacket(packet) => self.replay_buffer.insert(Bytes::from(packet)),
+            Message::RegisterPacket(packet) => self.rtp_cache.insert_packet(packet),
             Message::ResendPacket(seq) => {
-                if let Some(packet) = self.replay_buffer.get(seq) {
+                if let Some(packet) = self.rtp_cache.get_packet(seq) {
                     self.socket_handle
                         .sender
                         .send(crate::actors::session_socket_actor::Message::ForwardPacket(
@@ -49,7 +45,7 @@ impl NackResponderActorHandle {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<Message>();
         let actor = NackResponderActor {
             socket_handle,
-            replay_buffer: ReplayBuffer::default(),
+            rtp_cache: RTPCache::new(),
             receiver,
         };
         tokio::spawn(run(actor));

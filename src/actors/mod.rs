@@ -14,6 +14,7 @@ pub mod media_ingest_actor;
 mod nack_responder;
 pub mod nominated_stun_actor;
 pub mod receiver_report_actor;
+mod rtp_cache;
 pub mod session_master;
 pub mod session_socket_actor;
 pub mod thumbnail_generator_actor;
