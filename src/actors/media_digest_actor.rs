@@ -32,7 +32,9 @@ impl MediaDigestActor {
                     .sender
                     .send(crate::actors::dtls_actor::Message::EncodeRTP(packet, tx))
                     .unwrap();
-                match rx.await.unwrap() {
+                let encrypt_result = rx.await.unwrap();
+
+                match encrypt_result {
                     Ok(packet) => self
                         .socket_handle
                         .sender

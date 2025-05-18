@@ -246,6 +246,8 @@ impl SessionMaster {
                     remote_addr.clone(),
                 );
                 let dtls_handle = DTLSActorHandle::new(socket_handle.clone());
+                
+                // Check if target Room exists (it could've been removed before Viewer nomination event)
                 match self.room_map.get(&session_data._target_room_id) {
                     None => {
                         warn!(target: "Session Master", "Attempted to nominate Viewer registered to undefined Room");
