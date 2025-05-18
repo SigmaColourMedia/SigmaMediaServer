@@ -289,21 +289,13 @@ impl SessionMaster {
     }
 
     pub fn forward_packet_to_viewers(&self, packet: Vec<u8>, room_id: usize) {
-        let viewer_ids = &self.room_map.get(&room_id).unwrap().viewers_ids;
+        let media_digest_actor_handles = &self.room_map.get(&room_id).unwrap().viewers_ids.iter().filter_map(|id| self.nominated_map.session_map.get(id)).filter_map(|session| match session {
+            NominatedSession::Streamer(_) => None,
+            NominatedSession::Viewer(viewer) => Some(viewer)
+        }).map(|viewer| &viewer.media_digest_actor_handle).collect::<Vec<&MediaDigestActorHandle>>();
 
-        for viewer_id in viewer_ids {
-            self.nominated_map
-                .session_map
-                .get(viewer_id)
-                .map(|session| match session {
-                    NominatedSession::Streamer(_) => {
-                        panic!("Streamer cannot be part of Room's viewers")
-                    }
-                    NominatedSession::Viewer(viewer) => viewer,
-                })
-                .iter().for_each(|viewer| {
-                    viewer.media_digest_actor_handle.sender.send(crate::actors::media_digest_actor::Message::ReadPacket(packet.clone())).unwrap();
-                });
+        for handle in media_digest_actor_handles {
+            handle.sender.send(crate::actors::media_digest_actor::Message::ReadPacket(packet.clone())).unwrap();
         }
     }
 }
