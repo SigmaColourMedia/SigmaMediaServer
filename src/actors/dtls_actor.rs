@@ -11,14 +11,17 @@ use crate::config::get_global_config;
 
 type Sender = tokio::sync::mpsc::UnboundedSender<Message>;
 type Receiver = tokio::sync::mpsc::UnboundedReceiver<Message>;
+type Oneshot<T> = tokio::sync::oneshot::Sender<T>;
+
+pub type CryptoOneshot = Oneshot<CryptoResult>;
+pub type CryptoResult = Result<Vec<u8>, CryptoError>;
 
 pub enum Message {
     ReadPacket(Vec<u8>),
-    DecodeSRTP(Vec<u8>, tokio::sync::oneshot::Sender<CryptoResult>),
-    EncodeRTCP(Vec<u8>, tokio::sync::oneshot::Sender<CryptoResult>),
+    DecodeSRTP(Vec<u8>, CryptoOneshot),
+    EncodeRTCP(Vec<u8>, CryptoOneshot),
+    EncodeRTP(Vec<u8>, CryptoOneshot),
 }
-
-pub type CryptoResult = Result<Vec<u8>, CryptoError>;
 
 #[derive(Debug)]
 pub enum CryptoError {
@@ -46,6 +49,10 @@ impl DTLSActor {
             }
             Message::EncodeRTCP(packet, oneshot) => {
                 oneshot.send(self.crypto.encode_rtcp(packet)).unwrap()
+            }
+            Message::EncodeRTP(packet, oneshot) => {
+                oneshot.send(self.crypto.encode_rtp(packet)).unwrap()
+
             }
         }
     }
@@ -146,6 +153,17 @@ impl Crypto {
             SSLStream::Established(ssl_stream) => ssl_stream
                 .outbound_session
                 .protect_rtcp(&mut packet)
+                .map(|_| packet)
+                .map_err(|err| CryptoError::EncodingError(err)),
+            _ => Err(CryptoError::InvalidSSLState),
+        }
+    }
+
+    fn encode_rtp(&mut self, mut packet: Vec<u8>) -> CryptoResult {
+        match &mut self.ssl_stream {
+            SSLStream::Established(ssl_stream) => ssl_stream
+                .outbound_session
+                .protect(&mut packet)
                 .map(|_| packet)
                 .map_err(|err| CryptoError::EncodingError(err)),
             _ => Err(CryptoError::InvalidSSLState),

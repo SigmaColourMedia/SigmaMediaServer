@@ -7,6 +7,7 @@ use rtcp::Unmarshall;
 use sdp::NegotiatedSession;
 
 use crate::actors;
+use crate::actors::{get_event_bus, MessageEvent};
 use crate::actors::dtls_actor::{CryptoResult, DTLSActorHandle};
 use crate::actors::receiver_report_actor::ReceiverReportActorHandle;
 use crate::actors::thumbnail_generator_actor::ThumbnailGeneratorActorHandle;
@@ -21,6 +22,7 @@ pub enum Message {
 
 struct MediaIngestActor {
     receiver: Receiver,
+    _room_id: usize,
     negotiated_session: NegotiatedSession,
     dtls_actor_handle: DTLSActorHandle,
     rr_actor_handle: ReceiverReportActorHandle,
@@ -50,7 +52,7 @@ impl MediaIngestActor {
                                 self.thumbnail_handle
                                     .sender
                                     .send(actors::thumbnail_generator_actor::Message::ReadPacket(
-                                        packet,
+                                        packet.clone(),
                                     ))
                                     .unwrap();
                                 self.rr_actor_handle
@@ -59,8 +61,15 @@ impl MediaIngestActor {
                                         header,
                                     ))
                                     .unwrap();
+                                get_event_bus()
+                                    .send(MessageEvent::ForwardToViewers(packet, self._room_id))
+                                    .unwrap();
                             }
-                            MediaSSRCType::Audio => {}
+                            MediaSSRCType::Audio => {
+                                get_event_bus()
+                                    .send(MessageEvent::ForwardToViewers(packet, self._room_id))
+                                    .unwrap();
+                            }
                             MediaSSRCType::Unknown => {}
                         };
                     }
@@ -83,9 +92,9 @@ fn get_media_ssrc_type(
     negotiated_session: &NegotiatedSession,
     rtp_header: &RTPHeader,
 ) -> MediaSSRCType {
-    match rtp_header.ssrc {
-        n if n == negotiated_session.video_session.remote_ssrc.unwrap() => MediaSSRCType::Video,
-        n if n == negotiated_session.audio_session.remote_ssrc.unwrap() => MediaSSRCType::Audio,
+    match rtp_header.payload_type {
+        n if n == negotiated_session.video_session.payload_number as u8 => MediaSSRCType::Video,
+        n if n == negotiated_session.audio_session.payload_number as u8 => MediaSSRCType::Audio,
         _ => MediaSSRCType::Unknown,
     }
 }
@@ -100,6 +109,7 @@ impl MediaIngestActorHandle {
         rr_actor_handle: ReceiverReportActorHandle,
         thumbnail_handle: ThumbnailGeneratorActorHandle,
         negotiated_session: NegotiatedSession,
+        room_id: usize,
     ) -> Self {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<Message>();
         let actor = MediaIngestActor {
@@ -108,6 +118,7 @@ impl MediaIngestActorHandle {
             dtls_actor_handle,
             rr_actor_handle,
             thumbnail_handle,
+            _room_id: room_id,
         };
         tokio::spawn(run(actor));
 

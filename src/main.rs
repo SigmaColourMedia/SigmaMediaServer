@@ -85,8 +85,9 @@ async fn main() {
                                 master.add_viewer(room_id, negotiated_session);
                             }
                         }
-
-
+                    }
+                    MessageEvent::ForwardToViewers(packet, room_id) => {
+                        master.forward_packet_to_viewers(packet, room_id);
                     }}
             },
             Ok((bytes_read, remote_addr)) = udp_socket.recv_from(&mut buffer) => {

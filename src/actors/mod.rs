@@ -9,6 +9,7 @@ use crate::ice_registry::SessionUsername;
 pub mod dtls_actor;
 pub mod get_packet_type;
 pub mod keepalive_actor;
+mod media_digest_actor;
 pub mod media_ingest_actor;
 pub mod nominated_stun_actor;
 pub mod receiver_report_actor;
@@ -28,6 +29,7 @@ pub enum MessageEvent {
     InitViewer(String, SessionID, Oneshot<Option<String>>),
     GetRoomThumbnail(SessionID, Oneshot<Option<ImageData>>),
     TerminateSession(SessionID),
+    ForwardToViewers(Vec<u8>, SessionID)
 }
 
 #[derive(Debug)]
