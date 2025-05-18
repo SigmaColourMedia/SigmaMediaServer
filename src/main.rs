@@ -95,18 +95,30 @@ async fn main() {
 
                 let packet_type = get_packet_type(Bytes::copy_from_slice(&packet));
                 match packet_type{
-                    PacketType::RTP(rtp_header) => {
+                    PacketType::RTP(_) => {
                         if let Some(session) = master.get_session_mut(&remote_addr){
                             match session{
                                 NominatedSession::Streamer(streamer) => {
                                     streamer.keepalive_handle.sender.send(actors::keepalive_actor::Message::UpdateTTL).unwrap();
                                     streamer.media_digest_actor_handle.sender.send(actors::media_ingest_actor::Message::ReadPacket(packet)).unwrap();
                                 },
-                                _ => {}
+                                NominatedSession::Viewer(_) => {
+                                    //Unsupported packet
+                                }
                             }
                         }
                     }
-                    PacketType::RTCP(_) => {}
+                    PacketType::RTCP(rtcp_packet) => {
+                        if let Some(session) =  master.get_session_mut(&remote_addr){
+                            match session{
+                                NominatedSession::Viewer(viewer) => {
+                                    viewer.media_control_actor.sender.send(crate::actors::viewer_media_control_actor::Message::ReadPacket(packet)).unwrap()
+                                }
+                                // Unsupported packet
+                                NominatedSession::Streamer(_) => {}
+                            }
+                        }
+                    }
                     PacketType::STUN(stun_type) => {
                         let session_username = match &stun_type
                         {

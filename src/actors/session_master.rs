@@ -11,6 +11,7 @@ use crate::actors::dtls_actor::DTLSActorHandle;
 use crate::actors::keepalive_actor::KeepaliveActorHandle;
 use crate::actors::media_digest_actor::MediaDigestActorHandle;
 use crate::actors::media_ingest_actor::MediaIngestActorHandle;
+use crate::actors::nack_responder::NackResponderActorHandle;
 use crate::actors::nominated_stun_actor::NominatedSTUNActorHandle;
 use crate::actors::receiver_report_actor::ReceiverReportActorHandle;
 use crate::actors::session_socket_actor::SessionSocketActorHandle;
@@ -18,6 +19,7 @@ use crate::actors::SessionPointer;
 use crate::actors::thumbnail_generator_actor::ThumbnailGeneratorActorHandle;
 use crate::actors::udp_io_actor::UDPIOActorHandle;
 use crate::actors::unset_stun_actor::UnsetSTUNActorHandle;
+use crate::actors::viewer_media_control_actor::ViewerMediaControlActorHandle;
 use crate::ice_registry::SessionUsername;
 
 #[derive(Debug)]
@@ -240,13 +242,6 @@ impl SessionMaster {
                 debug!(target: "Session Master","Opened Room with ID: {}", id);
             }
             UnsetSession::Viewer(session_data) => {
-                // todo support Viewer
-                let socket_handle = SessionSocketActorHandle::new(
-                    self.socket_io_actor_handle.clone(),
-                    remote_addr.clone(),
-                );
-                let dtls_handle = DTLSActorHandle::new(socket_handle.clone());
-                
                 // Check if target Room exists (it could've been removed before Viewer nomination event)
                 match self.room_map.get(&session_data._target_room_id) {
                     None => {
@@ -255,12 +250,21 @@ impl SessionMaster {
                     }
                     Some(room) => {
                         let id = random::<usize>();
+                        let socket_handle = SessionSocketActorHandle::new(
+                            self.socket_io_actor_handle.clone(),
+                            remote_addr.clone(),
+                        );
+                        let dtls_handle = DTLSActorHandle::new(socket_handle.clone());
+                        let nack_handle = NackResponderActorHandle::new(socket_handle.clone());
                         let media_digest_handle = MediaDigestActorHandle::new(
                             socket_handle.clone(),
                             dtls_handle.clone(),
+                            nack_handle.clone(),
                             room.host_session.clone(),
                             session_data.negotiated_session.clone(),
                         );
+                        let media_control_handle =
+                            ViewerMediaControlActorHandle::new(dtls_handle.clone(), nack_handle);
 
                         let nominated_session = NominatedSession::Viewer(ViewerSessionData {
                             keepalive_handle: KeepaliveActorHandle::new(id),
@@ -269,6 +273,7 @@ impl SessionMaster {
                                 session_data.negotiated_session.clone(),
                                 socket_handle,
                             ),
+                            media_control_actor: media_control_handle,
                             _socket_address: remote_addr.clone(),
                             _target_room_id: session_data._target_room_id,
                             media_digest_actor_handle: media_digest_handle,
@@ -291,13 +296,27 @@ impl SessionMaster {
     }
 
     pub fn forward_packet_to_viewers(&self, packet: Vec<u8>, room_id: usize) {
-        let media_digest_actor_handles = &self.room_map.get(&room_id).unwrap().viewers_ids.iter().filter_map(|id| self.nominated_map.session_map.get(id)).filter_map(|session| match session {
-            NominatedSession::Streamer(_) => None,
-            NominatedSession::Viewer(viewer) => Some(viewer)
-        }).map(|viewer| &viewer.media_digest_actor_handle).collect::<Vec<&MediaDigestActorHandle>>();
+        let media_digest_actor_handles = &self
+            .room_map
+            .get(&room_id)
+            .unwrap()
+            .viewers_ids
+            .iter()
+            .filter_map(|id| self.nominated_map.session_map.get(id))
+            .filter_map(|session| match session {
+                NominatedSession::Streamer(_) => None,
+                NominatedSession::Viewer(viewer) => Some(viewer),
+            })
+            .map(|viewer| &viewer.media_digest_actor_handle)
+            .collect::<Vec<&MediaDigestActorHandle>>();
 
         for handle in media_digest_actor_handles {
-            handle.sender.send(crate::actors::media_digest_actor::Message::ReadPacket(packet.clone())).unwrap();
+            handle
+                .sender
+                .send(crate::actors::media_digest_actor::Message::ReadPacket(
+                    packet.clone(),
+                ))
+                .unwrap();
         }
     }
 }
@@ -444,6 +463,7 @@ pub struct ViewerSessionData {
     pub keepalive_handle: KeepaliveActorHandle,
     pub stun_actor_handle: NominatedSTUNActorHandle,
     pub dtls_actor: DTLSActorHandle,
+    pub media_control_actor: ViewerMediaControlActorHandle,
     pub media_digest_actor_handle: MediaDigestActorHandle,
     _socket_address: SocketAddr,
     _target_room_id: usize,

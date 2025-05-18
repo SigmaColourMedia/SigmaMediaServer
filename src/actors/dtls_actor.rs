@@ -19,6 +19,7 @@ pub type CryptoResult = Result<Vec<u8>, CryptoError>;
 pub enum Message {
     ReadPacket(Vec<u8>),
     DecodeSRTP(Vec<u8>, CryptoOneshot),
+    DecodeSRTCP(Vec<u8>, CryptoOneshot),
     EncodeRTCP(Vec<u8>, CryptoOneshot),
     EncodeRTP(Vec<u8>, CryptoOneshot),
 }
@@ -47,12 +48,14 @@ impl DTLSActor {
             Message::DecodeSRTP(packet, oneshot) => {
                 oneshot.send(self.crypto.decode_srtp(packet)).unwrap()
             }
+            Message::DecodeSRTCP(packet, oneshot) => {
+                oneshot.send(self.crypto.decode_srtcp(packet)).unwrap()
+            }
             Message::EncodeRTCP(packet, oneshot) => {
                 oneshot.send(self.crypto.encode_rtcp(packet)).unwrap()
             }
             Message::EncodeRTP(packet, oneshot) => {
                 oneshot.send(self.crypto.encode_rtp(packet)).unwrap()
-
             }
         }
     }
@@ -148,6 +151,16 @@ impl Crypto {
         }
     }
 
+    fn decode_srtcp(&mut self, mut packet: Vec<u8>) -> CryptoResult {
+        match &mut self.ssl_stream {
+            SSLStream::Established(ssl_stream) => ssl_stream
+                .inbound_session
+                .unprotect_rtcp(&mut packet)
+                .map(|_| packet)
+                .map_err(|err| CryptoError::DecodingError(err)),
+            _ => Err(CryptoError::InvalidSSLState),
+        }
+    }
     fn encode_rtcp(&mut self, mut packet: Vec<u8>) -> CryptoResult {
         match &mut self.ssl_stream {
             SSLStream::Established(ssl_stream) => ssl_stream
