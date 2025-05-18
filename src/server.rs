@@ -1,14 +1,12 @@
-use std::cell::RefCell;
 use std::collections::HashSet;
-use std::io::Write;
 use std::mem;
 use std::net::{SocketAddr, UdpSocket};
-use std::time::{Instant};
+use std::time::Instant;
 
-use bytes::{Bytes};
-use rtcp::rtcp::RtcpPacket;
+use bytes::Bytes;
+
 use rtcp::{Marshall, Unmarshall, unmarshall_compound_rtcp};
-
+use rtcp::rtcp::RtcpPacket;
 use sdp::SDPResolver;
 
 use crate::client::{Client, ClientSslState};
@@ -17,6 +15,7 @@ use crate::ice_registry::{ConnectionType, Session, SessionRegistry};
 use crate::media_header::{MediaHeader, RTPHeader};
 use crate::rtp_reporter::{nack_to_lost_pids, RTPReporter};
 use crate::stun::{create_stun_success, get_stun_packet, ICEStunMessageType};
+
 #[derive(Debug, Clone)]
 pub enum UDPServerError {
     RTCPProtectError,
@@ -51,8 +50,7 @@ impl UDPServer {
 
     pub fn process_packet(&mut self, data: &[u8], remote: SocketAddr) {
         self.inbound_buffer.resize(data.len(), 0);
-        self.inbound_buffer
-            .copy_from_slice(data);
+        self.inbound_buffer.copy_from_slice(data);
 
         match get_stun_packet(&self.inbound_buffer) {
             Some(stun_packet) => self.handle_stun_packet(&remote, stun_packet),
@@ -76,7 +74,7 @@ impl UDPServer {
                         &remote,
                         &mut buffer,
                     )
-                        .expect("Failed to create STUN success response");
+                    .expect("Failed to create STUN success response");
 
                     let output_buffer = &buffer[0..bytes_written];
                     if let Err(error) = self.socket.send_to(output_buffer, remote) {
@@ -146,20 +144,25 @@ impl UDPServer {
         // Update session TTL
         sender_session.ttl = Instant::now();
 
-
         match &mut sender_session.connection_type {
             ConnectionType::Viewer(_) => {
                 self.handle_viewer_session(&mut sender_session);
             }
-            ConnectionType::Streamer(_) => {
-                self.handle_streamer_session(&mut sender_session)
-            }
+            ConnectionType::Streamer(_) => self.handle_streamer_session(&mut sender_session),
         };
-        mem::replace(self.session_registry.get_session_by_address_mut(remote).unwrap(), sender_session);
+        mem::replace(
+            self.session_registry
+                .get_session_by_address_mut(remote)
+                .unwrap(),
+            sender_session,
+        );
     }
 
     fn handle_viewer_session(&mut self, viewer: &mut Session) {
-        let client = viewer.client.as_mut().expect("Viewer Client must be first established");
+        let client = viewer
+            .client
+            .as_mut()
+            .expect("Viewer Client must be first established");
         match &mut client.ssl_state {
             ClientSslState::Handshake(_) => {
                 if let Err(e) = client.read_packet(&self.inbound_buffer) {
@@ -168,21 +171,32 @@ impl UDPServer {
             }
             ClientSslState::Established(viewer_ssl) => {
                 let mut inbound_buffer_copy = self.inbound_buffer.clone();
-                let rtcp_decode_result = viewer_ssl.srtp_inbound.unprotect_rtcp(&mut inbound_buffer_copy).or(Err(UDPServerError::RTCPUnprotectError)).and_then(|_| {
-                    let bytes = Bytes::from(inbound_buffer_copy);
-                    unmarshall_compound_rtcp(bytes).or(Err(UDPServerError::RTCPDecodeError))
-                });
+                let rtcp_decode_result = viewer_ssl
+                    .srtp_inbound
+                    .unprotect_rtcp(&mut inbound_buffer_copy)
+                    .or(Err(UDPServerError::RTCPUnprotectError))
+                    .and_then(|_| {
+                        let bytes = Bytes::from(inbound_buffer_copy);
+                        unmarshall_compound_rtcp(bytes).or(Err(UDPServerError::RTCPDecodeError))
+                    });
 
                 if let Ok(rtcp_packets) = rtcp_decode_result {
                     for packet in rtcp_packets {
                         match packet {
                             RtcpPacket::TransportLayerFeedbackMessage(nack) => {
-                                let lost_packets = nack.nacks.iter().flat_map(nack_to_lost_pids
-                                ).collect::<HashSet<u16>>().into_iter().filter_map(|pid| client.rtp_replay_buffer.get(pid)).collect::<Vec<_>>();
-
+                                let lost_packets = nack
+                                    .nacks
+                                    .iter()
+                                    .flat_map(nack_to_lost_pids)
+                                    .collect::<HashSet<u16>>()
+                                    .into_iter()
+                                    .filter_map(|pid| client.rtp_replay_buffer.get(pid))
+                                    .collect::<Vec<_>>();
 
                                 for packet in lost_packets {
-                                    if let Err(e) = self.socket.send_to(packet, client.remote_address) {
+                                    if let Err(e) =
+                                        self.socket.send_to(packet, client.remote_address)
+                                    {
                                         eprintln!("Error resending RTP packet {}", e)
                                     }
                                 }
@@ -204,9 +218,7 @@ impl UDPServer {
         let mut sender_client = sender_session.client.as_mut().unwrap();
         if let ConnectionType::Streamer(_) = &sender_session.connection_type {
             match &mut sender_client.ssl_state {
-                ClientSslState::Handshake(_) => {
-                    self.process_dtls_handshake(sender_client)
-                }
+                ClientSslState::Handshake(_) => self.process_dtls_handshake(sender_client),
 
                 ClientSslState::Established(_) => {
                     // if thread_rng().gen_bool(0.25) {
@@ -243,7 +255,8 @@ impl UDPServer {
         if let ConnectionType::Streamer(streamer) = &mut sender_session.connection_type {
             if let ClientSslState::Established(ssl_stream) = &mut sender_client.ssl_state {
                 if let Ok(_) = ssl_stream.srtp_inbound.unprotect(&mut self.inbound_buffer) {
-                    let is_video_packet = header.payload_type == sender_session.media_session.video_session.payload_number as u8;
+                    let is_video_packet = header.payload_type
+                        == sender_session.media_session.video_session.payload_number as u8;
 
                     if is_video_packet {
                         // Feed thumbnail image extractor
@@ -253,17 +266,23 @@ impl UDPServer {
 
                         // Update video_reporter
                         match sender_session.video_reporter.as_mut() {
-                            Some(mut reporter) =>
-                                {
-                                    reporter.feed_rtp(header.clone());
-                                }
+                            Some(mut reporter) => {
+                                reporter.feed_rtp(header.clone());
+                            }
                             None => {
-                                let reporter = RTPReporter::new(header.seq, sender_session.media_session.video_session.host_ssrc, sender_session.media_session.video_session.remote_ssrc.unwrap());
+                                let reporter = RTPReporter::new(
+                                    header.seq,
+                                    sender_session.media_session.video_session.host_ssrc,
+                                    sender_session
+                                        .media_session
+                                        .video_session
+                                        .remote_ssrc
+                                        .unwrap(),
+                                );
                                 sender_session.video_reporter.insert(reporter);
                             }
                         };
                     }
-
 
                     let viewer_ids = self
                         .session_registry
@@ -274,7 +293,9 @@ impl UDPServer {
                         .into_iter();
 
                     for id in viewer_ids {
-                        let viewer_session = self.session_registry.get_session_mut(id).expect("Viewer session should be established if viewer id belongs to a room");
+                        let viewer_session = self.session_registry.get_session_mut(id).expect(
+                            "Viewer session should be established if viewer id belongs to a room",
+                        );
 
                         // If viewer has yet elected a Client, skip it
                         if viewer_session.client.is_none() {
@@ -286,32 +307,45 @@ impl UDPServer {
                         if let ClientSslState::Established(ssl_stream) =
                             &mut viewer_client.ssl_state
                         {
-
                             // Write to temp buffer
                             self.outbound_buffer.resize(self.inbound_buffer.len(), 0);
                             self.outbound_buffer.copy_from_slice(&self.inbound_buffer);
 
-
                             // Remap RTP header
                             let (host_pt, host_ssrc) = if is_video_packet {
-                                (viewer_session.media_session.video_session.payload_number, viewer_session.media_session.video_session.host_ssrc)
+                                (
+                                    viewer_session.media_session.video_session.payload_number,
+                                    viewer_session.media_session.video_session.host_ssrc,
+                                )
                             } else {
-                                (viewer_session.media_session.audio_session.payload_number, viewer_session.media_session.audio_session.host_ssrc)
+                                (
+                                    viewer_session.media_session.audio_session.payload_number,
+                                    viewer_session.media_session.audio_session.host_ssrc,
+                                )
                             };
                             let mut header_copy = header.clone();
                             header_copy.payload_type = host_pt as u8;
                             header_copy.ssrc = host_ssrc;
                             let header_buffer = header_copy.marshall().unwrap().to_vec();
-                            self.outbound_buffer[..header_buffer.len()].copy_from_slice(&header_buffer);
-
+                            self.outbound_buffer[..header_buffer.len()]
+                                .copy_from_slice(&header_buffer);
 
                             // Turn packet into SRTP
-                            if let Ok(_) = ssl_stream.srtp_outbound.protect(&mut self.outbound_buffer) {
-
+                            if let Ok(_) =
+                                ssl_stream.srtp_outbound.protect(&mut self.outbound_buffer)
+                            {
                                 // Update RTP replay Buffer
                                 if is_video_packet {
-                                    let roc = ssl_stream.srtp_outbound.session().get_stream_roc(viewer_session.media_session.video_session.host_ssrc).unwrap_or(0);
-                                    viewer_client.rtp_replay_buffer.insert(Bytes::copy_from_slice(&self.outbound_buffer), roc);
+                                    let roc = ssl_stream
+                                        .srtp_outbound
+                                        .session()
+                                        .get_stream_roc(
+                                            viewer_session.media_session.video_session.host_ssrc,
+                                        )
+                                        .unwrap_or(0);
+                                    viewer_client
+                                        .rtp_replay_buffer
+                                        .insert(Bytes::copy_from_slice(&self.outbound_buffer));
                                 }
 
                                 // if thread_rng().gen_bool(0.25) {
@@ -321,11 +355,10 @@ impl UDPServer {
                                 //     return;
                                 // }
 
-
-                                if let Err(err) = self.socket.send_to(
-                                    &self.outbound_buffer,
-                                    viewer_client.remote_address,
-                                ) {
+                                if let Err(err) = self
+                                    .socket
+                                    .send_to(&self.outbound_buffer, viewer_client.remote_address)
+                                {
                                     eprintln!("Couldn't send RTP data {}", err)
                                 }
                             }
@@ -340,13 +373,9 @@ impl UDPServer {
         }
     }
 
-
     fn process_dtls_handshake(&self, client: &mut Client) {
         if let Err(e) = client.read_packet(&self.inbound_buffer) {
             eprintln!("Error reading packet mid handshake {}", e)
         }
     }
 }
-
-
-
