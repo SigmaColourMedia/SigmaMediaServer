@@ -70,7 +70,9 @@ impl MediaIngestActor {
                                     .send(MessageEvent::ForwardToViewers(packet, self._room_id))
                                     .unwrap();
                             }
-                            MediaSSRCType::Unknown => {}
+                            MediaSSRCType::Unknown => {
+                                warn!(target: "Media Ingest Actor", "Received unrecognized RTP payload type")
+                            }
                         };
                     }
                     Err(err) => {
