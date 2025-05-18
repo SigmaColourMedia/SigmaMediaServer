@@ -28,7 +28,6 @@ pub enum MessageEvent {
     InitViewer(String, SessionID, Oneshot<Option<String>>),
     GetRoomThumbnail(SessionID, Oneshot<Option<ImageData>>),
     TerminateSession(SessionID),
-    DebugSession(Oneshot<String>),
 }
 
 #[derive(Debug)]

@@ -1,17 +1,13 @@
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
 
 use bytes::Bytes;
-use log::{debug, trace, warn};
-use rand::random;
 use tokio::net::UdpSocket;
-use tokio::time::Instant;
 
 use sdp::SDPResolver;
 
 use crate::actors::get_packet_type::{get_packet_type, PacketType};
 use crate::actors::MessageEvent;
-use crate::actors::session_master::{NominatedSession, SessionMaster, UnsetSession};
+use crate::actors::session_master::{NominatedSession, SessionMaster};
 use crate::actors::udp_io_actor::UDPIOActorHandle;
 use crate::api::server::start_http_server;
 use crate::config::get_global_config;
@@ -69,9 +65,6 @@ async fn main() {
                     }
                     MessageEvent::InitStreamer(negotiated_session) => {
                         master.add_streamer(negotiated_session);
-                    }
-                    MessageEvent::DebugSession(tx) => {
-                        tx.send(format!("{:#?}", master)).unwrap();
                     }
                     MessageEvent::TerminateSession(id) => {
                         master.remove_session(id);
