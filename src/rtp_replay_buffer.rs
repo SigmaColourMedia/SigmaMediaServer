@@ -4,7 +4,7 @@ use std::collections::{BinaryHeap, HashMap};
 use bytes::{Buf, Bytes};
 use tokio::time::Instant;
 
-static DEFAULT_RTP_REPLAY_BUFF_SIZE: usize = 1024;
+static DEFAULT_RTP_REPLAY_BUFF_SIZE: usize = 4000;
 
 #[derive(Debug)]
 pub(crate) struct ReplayBuffer {
