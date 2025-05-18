@@ -50,8 +50,27 @@ impl NominatedSTUNActor {
                         }
                     }
                 }
-                ICEStunMessageType::Nomination(_) => {
-                    warn!(target: "Nominated STUN", "Unsupported Nomination request");
+                ICEStunMessageType::Nomination(stun_packet) => {
+                    trace!(target: "Nominated STUN","Incoming Live Check: {:#?}", stun_packet);
+
+                    let mut packet = vec![0u8; 200];
+                    match create_stun_success(
+                        &self.media_session.ice_credentials,
+                        stun_packet.transaction_id,
+                        &remote_addr,
+                        &mut packet,
+                    ) {
+                        Ok(bytes_written) => self
+                            .session_socket_actor_handle
+                            .sender
+                            .send(crate::actors::session_socket_actor::Message::ForwardPacket(
+                                packet[..bytes_written].to_vec(),
+                            ))
+                            .unwrap(),
+                        Err(_) => {
+                            warn!(target: "Nominated STUN", "Error creating a STUN success response for STUN message {:#?}", stun_packet)
+                        }
+                    }
                 }
             },
         }
