@@ -1,14 +1,14 @@
 use bytes::{Buf, Bytes};
-use cached::{Cached, SizedCache};
+use cached::{Cached, TimedSizedCache};
 
 pub struct RTPCache {
-    cache: SizedCache<u16, Vec<u8>>,
+    cache: TimedSizedCache<u16, Vec<u8>>,
 }
 
 impl RTPCache {
     pub fn new() -> Self {
         Self {
-            cache: SizedCache::with_size(400),
+            cache: TimedSizedCache::with_size_and_lifespan(400, 6),
         }
     }
     pub fn insert_packet(&mut self, packet: Vec<u8>) {
