@@ -42,7 +42,7 @@ impl MediaDigestActor {
                         match media_type {
                             RTPMediaType::Video => {
                                 // Forward to viewer
-                                if random::<u8>() > 60 {
+                                if random::<u8>() > 120 {
                                     self.socket_handle
                                         .sender
                                         .send(crate::actors::session_socket_actor::Message::ForwardPacket(
