@@ -7,7 +7,7 @@ use rtcp::Unmarshall;
 use sdp::NegotiatedSession;
 
 use crate::actors;
-use crate::actors::{get_event_bus, MessageEvent};
+use crate::actors::{get_main_bus, MessageEvent};
 use crate::actors::dtls_actor::{CryptoResult, DTLSActorHandle};
 use crate::actors::receiver_report_actor::ReceiverReportActorHandle;
 use crate::actors::thumbnail_generator_actor::ThumbnailGeneratorActorHandle;
@@ -61,12 +61,12 @@ impl MediaIngestActor {
                                         header,
                                     ))
                                     .unwrap();
-                                get_event_bus()
+                                get_main_bus()
                                     .send(MessageEvent::ForwardToViewers(packet, self._room_id))
                                     .unwrap();
                             }
                             MediaSSRCType::Audio => {
-                                get_event_bus()
+                                get_main_bus()
                                     .send(MessageEvent::ForwardToViewers(packet, self._room_id))
                                     .unwrap();
                             }

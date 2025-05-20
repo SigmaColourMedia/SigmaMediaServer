@@ -4,7 +4,7 @@ use log::{debug, trace, warn};
 
 use sdp::NegotiatedSession;
 
-use crate::actors::{get_event_bus, MessageEvent};
+use crate::actors::{get_main_bus, MessageEvent};
 use crate::actors::session_socket_actor::SessionSocketActorHandle;
 use crate::stun::{create_stun_success, ICEStunMessageType};
 
@@ -27,31 +27,30 @@ struct NominatedSTUNActor {
 impl NominatedSTUNActor {
     pub async fn handle_message(&self, message: Message) {
         match message {
-            Message::ReadPacket(stun_message_type, remote_addr) =>
-                {
-                    let transaction_id = match stun_message_type{
-                        ICEStunMessageType::LiveCheck(packet) => {packet.transaction_id}
-                        ICEStunMessageType::Nomination(packet) => {packet.transaction_id}
-                    };
-                    let mut packet = vec![0u8; 200];
-                    match create_stun_success(
-                        &self.media_session.ice_credentials,
-                        transaction_id,
-                        &remote_addr,
-                        &mut packet,
-                    ) {
-                        Ok(bytes_written) => self
-                            .session_socket_actor_handle
-                            .sender
-                            .send(crate::actors::session_socket_actor::Message::ForwardPacket(
-                                packet[..bytes_written].to_vec(),
-                            ))
-                            .unwrap(),
-                        Err(_) => {
-                            warn!(target: "Nominated STUN", "Error creating a STUN success response for STUN message")
-                        }
+            Message::ReadPacket(stun_message_type, remote_addr) => {
+                let transaction_id = match stun_message_type {
+                    ICEStunMessageType::LiveCheck(packet) => packet.transaction_id,
+                    ICEStunMessageType::Nomination(packet) => packet.transaction_id,
+                };
+                let mut packet = vec![0u8; 200];
+                match create_stun_success(
+                    &self.media_session.ice_credentials,
+                    transaction_id,
+                    &remote_addr,
+                    &mut packet,
+                ) {
+                    Ok(bytes_written) => self
+                        .session_socket_actor_handle
+                        .sender
+                        .send(crate::actors::session_socket_actor::Message::ForwardPacket(
+                            packet[..bytes_written].to_vec(),
+                        ))
+                        .unwrap(),
+                    Err(_) => {
+                        warn!(target: "Nominated STUN", "Error creating a STUN success response for STUN message")
                     }
-                },
+                }
+            }
         }
     }
 }

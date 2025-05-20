@@ -3,8 +3,8 @@ use std::net::SocketAddr;
 use sdp::NegotiatedSession;
 use thumbnail_image_extractor::ImageData;
 
-use crate::EVENT_BUS;
 use crate::ice_registry::SessionUsername;
+use crate::MAIN_BUS;
 
 pub mod dtls_actor;
 pub mod get_packet_type;
@@ -41,6 +41,6 @@ pub struct SessionPointer {
     pub session_username: SessionUsername,
 }
 
-pub fn get_event_bus() -> &'static tokio::sync::mpsc::UnboundedSender<MessageEvent> {
-    EVENT_BUS.get().unwrap()
+pub fn get_main_bus() -> &'static tokio::sync::mpsc::UnboundedSender<MessageEvent> {
+    MAIN_BUS.get().unwrap()
 }

@@ -5,7 +5,7 @@ use webp::PixelLayout;
 
 use thumbnail_image_extractor::ImageData;
 
-use crate::actors::{get_event_bus, MessageEvent};
+use crate::actors::{get_main_bus, MessageEvent};
 use crate::api::HTTPError;
 use crate::api::routes::{HTTPResponse, RouteResult};
 use crate::api::routes::error::error_route;
@@ -28,7 +28,7 @@ async fn thumbnail_resolver(req: Request<IncomingBody>) -> Result<HTTPResponse, 
         .ok_or(HTTPError::BadRequest)?;
 
     let (tx, rx) = tokio::sync::oneshot::channel::<Option<ImageData>>();
-    get_event_bus()
+    get_main_bus()
         .send(MessageEvent::GetRoomThumbnail(room_id, tx))
         .unwrap();
     let image_data = rx.await.unwrap().ok_or(HTTPError::NotFound)?;

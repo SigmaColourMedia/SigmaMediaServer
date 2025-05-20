@@ -7,7 +7,7 @@ use tokio::time::Instant;
 
 use sdp::NegotiatedSession;
 
-use crate::actors::{get_event_bus, MessageEvent};
+use crate::actors::{get_main_bus, MessageEvent};
 use crate::actors::dtls_actor::{CryptoResult, DTLSActorHandle};
 use crate::actors::session_socket_actor::SessionSocketActorHandle;
 use crate::media_header::RTPHeader;

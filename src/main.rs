@@ -27,13 +27,13 @@ mod server;
 mod stun;
 mod thumbnail;
 
-static EVENT_BUS: OnceLock<tokio::sync::mpsc::UnboundedSender<MessageEvent>> = OnceLock::new();
+static MAIN_BUS: OnceLock<tokio::sync::mpsc::UnboundedSender<MessageEvent>> = OnceLock::new();
 
 #[tokio::main]
 async fn main() {
     env_logger::init();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<MessageEvent>();
-    EVENT_BUS.set(tx).unwrap();
+    MAIN_BUS.set(tx).unwrap();
 
     let udp_socket = Arc::new(
         UdpSocket::bind(get_global_config().udp_server_config.address)

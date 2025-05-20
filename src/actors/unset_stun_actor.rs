@@ -4,7 +4,7 @@ use log::{debug, trace, warn};
 
 use sdp::NegotiatedSession;
 
-use crate::actors::{get_event_bus, MessageEvent, SessionPointer};
+use crate::actors::{get_main_bus, MessageEvent, SessionPointer};
 use crate::actors::udp_io_actor::UDPIOActorHandle;
 use crate::stun::{create_stun_success, ICEStunMessageType};
 
@@ -69,7 +69,7 @@ impl UnsetSTUNActor {
                                 )))
                                 .unwrap();
 
-                            get_event_bus()
+                            get_main_bus()
                                 .send(MessageEvent::NominateSession(SessionPointer {
                                     socket_address: remote_addr,
                                     session_username: stun_packet.username_attribute,

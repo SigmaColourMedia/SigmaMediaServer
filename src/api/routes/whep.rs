@@ -1,11 +1,11 @@
 use bytes::Bytes;
-use hyper::{body::Incoming as IncomingBody, Request, Response};
 use http_body_util::{BodyExt, Full};
+use hyper::{body::Incoming as IncomingBody, Request, Response};
 
-use crate::actors::{get_event_bus, MessageEvent};
+use crate::actors::{get_main_bus, MessageEvent};
 use crate::api::HTTPError;
-use crate::api::routes::error::error_route;
 use crate::api::routes::{HTTPResponse, RouteResult};
+use crate::api::routes::error::error_route;
 use crate::config::get_global_config;
 
 pub async fn whep_post(req: Request<IncomingBody>) -> RouteResult {
@@ -16,7 +16,7 @@ pub async fn whep_post(req: Request<IncomingBody>) -> RouteResult {
     }
 }
 
-pub async fn whep_options() -> RouteResult{
+pub async fn whep_options() -> RouteResult {
     Ok(Response::builder()
         .status(200)
         .header("Access-Control-Allow-Method", "POST")
@@ -47,7 +47,7 @@ async fn whep_resolver(req: Request<IncomingBody>) -> Result<HTTPResponse, HTTPE
         .and_then(|bytes| String::from_utf8(bytes).or(Err(HTTPError::BadRequest)))?;
 
     let (tx, rx) = tokio::sync::oneshot::channel::<Option<String>>();
-    get_event_bus()
+    get_main_bus()
         .send(MessageEvent::InitViewer(sdp, room_id, tx))
         .unwrap();
     let sdp_response = rx.await.unwrap();

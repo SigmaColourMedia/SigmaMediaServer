@@ -6,10 +6,10 @@ use hyper::{body::Incoming as IncomingBody, Request, Response};
 
 use sdp::SDPResolver;
 
-use crate::actors::{get_event_bus, MessageEvent};
+use crate::actors::{get_main_bus, MessageEvent};
 use crate::api::HTTPError;
-use crate::api::routes::error::error_route;
 use crate::api::routes::{HTTPResponse, RouteResult};
+use crate::api::routes::error::error_route;
 use crate::config::get_global_config;
 
 pub async fn whip_post(req: Request<IncomingBody>, sdp_resolver: Arc<SDPResolver>) -> RouteResult {
@@ -48,7 +48,7 @@ async fn whip_resolver(
 
     let sdp = negotiated_session.sdp_answer.clone();
 
-    get_event_bus()
+    get_main_bus()
         .send(MessageEvent::InitStreamer(negotiated_session))
         .unwrap();
 

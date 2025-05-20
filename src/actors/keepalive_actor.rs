@@ -4,7 +4,7 @@ use log::{debug, trace};
 use tokio::select;
 use tokio::time::Instant;
 
-use crate::actors::{get_event_bus, MessageEvent};
+use crate::actors::{get_main_bus, MessageEvent};
 
 static MAX_TTL: Duration = Duration::from_secs(10);
 
@@ -26,7 +26,7 @@ impl KeepaliveActor {
     pub async fn handle_message(&mut self, message: Message) {
         match message {
             Message::UpdateTTL => self.ttl = Instant::now(),
-            Message::ReportTermination => get_event_bus()
+            Message::ReportTermination => get_main_bus()
                 .send(MessageEvent::TerminateSession(self.id))
                 .unwrap(),
         }
