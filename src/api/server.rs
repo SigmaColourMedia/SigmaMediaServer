@@ -13,6 +13,7 @@ use sdp::SDPResolver;
 
 use crate::api::HTTPError;
 use crate::api::routes::error::error_route;
+use crate::api::routes::rooms::{rooms_get, rooms_options};
 use crate::api::routes::thumbnail::thumbnail_get;
 use crate::api::routes::whep::{whep_options, whep_post};
 use crate::api::routes::whip::whip_post;
@@ -36,6 +37,8 @@ pub async fn start_http_server(sdp_resolver: Arc<SDPResolver>) {
             async move {
                 match (req.method(), req.uri().path()) {
                     (&Method::GET, "/thumbnail") => thumbnail_get(req).await,
+                    (&Method::GET, "/rooms") => rooms_get(req).await,
+                    (&Method::OPTIONS, "/rooms") => rooms_options().await,
                     (&Method::POST, "/whip") => whip_post(req, sdp_resolver).await,
                     (&Method::POST, "/whep") => whep_post(req).await,
                     (&Method::OPTIONS, "/whep") => whep_options().await,

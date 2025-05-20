@@ -1,12 +1,12 @@
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use bytes::Bytes;
 use tokio::net::UdpSocket;
 
 use sdp::SDPResolver;
 
-use crate::actors::get_packet_type::{get_packet_type, PacketType};
 use crate::actors::{MAIN_BUS, MessageEvent};
+use crate::actors::get_packet_type::{get_packet_type, PacketType};
 use crate::actors::session_master::{NominatedSession, SessionMaster};
 use crate::actors::udp_io_actor::UDPIOActorHandle;
 use crate::api::server::start_http_server;
@@ -18,6 +18,7 @@ mod actors;
 mod api;
 mod client;
 mod config;
+mod event_bus;
 mod http;
 mod ice_registry;
 mod media_header;
@@ -26,7 +27,6 @@ mod rtp_reporter;
 mod server;
 mod stun;
 mod thumbnail;
-
 
 #[tokio::main]
 async fn main() {
@@ -87,7 +87,11 @@ async fn main() {
                     }
                     MessageEvent::ForwardToViewers(packet, room_id) => {
                         master.forward_packet_to_viewers(packet, room_id);
-                    }}
+                    }
+                    MessageEvent::GetRooms(oneshot) => {
+                        oneshot.send(master.get_rooms()).unwrap()
+                    }
+                }
             },
             Ok((bytes_read, remote_addr)) = udp_socket.recv_from(&mut buffer) => {
                 let packet = Vec::from(&buffer[..bytes_read]);

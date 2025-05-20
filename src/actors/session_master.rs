@@ -7,6 +7,7 @@ use rand::random;
 use sdp::NegotiatedSession;
 use thumbnail_image_extractor::ImageData;
 
+use crate::actors::{RoomData, SessionPointer};
 use crate::actors::dtls_actor::DTLSActorHandle;
 use crate::actors::keepalive_actor::KeepaliveActorHandle;
 use crate::actors::media_digest_actor::MediaDigestActorHandle;
@@ -15,7 +16,6 @@ use crate::actors::nack_responder::NackResponderActorHandle;
 use crate::actors::nominated_stun_actor::NominatedSTUNActorHandle;
 use crate::actors::receiver_report_actor::ReceiverReportActorHandle;
 use crate::actors::session_socket_actor::SessionSocketActorHandle;
-use crate::actors::SessionPointer;
 use crate::actors::thumbnail_generator_actor::ThumbnailGeneratorActorHandle;
 use crate::actors::udp_io_actor::UDPIOActorHandle;
 use crate::actors::unset_stun_actor::UnsetSTUNActorHandle;
@@ -318,6 +318,15 @@ impl SessionMaster {
                 ))
                 .unwrap();
         }
+    }
+    pub fn get_rooms(&self) -> Vec<RoomData> {
+        self.room_map
+            .iter()
+            .map(|(id, room)| RoomData {
+                room_id: *id,
+                viewer_count: room.viewers_ids.len(),
+            })
+            .collect()
     }
 }
 

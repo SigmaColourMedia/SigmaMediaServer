@@ -1,6 +1,8 @@
 use std::net::SocketAddr;
 use std::sync::OnceLock;
 
+use serde::{Deserialize, Serialize};
+
 use sdp::NegotiatedSession;
 use thumbnail_image_extractor::ImageData;
 
@@ -30,11 +32,17 @@ pub enum MessageEvent {
     NominateSession(SessionPointer),
     InitStreamer(NegotiatedSession),
     InitViewer(String, SessionID, Oneshot<Option<String>>),
+    GetRooms(Oneshot<Vec<RoomData>>),
     GetRoomThumbnail(SessionID, Oneshot<Option<ImageData>>),
     TerminateSession(SessionID),
     ForwardToViewers(Vec<u8>, SessionID),
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct RoomData {
+    room_id: usize,
+    viewer_count: usize,
+}
 #[derive(Debug)]
 pub struct SessionPointer {
     pub socket_address: SocketAddr,
@@ -42,9 +50,7 @@ pub struct SessionPointer {
 }
 pub static MAIN_BUS: OnceLock<tokio::sync::mpsc::UnboundedSender<MessageEvent>> = OnceLock::new();
 
-
 // Get reference to main channel Sender
 pub fn get_main_bus() -> &'static tokio::sync::mpsc::UnboundedSender<MessageEvent> {
     MAIN_BUS.get().unwrap()
 }
-
