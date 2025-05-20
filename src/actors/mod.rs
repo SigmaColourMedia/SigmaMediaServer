@@ -1,10 +1,10 @@
 use std::net::SocketAddr;
+use std::sync::OnceLock;
 
 use sdp::NegotiatedSession;
 use thumbnail_image_extractor::ImageData;
 
 use crate::ice_registry::SessionUsername;
-use crate::MAIN_BUS;
 
 pub mod dtls_actor;
 pub mod get_packet_type;
@@ -40,7 +40,11 @@ pub struct SessionPointer {
     pub socket_address: SocketAddr,
     pub session_username: SessionUsername,
 }
+pub static MAIN_BUS: OnceLock<tokio::sync::mpsc::UnboundedSender<MessageEvent>> = OnceLock::new();
 
+
+// Get reference to main channel Sender
 pub fn get_main_bus() -> &'static tokio::sync::mpsc::UnboundedSender<MessageEvent> {
     MAIN_BUS.get().unwrap()
 }
+

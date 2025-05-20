@@ -6,7 +6,7 @@ use tokio::net::UdpSocket;
 use sdp::SDPResolver;
 
 use crate::actors::get_packet_type::{get_packet_type, PacketType};
-use crate::actors::MessageEvent;
+use crate::actors::{MAIN_BUS, MessageEvent};
 use crate::actors::session_master::{NominatedSession, SessionMaster};
 use crate::actors::udp_io_actor::UDPIOActorHandle;
 use crate::api::server::start_http_server;
@@ -27,7 +27,6 @@ mod server;
 mod stun;
 mod thumbnail;
 
-static MAIN_BUS: OnceLock<tokio::sync::mpsc::UnboundedSender<MessageEvent>> = OnceLock::new();
 
 #[tokio::main]
 async fn main() {
