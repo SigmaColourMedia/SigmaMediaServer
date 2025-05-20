@@ -2,14 +2,14 @@ use std::collections::HashMap;
 
 use bytes::{Buf, Bytes};
 
-pub struct Cache {
+pub struct RTPCache {
     map: HashMap<u16, usize>,
     items: Vec<Vec<u8>>,
     index: usize,
 }
 
 const BUFFER_SIZE: usize = 600;
-impl Cache {
+impl RTPCache {
     pub fn new() -> Self {
         Self {
             index: 0,

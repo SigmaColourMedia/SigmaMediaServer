@@ -1,6 +1,6 @@
 use log::trace;
 
-use crate::actors::rtp_cache::Cache;
+use crate::actors::rtp_cache::RTPCache;
 use crate::actors::session_socket_actor::SessionSocketActorHandle;
 
 type Sender = tokio::sync::mpsc::UnboundedSender<Message>;
@@ -13,7 +13,7 @@ pub enum Message {
 
 struct NackResponderActor {
     receiver: Receiver,
-    rtp_cache: Cache,
+    rtp_cache: RTPCache,
     socket_handle: SessionSocketActorHandle,
 }
 
@@ -45,7 +45,7 @@ impl NackResponderActorHandle {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<Message>();
         let actor = NackResponderActor {
             socket_handle,
-            rtp_cache: Cache::new(),
+            rtp_cache: RTPCache::new(),
             receiver,
         };
         tokio::spawn(run(actor));
