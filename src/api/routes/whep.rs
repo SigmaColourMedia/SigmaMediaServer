@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::{body::Incoming as IncomingBody, Request, Response};
+use uuid::Uuid;
 
 use crate::actors::{get_main_bus, MessageEvent};
 use crate::api::HTTPError;
@@ -35,7 +36,7 @@ async fn whep_resolver(req: Request<IncomingBody>) -> Result<HTTPResponse, HTTPE
         .query()
         .and_then(|query| query.split("&").find(|item| item.starts_with("target_id=")))
         .and_then(|param| param.split_once("target_id="))
-        .and_then(|(_, id)| id.parse::<usize>().ok())
+        .and_then(|(_, id)| Uuid::try_parse(id).ok())
         .ok_or(HTTPError::BadRequest)?;
 
     let sdp = req

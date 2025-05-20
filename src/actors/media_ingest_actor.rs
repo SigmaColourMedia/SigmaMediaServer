@@ -2,6 +2,7 @@ use std::io::Read;
 
 use bytes::Bytes;
 use log::{debug, trace, warn};
+use uuid::Uuid;
 
 use rtcp::Unmarshall;
 use sdp::NegotiatedSession;
@@ -22,7 +23,7 @@ pub enum Message {
 
 struct MediaIngestActor {
     receiver: Receiver,
-    _room_id: usize,
+    _room_id: Uuid,
     negotiated_session: NegotiatedSession,
     dtls_actor_handle: DTLSActorHandle,
     rr_actor_handle: ReceiverReportActorHandle,
@@ -111,7 +112,7 @@ impl MediaIngestActorHandle {
         rr_actor_handle: ReceiverReportActorHandle,
         thumbnail_handle: ThumbnailGeneratorActorHandle,
         negotiated_session: NegotiatedSession,
-        room_id: usize,
+        room_id: Uuid,
     ) -> Self {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<Message>();
         let actor = MediaIngestActor {

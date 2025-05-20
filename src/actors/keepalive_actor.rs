@@ -3,6 +3,7 @@ use std::time::Duration;
 use log::{debug, trace};
 use tokio::select;
 use tokio::time::Instant;
+use uuid::Uuid;
 
 use crate::actors::{get_main_bus, MessageEvent};
 
@@ -18,7 +19,7 @@ pub enum Message {
 
 struct KeepaliveActor {
     ttl: Instant,
-    id: usize,
+    id: Uuid,
     receiver: Receiver,
 }
 
@@ -39,7 +40,7 @@ pub struct KeepaliveActorHandle {
 }
 
 impl KeepaliveActorHandle {
-    pub fn new(id: usize) -> Self {
+    pub fn new(id: Uuid) -> Self {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<Message>();
         let actor = KeepaliveActor {
             ttl: Instant::now(),

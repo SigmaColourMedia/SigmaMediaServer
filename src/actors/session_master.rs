@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 
 use log::{debug, trace, warn};
 use rand::random;
+use uuid::{uuid, Uuid};
 
 use sdp::NegotiatedSession;
 use thumbnail_image_extractor::ImageData;
@@ -25,7 +26,7 @@ use crate::ice_registry::SessionUsername;
 #[derive(Debug)]
 pub struct SessionMaster {
     nominated_map: NominatedSessionMap,
-    room_map: HashMap<usize, Room>,
+    room_map: HashMap<Uuid, Room>,
     unset_map: UnsetSessionMap,
     socket_io_actor_handle: UDPIOActorHandle,
 }
@@ -40,7 +41,7 @@ impl SessionMaster {
         }
     }
 
-    pub fn remove_session(&mut self, id: usize) {
+    pub fn remove_session(&mut self, id: Uuid) {
         // Nominated Session removal
         if let Some(session) = self.nominated_map.session_map.remove(&id) {
             self.nominated_map.address_map.remove(session.get_address());
@@ -91,7 +92,7 @@ impl SessionMaster {
             .get(session_username)
             .and_then(|id| self.unset_map.session_map.get(id))
     }
-    pub async fn get_room_thumbnail(&self, id: usize) -> Option<ImageData> {
+    pub async fn get_room_thumbnail(&self, id: Uuid) -> Option<ImageData> {
         let thumbnail_generator_handle =
             self.nominated_map
                 .session_map
@@ -132,7 +133,7 @@ impl SessionMaster {
             .and_then(|id| self.nominated_map.session_map.get_mut(id))
     }
 
-    pub fn get_room_negotiated_session(&self, id: usize) -> Option<&NegotiatedSession> {
+    pub fn get_room_negotiated_session(&self, id: Uuid) -> Option<&NegotiatedSession> {
         self.room_map.get(&id).map(|room| &room.host_session)
     }
 
@@ -142,8 +143,8 @@ impl SessionMaster {
             .get(remote_addr)
             .and_then(|id| self.nominated_map.session_map.get(id))
     }
-    pub fn add_viewer(&mut self, room_id: usize, negotiated_session: NegotiatedSession) {
-        let id = random::<usize>();
+    pub fn add_viewer(&mut self, room_id: Uuid, negotiated_session: NegotiatedSession) {
+        let id = Uuid::new_v4();
         let session_username = SessionUsername {
             host: negotiated_session.ice_credentials.host_username.clone(),
             remote: negotiated_session.ice_credentials.remote_username.clone(),
@@ -165,7 +166,7 @@ impl SessionMaster {
     }
 
     pub fn add_streamer(&mut self, negotiated_session: NegotiatedSession) {
-        let id = random::<usize>();
+        let id = Uuid::new_v4();
 
         let session_username = SessionUsername {
             host: negotiated_session.ice_credentials.host_username.clone(),
@@ -213,7 +214,7 @@ impl SessionMaster {
                 );
                 let thumbnail_handle = ThumbnailGeneratorActorHandle::new();
 
-                let id = random::<usize>();
+                let id = Uuid::new_v4();
 
                 let nominated_session = NominatedSession::Streamer(StreamerSessionData {
                     keepalive_handle: KeepaliveActorHandle::new(id),
@@ -249,7 +250,7 @@ impl SessionMaster {
                         return;
                     }
                     Some(room) => {
-                        let id = random::<usize>();
+                        let id = Uuid::new_v4();
                         let socket_handle = SessionSocketActorHandle::new(
                             self.socket_io_actor_handle.clone(),
                             remote_addr.clone(),
@@ -295,7 +296,7 @@ impl SessionMaster {
         }
     }
 
-    pub fn forward_packet_to_viewers(&self, packet: Vec<u8>, room_id: usize) {
+    pub fn forward_packet_to_viewers(&self, packet: Vec<u8>, room_id: Uuid) {
         let media_digest_actor_handles = &self
             .room_map
             .get(&room_id)
@@ -323,7 +324,7 @@ impl SessionMaster {
         self.room_map
             .iter()
             .map(|(id, room)| RoomData {
-                room_id: *id,
+                room_id: id.clone(),
                 viewer_count: room.viewers_ids.len(),
             })
             .collect()
@@ -332,7 +333,7 @@ impl SessionMaster {
 
 #[derive(Debug)]
 struct Room {
-    viewers_ids: HashSet<usize>,
+    viewers_ids: HashSet<Uuid>,
     pub host_session: NegotiatedSession,
 }
 
@@ -347,8 +348,8 @@ impl Room {
 
 #[derive(Debug)]
 struct NominatedSessionMap {
-    session_map: HashMap<usize, NominatedSession>,
-    address_map: HashMap<SocketAddr, usize>,
+    session_map: HashMap<Uuid, NominatedSession>,
+    address_map: HashMap<SocketAddr, Uuid>,
 }
 
 impl NominatedSessionMap {
@@ -362,8 +363,8 @@ impl NominatedSessionMap {
 
 #[derive(Debug)]
 struct UnsetSessionMap {
-    session_map: HashMap<usize, UnsetSession>,
-    ice_username_map: HashMap<SessionUsername, usize>,
+    session_map: HashMap<Uuid, UnsetSession>,
+    ice_username_map: HashMap<SessionUsername, Uuid>,
 }
 
 impl UnsetSessionMap {
@@ -453,7 +454,7 @@ pub struct UnsetViewerSession {
     pub keepalive_handle: KeepaliveActorHandle,
     pub negotiated_session: NegotiatedSession,
     pub stun_actor_handle: UnsetSTUNActorHandle,
-    _target_room_id: usize,
+    _target_room_id: Uuid,
     _ice_username: SessionUsername,
 }
 
@@ -475,5 +476,5 @@ pub struct ViewerSessionData {
     pub media_control_actor: ViewerMediaControlActorHandle,
     pub media_digest_actor_handle: MediaDigestActorHandle,
     _socket_address: SocketAddr,
-    _target_room_id: usize,
+    _target_room_id: Uuid,
 }

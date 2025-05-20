@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use http_body_util::Full;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
+use uuid::Uuid;
 use webp::PixelLayout;
 
 use thumbnail_image_extractor::ImageData;
@@ -24,7 +25,7 @@ async fn thumbnail_resolver(req: Request<IncomingBody>) -> Result<HTTPResponse, 
         .query()
         .and_then(|query| query.split("&").find(|item| item.starts_with("room_id=")))
         .and_then(|param| param.split_once("room_id="))
-        .and_then(|(_, id)| id.parse::<usize>().ok())
+        .and_then(|(_, id)| Uuid::try_parse(id).ok())
         .ok_or(HTTPError::BadRequest)?;
 
     let (tx, rx) = tokio::sync::oneshot::channel::<Option<ImageData>>();

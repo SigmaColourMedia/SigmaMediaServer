@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use sdp::NegotiatedSession;
 use thumbnail_image_extractor::ImageData;
@@ -24,23 +25,22 @@ pub mod udp_io_actor;
 pub mod unset_stun_actor;
 pub mod viewer_media_control_actor;
 
-type SessionID = usize;
 type Oneshot<T> = tokio::sync::oneshot::Sender<T>;
 
 #[derive(Debug)]
 pub enum MessageEvent {
     NominateSession(SessionPointer),
     InitStreamer(NegotiatedSession),
-    InitViewer(String, SessionID, Oneshot<Option<String>>),
+    InitViewer(String, Uuid, Oneshot<Option<String>>),
     GetRooms(Oneshot<Vec<RoomData>>),
-    GetRoomThumbnail(SessionID, Oneshot<Option<ImageData>>),
-    TerminateSession(SessionID),
-    ForwardToViewers(Vec<u8>, SessionID),
+    GetRoomThumbnail(Uuid, Oneshot<Option<ImageData>>),
+    TerminateSession(Uuid),
+    ForwardToViewers(Vec<u8>, Uuid),
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct RoomData {
-    room_id: usize,
+    room_id: Uuid,
     viewer_count: usize,
 }
 #[derive(Debug)]
