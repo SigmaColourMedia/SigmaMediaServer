@@ -41,15 +41,14 @@ impl MediaDigestActor {
                     Ok(packet) => {
                         match media_type {
                             RTPMediaType::Video => {
-                                // Forward to viewer
-                                if random::<u8>() > 120 {
-                                    self.socket_handle
-                                        .sender
-                                        .send(crate::actors::session_socket_actor::Message::ForwardPacket(
+                                self.socket_handle
+                                    .sender
+                                    .send(
+                                        crate::actors::session_socket_actor::Message::ForwardPacket(
                                             packet.clone(),
-                                        ))
-                                        .unwrap();
-                                }
+                                        ),
+                                    )
+                                    .unwrap();
 
                                 // Save for NACK
                                 self.nack_handle
