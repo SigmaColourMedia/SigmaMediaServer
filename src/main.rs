@@ -11,6 +11,7 @@ use crate::actors::session_master::{NominatedSession, SessionMaster};
 use crate::actors::udp_io_actor::UDPIOActorHandle;
 use crate::api::server::start_http_server;
 use crate::config::get_global_config;
+use crate::event_bus::init_event_bus;
 use crate::stun::ICEStunMessageType;
 
 mod acceptor;
@@ -30,6 +31,7 @@ mod thumbnail;
 
 #[tokio::main]
 async fn main() {
+    init_event_bus();
     env_logger::init();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<MessageEvent>();
     MAIN_BUS.set(tx).unwrap();
