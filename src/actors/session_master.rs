@@ -21,6 +21,7 @@ use crate::actors::thumbnail_generator_actor::ThumbnailGeneratorActorHandle;
 use crate::actors::udp_io_actor::UDPIOActorHandle;
 use crate::actors::unset_stun_actor::UnsetSTUNActorHandle;
 use crate::actors::viewer_media_control_actor::ViewerMediaControlActorHandle;
+use crate::event_bus::{get_event_bus, ServerEvent};
 use crate::ice_registry::SessionUsername;
 
 #[derive(Debug)]
@@ -50,23 +51,30 @@ impl SessionMaster {
                 // Remove all Viewers
                 NominatedSession::Streamer(_) => {
                     debug!(target: "Session Master", "Removing Nominated Streamer ID {} at address: {}", id, session.get_address());
+                    debug!(target: "Session Master", "Removing Room ID {}", id);
                     let viewers = self.room_map.get(&id).unwrap().viewers_ids.clone();
+                    self.room_map.remove(&id);
                     for viewer_id in viewers {
                         debug!(target: "Session Master", "Removing Viewer of {}", id);
                         self.remove_session(viewer_id)
                     }
-                    debug!(target: "Session Master", "Removing Room ID {}", id);
-                    self.room_map.remove(&id);
+                    get_event_bus()
+                        .send(ServerEvent::TerminateRoom(id))
+                        .unwrap();
                 }
                 // Remove viewer from Room
                 NominatedSession::Viewer(viewer) => {
                     debug!(target: "Session Master", "Removing Nominated Viewer ID {} at address: {}", id, viewer._socket_address);
-                    debug!(target: "Session Master", "Removing Viewer ID {} from Room ID {}", id, viewer._target_room_id);
-                    self.room_map
-                        .get_mut(&viewer._target_room_id)
-                        .expect("Streamer Room must exist before Viewer is deleted")
-                        .viewers_ids
-                        .remove(&id);
+                    if let Some(target_room) = self.room_map.get_mut(&viewer._target_room_id) {
+                        debug!(target: "Session Master", "Removing Viewer ID {} from Room ID {}", id, viewer._target_room_id);
+                        target_room.viewers_ids.remove(&id);
+                        get_event_bus()
+                            .send(ServerEvent::RoomChange(RoomData {
+                                room_id: viewer._target_room_id,
+                                viewer_count: target_room.viewers_ids.len(),
+                            }))
+                            .unwrap();
+                    }
                 }
             }
         }
@@ -202,6 +210,8 @@ impl SessionMaster {
 
         match unset_session {
             UnsetSession::Streamer(session_data) => {
+                let id = Uuid::new_v4();
+
                 let session_socket_handle = SessionSocketActorHandle::new(
                     self.socket_io_actor_handle.clone(),
                     remote_addr.clone(),
@@ -212,9 +222,7 @@ impl SessionMaster {
                     session_socket_handle.clone(),
                     dtls_handle.clone(),
                 );
-                let thumbnail_handle = ThumbnailGeneratorActorHandle::new();
-
-                let id = Uuid::new_v4();
+                let thumbnail_handle = ThumbnailGeneratorActorHandle::new(id);
 
                 let nominated_session = NominatedSession::Streamer(StreamerSessionData {
                     keepalive_handle: KeepaliveActorHandle::new(id),
@@ -241,6 +249,7 @@ impl SessionMaster {
                     .insert(id, Room::new(session_data.negotiated_session));
                 debug!(target: "Session Master","Nominated Streamer Session with ID: {}", id);
                 debug!(target: "Session Master","Opened Room with ID: {}", id);
+                get_event_bus().send(ServerEvent::NewRoom(id)).unwrap()
             }
             UnsetSession::Viewer(session_data) => {
                 // Check if target Room exists (it could've been removed before Viewer nomination event)
@@ -283,11 +292,20 @@ impl SessionMaster {
 
                         self.nominated_map.address_map.insert(remote_addr, id);
                         self.nominated_map.session_map.insert(id, nominated_session);
-                        self.room_map
+
+                        let target_room = self
+                            .room_map
                             .get_mut(&session_data._target_room_id)
-                            .expect("Host room must exist for viewer to be nominated")
-                            .viewers_ids
-                            .insert(id);
+                            .expect("Host room must exist for viewer to be nominated");
+
+                        target_room.viewers_ids.insert(id);
+
+                        get_event_bus()
+                            .send(ServerEvent::RoomChange(RoomData {
+                                room_id: session_data._target_room_id,
+                                viewer_count: target_room.viewers_ids.len(),
+                            }))
+                            .unwrap();
 
                         debug!(target: "Session Master","Nominated Viewer Session with ID: {}", id);
                     }
