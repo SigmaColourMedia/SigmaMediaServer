@@ -19,10 +19,6 @@ impl RTPCache {
     }
 
     pub fn insert_packet(&mut self, packet: Vec<u8>) {
-        if self.index == BUFFER_SIZE {
-            self.index = 0;
-        }
-
         let curr_seq = Bytes::copy_from_slice(&packet[2..4]).get_u16();
 
         if let Some(prev_packet_seq) = self
@@ -37,7 +33,7 @@ impl RTPCache {
 
         self.items[self.index] = packet;
         self.map.insert(curr_seq, self.index);
-        self.index = self.index + 1;
+        self.index = (self.index + 1) % BUFFER_SIZE;
     }
 
     pub fn get_packet(&self, seq: u16) -> Option<&Vec<u8>> {
