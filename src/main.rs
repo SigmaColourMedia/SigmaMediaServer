@@ -20,14 +20,12 @@ mod api;
 mod client;
 mod config;
 mod event_bus;
-mod http;
 mod ice_registry;
 mod media_header;
 mod rtp_replay_buffer;
 mod rtp_reporter;
 mod server;
 mod stun;
-mod thumbnail;
 
 #[tokio::main]
 async fn main() {

@@ -9,8 +9,6 @@ pub struct Config {
     pub ssl_config: SSLConfig,
     pub tcp_server_config: TCPServerConfig,
     pub udp_server_config: UDPServerConfig,
-    pub frontend_url: String,
-    pub storage_dir: PathBuf,
 }
 
 const TCP_IP_ENV: &'static str = "TCP_ADDRESS";
@@ -58,12 +56,7 @@ impl Config {
         let whip_token = std::env::var(WHIP_TOKEN_ENV)
             .expect(&format!("{WHIP_TOKEN_ENV} env variable should be present"));
 
-        // Frontend URL
-        let frontend_url =
-            std::env::var(FRONTEND_URL_ENV).expect("FRONTEND_URL env should be defined");
-
         // Configurable directories
-        let storage_dir = PathBuf::from(std::env::var(STORAGE_DIR).unwrap());
         let certs_dir = PathBuf::from(std::env::var(CERTS_DIR).unwrap());
 
         let ssl_config = SSLConfig::new(certs_dir);
@@ -77,8 +70,6 @@ impl Config {
                 whip_token,
                 address: tcp_address,
             },
-            frontend_url,
-            storage_dir,
         }
     }
 }

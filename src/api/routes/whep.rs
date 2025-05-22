@@ -22,10 +22,6 @@ pub async fn whep_options() -> RouteResult {
         .status(200)
         .header("Access-Control-Allow-Method", "POST")
         .header("Access-Control-Allow-Headers", "content-type")
-        .header(
-            "Access-Control-Allow-Origin",
-            &get_global_config().frontend_url,
-        )
         .body(Full::new(Bytes::new()))
         .unwrap())
 }
@@ -58,10 +54,6 @@ async fn whep_resolver(req: Request<IncomingBody>) -> Result<HTTPResponse, HTTPE
         Some(sdp_answer) => Ok(Response::builder()
             .status(200)
             .header("content-type", "application/sdp")
-            .header(
-                "Access-Control-Allow-Origin",
-                &get_global_config().frontend_url,
-            )
             .header(
                 "location",
                 format!("{}/whep", get_global_config().tcp_server_config.address),

@@ -6,7 +6,7 @@ use hyper::{body::Incoming as IncomingBody, Method, Request, Response};
 use hyper::server::conn::http1;
 use hyper::service::{Service, service_fn};
 use hyper_util::rt::TokioIo;
-use log::{debug, error, info};
+use log::{error, info};
 use tokio::net::TcpListener;
 
 use sdp::SDPResolver;
