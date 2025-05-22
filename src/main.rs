@@ -1,17 +1,16 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
-use tokio::net::UdpSocket;
 
 use sdp::SDPResolver;
 
 use crate::actors::{MAIN_BUS, MessageEvent};
 use crate::actors::get_packet_type::{get_packet_type, PacketType};
 use crate::actors::session_master::{NominatedSession, SessionMaster};
-use crate::actors::udp_io_actor::UDPIOActorHandle;
 use crate::api::server::start_http_server;
 use crate::config::get_global_config;
 use crate::event_bus::init_event_bus;
+use crate::socket::{get_socket, init_socket};
 use crate::stun::ICEStunMessageType;
 
 mod acceptor;
@@ -25,23 +24,18 @@ mod media_header;
 mod rtp_replay_buffer;
 mod rtp_reporter;
 mod server;
+mod socket;
 mod stun;
 
 #[tokio::main]
 async fn main() {
     init_event_bus();
+    init_socket().await;
     env_logger::init();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<MessageEvent>();
     MAIN_BUS.set(tx).unwrap();
 
-    let udp_socket = Arc::new(
-        UdpSocket::bind(get_global_config().udp_server_config.address)
-            .await
-            .unwrap(),
-    );
-    let socket_io_actor_handle = UDPIOActorHandle::new(udp_socket.clone());
-
-    let mut master = SessionMaster::new(socket_io_actor_handle);
+    let mut master = SessionMaster::new();
 
     let sdp_resolver = Arc::new(SDPResolver::new(
         format!("sha-256 {}", get_global_config().ssl_config.fingerprint).as_str(),
@@ -93,7 +87,7 @@ async fn main() {
                     }
                 }
             },
-            Ok((bytes_read, remote_addr)) = udp_socket.recv_from(&mut buffer) => {
+            Ok((bytes_read, remote_addr)) = get_socket().recv_from(&mut buffer) => {
                 let packet = Vec::from(&buffer[..bytes_read]);
 
                 let packet_type = get_packet_type(Bytes::copy_from_slice(&packet));

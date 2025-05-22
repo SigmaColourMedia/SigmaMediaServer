@@ -5,7 +5,7 @@ use log::{debug, trace, warn};
 use sdp::NegotiatedSession;
 
 use crate::actors::{get_main_bus, MessageEvent, SessionPointer};
-use crate::actors::udp_io_actor::UDPIOActorHandle;
+use crate::socket::{get_socket, send_packet};
 use crate::stun::{create_stun_success, ICEStunMessageType};
 
 type Sender = tokio::sync::mpsc::UnboundedSender<Message>;
@@ -19,7 +19,6 @@ Respond to authorized ICE Live Check & Nominate Requests
  */
 struct UnsetSTUNActor {
     receiver: Receiver,
-    udp_io_actor_handle: UDPIOActorHandle,
     media_session: NegotiatedSession,
 }
 
@@ -37,14 +36,9 @@ impl UnsetSTUNActor {
                         &remote_addr,
                         &mut packet,
                     ) {
-                        Ok(bytes_written) => self
-                            .udp_io_actor_handle
-                            .sender
-                            .send(crate::actors::udp_io_actor::Message::ForwardPacket((
-                                packet[..bytes_written].to_vec(),
-                                remote_addr,
-                            )))
-                            .unwrap(),
+                        Ok(bytes_written) => {
+                            send_packet(&packet[..bytes_written], &remote_addr).await
+                        }
                         Err(_) => {
                             warn!(target: "Unset STUN", "Error creating a STUN success response for STUN message {:#?}", stun_packet);
                         }
@@ -61,14 +55,7 @@ impl UnsetSTUNActor {
                         &mut packet,
                     ) {
                         Ok(bytes_written) => {
-                            self.udp_io_actor_handle
-                                .sender
-                                .send(crate::actors::udp_io_actor::Message::ForwardPacket((
-                                    packet[..bytes_written].to_vec(),
-                                    remote_addr,
-                                )))
-                                .unwrap();
-
+                            send_packet(&packet[..bytes_written], &remote_addr).await;
                             get_main_bus()
                                 .send(MessageEvent::NominateSession(SessionPointer {
                                     socket_address: remote_addr,
@@ -91,11 +78,10 @@ pub struct UnsetSTUNActorHandle {
     pub sender: Sender,
 }
 impl UnsetSTUNActorHandle {
-    pub fn new(media_session: NegotiatedSession, socket_io_actor_handle: UDPIOActorHandle) -> Self {
+    pub fn new(media_session: NegotiatedSession) -> Self {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<Message>();
         let actor = UnsetSTUNActor {
             media_session,
-            udp_io_actor_handle: socket_io_actor_handle,
             receiver,
         };
         tokio::spawn(run(actor));

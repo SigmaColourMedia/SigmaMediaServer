@@ -21,7 +21,6 @@ mod rtp_cache;
 pub mod session_master;
 pub mod session_socket_actor;
 pub mod thumbnail_generator_actor;
-pub mod udp_io_actor;
 pub mod unset_stun_actor;
 pub mod viewer_media_control_actor;
 

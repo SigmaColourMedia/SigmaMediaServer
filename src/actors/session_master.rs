@@ -8,7 +8,6 @@ use uuid::{uuid, Uuid};
 use sdp::NegotiatedSession;
 use thumbnail_image_extractor::ImageData;
 
-use crate::actors::{RoomData, SessionPointer};
 use crate::actors::dtls_actor::DTLSActorHandle;
 use crate::actors::keepalive_actor::KeepaliveActorHandle;
 use crate::actors::media_digest_actor::MediaDigestActorHandle;
@@ -18,9 +17,9 @@ use crate::actors::nominated_stun_actor::NominatedSTUNActorHandle;
 use crate::actors::receiver_report_actor::ReceiverReportActorHandle;
 use crate::actors::session_socket_actor::SessionSocketActorHandle;
 use crate::actors::thumbnail_generator_actor::ThumbnailGeneratorActorHandle;
-use crate::actors::udp_io_actor::UDPIOActorHandle;
 use crate::actors::unset_stun_actor::UnsetSTUNActorHandle;
 use crate::actors::viewer_media_control_actor::ViewerMediaControlActorHandle;
+use crate::actors::{RoomData, SessionPointer};
 use crate::event_bus::{get_event_bus, ServerEvent};
 use crate::ice_registry::SessionUsername;
 
@@ -29,16 +28,14 @@ pub struct SessionMaster {
     nominated_map: NominatedSessionMap,
     room_map: HashMap<Uuid, Room>,
     unset_map: UnsetSessionMap,
-    socket_io_actor_handle: UDPIOActorHandle,
 }
 
 impl SessionMaster {
-    pub fn new(socket_io_actor_handle: UDPIOActorHandle) -> Self {
+    pub fn new() -> Self {
         Self {
             nominated_map: NominatedSessionMap::new(),
             unset_map: UnsetSessionMap::new(),
             room_map: HashMap::new(),
-            socket_io_actor_handle,
         }
     }
 
@@ -160,10 +157,7 @@ impl SessionMaster {
         let unset_session = UnsetSession::Viewer(UnsetViewerSession {
             keepalive_handle: KeepaliveActorHandle::new(id),
             negotiated_session: negotiated_session.clone(),
-            stun_actor_handle: UnsetSTUNActorHandle::new(
-                negotiated_session,
-                self.socket_io_actor_handle.clone(),
-            ),
+            stun_actor_handle: UnsetSTUNActorHandle::new(negotiated_session),
             _target_room_id: room_id,
             _ice_username: session_username.clone(),
         });
@@ -183,10 +177,7 @@ impl SessionMaster {
         let unset_session = UnsetSession::Streamer(UnsetStreamerSession {
             keepalive_handle: KeepaliveActorHandle::new(id),
             negotiated_session: negotiated_session.clone(),
-            stun_actor_handle: UnsetSTUNActorHandle::new(
-                negotiated_session,
-                self.socket_io_actor_handle.clone(),
-            ),
+            stun_actor_handle: UnsetSTUNActorHandle::new(negotiated_session),
             _ice_username: session_username.clone(),
         });
         trace!(target: "Session Master", "Created Streamer Unset Session {:#?}", unset_session);
@@ -212,10 +203,7 @@ impl SessionMaster {
             UnsetSession::Streamer(session_data) => {
                 let id = Uuid::new_v4();
 
-                let session_socket_handle = SessionSocketActorHandle::new(
-                    self.socket_io_actor_handle.clone(),
-                    remote_addr.clone(),
-                );
+                let session_socket_handle = SessionSocketActorHandle::new(remote_addr.clone());
                 let dtls_handle = DTLSActorHandle::new(session_socket_handle.clone());
                 let rr_handle = ReceiverReportActorHandle::new(
                     session_data.negotiated_session.clone(),
@@ -260,10 +248,7 @@ impl SessionMaster {
                     }
                     Some(room) => {
                         let id = Uuid::new_v4();
-                        let socket_handle = SessionSocketActorHandle::new(
-                            self.socket_io_actor_handle.clone(),
-                            remote_addr.clone(),
-                        );
+                        let socket_handle = SessionSocketActorHandle::new(remote_addr.clone());
                         let dtls_handle = DTLSActorHandle::new(socket_handle.clone());
                         let nack_handle = NackResponderActorHandle::new(socket_handle.clone());
                         let media_digest_handle = MediaDigestActorHandle::new(

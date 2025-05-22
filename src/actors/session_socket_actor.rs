@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use log::{debug, trace};
 
-use crate::actors::udp_io_actor::UDPIOActorHandle;
+use crate::socket::send_packet;
 
 type Sender = tokio::sync::mpsc::UnboundedSender<Message>;
 type Receiver = tokio::sync::mpsc::UnboundedReceiver<Message>;
@@ -12,22 +12,13 @@ pub enum Message {
 }
 struct SessionSocketActor {
     receiver: Receiver,
-    io_handle: UDPIOActorHandle,
     socket_addr: SocketAddr,
 }
 
 impl SessionSocketActor {
     pub async fn handle_message(&self, message: Message) {
         match message {
-            Message::ForwardPacket(packet) => {
-                self.io_handle
-                    .sender
-                    .send(crate::actors::udp_io_actor::Message::ForwardPacket((
-                        packet,
-                        self.socket_addr.clone(),
-                    )))
-                    .unwrap();
-            }
+            Message::ForwardPacket(packet) => send_packet(&packet, &self.socket_addr).await,
         }
     }
 }
@@ -37,11 +28,10 @@ pub struct SessionSocketActorHandle {
     pub sender: Sender,
 }
 impl SessionSocketActorHandle {
-    pub fn new(io_handle: UDPIOActorHandle, socket_addr: SocketAddr) -> Self {
+    pub fn new(socket_addr: SocketAddr) -> Self {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<Message>();
         let actor = SessionSocketActor {
             receiver,
-            io_handle,
             socket_addr,
         };
 
