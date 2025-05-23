@@ -511,9 +511,7 @@ impl TryFrom<&str> for SDPLine {
         let (sdp_type, value) = input
             .split_once("=")
             .ok_or(SDPParseError::MalformedSDPLine)?;
-
-        println!("sdp_type {}, value {}", sdp_type.len(), value);
-
+        
         match sdp_type {
             "v" => Ok(SDPLine::ProtocolVersion(value.to_string())),
             "c" => Ok(SDPLine::ConnectionData(ConnectionData::try_from(input)?)),
