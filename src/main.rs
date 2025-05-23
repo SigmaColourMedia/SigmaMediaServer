@@ -29,9 +29,10 @@ mod stun;
 
 #[tokio::main]
 async fn main() {
-    init_event_bus();
-    init_socket().await;
     env_logger::init();
+    init_socket().await;
+    init_event_bus();
+
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<MessageEvent>();
     MAIN_BUS.set(tx).unwrap();
 

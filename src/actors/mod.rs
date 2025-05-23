@@ -39,8 +39,8 @@ pub enum MessageEvent {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct RoomData {
-    room_id: Uuid,
-    viewer_count: usize,
+    pub room_id: Uuid,
+    pub viewer_count: usize,
 }
 #[derive(Debug)]
 pub struct SessionPointer {
