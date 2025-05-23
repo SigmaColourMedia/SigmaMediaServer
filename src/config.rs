@@ -9,6 +9,7 @@ pub struct Config {
     pub ssl_config: SSLConfig,
     pub tcp_server_config: TCPServerConfig,
     pub udp_server_config: UDPServerConfig,
+    pub rtc_event_sink_addr: SocketAddr,
 }
 
 const TCP_IP_ENV: &'static str = "TCP_ADDRESS";
@@ -16,8 +17,7 @@ const TCP_PORT_ENV: &'static str = "TCP_PORT";
 const UDP_IP_ENV: &'static str = "UDP_ADDRESS";
 const UDP_PORT_ENV: &'static str = "UDP_PORT";
 const WHIP_TOKEN_ENV: &'static str = "WHIP_TOKEN";
-const FRONTEND_URL_ENV: &'static str = "FRONTEND_URL";
-const STORAGE_DIR: &'static str = "STORAGE_DIR";
+const RTC_EVENT_SINK_ADDR: &'static str = "RTC_EVENT_SINK_ADDR";
 const CERTS_DIR: &'static str = "CERTS_DIR";
 
 impl Config {
@@ -56,6 +56,8 @@ impl Config {
         let whip_token = std::env::var(WHIP_TOKEN_ENV)
             .expect(&format!("{WHIP_TOKEN_ENV} env variable should be present"));
 
+        let rtc_event_sink_addr = std::env::var(RTC_EVENT_SINK_ADDR).unwrap();
+
         // Configurable directories
         let certs_dir = PathBuf::from(std::env::var(CERTS_DIR).unwrap());
 
@@ -70,6 +72,7 @@ impl Config {
                 whip_token,
                 address: tcp_address,
             },
+            rtc_event_sink_addr: SocketAddr::from_str(&rtc_event_sink_addr).unwrap(),
         }
     }
 }
