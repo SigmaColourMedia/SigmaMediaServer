@@ -469,4 +469,51 @@ mod streamer_offer {
             .accept_stream_offer(sdp_offer)
             .expect_err("Should reject SDP");
     }
+
+    #[test]
+    fn accepts_cc_offer() {
+        let sdp_offer = "v=0\r\n\
+        o=rtc 225794291 0 IN IP4 127.0.0.1\r\n\
+        s=-\r\n\
+        t=0 0\r\n\
+        a=group:BUNDLE 0 1\r\n\
+        a=group:LS 0 1\r\n\
+        a=msid-semantic:WMS *\r\n\
+        a=ice-options:ice2,trickle\r\n\
+        a=fingerprint:sha-256 C9:21:F3:0F:50:63:00:26:AD:E4:EE:5D:7A:98:CE:43:AF:3A:1B:6A:01:30:F1:26:D6:85:88:3B:03:64:43:5C\r\n\
+        m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n\
+        c=IN IP4 0.0.0.0\r\n\
+        a=mid:0\r\n\
+        a=sendonly\r\n\
+        a=ssrc:2438577715 cname:nZyt7QWwcGJNsgO2\r\n\
+        a=ssrc:2438577715 msid:eaiGmkYyow7GTpQf eaiGmkYyow7GTpQf-audio\r\n\
+        a=msid:eaiGmkYyow7GTpQf eaiGmkYyow7GTpQf-audio\r\n\
+        a=rtcp-mux\r\n\
+        a=rtpmap:111 opus/48000/2\r\n\
+        a=fmtp:111 minptime=10;maxaveragebitrate=96000;stereo=1;sprop-stereo=1;useinbandfec=1\r\n\
+        a=setup:actpass\r\n\
+        a=ice-ufrag:VrFM\r\n\
+        a=ice-pwd:kzaq2oz4dMVSJbeJzzTNA8\r\n\
+        m=video 9 UDP/TLS/RTP/SAVPF 96\r\n\
+        c=IN IP4 0.0.0.0\r\n\
+        a=mid:1\r\n\
+        a=sendonly\r\n\
+        a=ssrc:2438577716 cname:nZyt7QWwcGJNsgO2\r\n\
+        a=ssrc:2438577716 msid:eaiGmkYyow7GTpQf eaiGmkYyow7GTpQf-video\r\n\
+        a=msid:eaiGmkYyow7GTpQf eaiGmkYyow7GTpQf-video\r\n\
+        a=rtcp-mux\r\n\
+        a=rtpmap:96 H264/90000\r\n\
+        a=rtcp-fb:96 nack\r\n\
+        a=rtcp-fb:96 nack pli\r\n\
+        a=rtcp-fb:96 goog-remb\r\n\
+        a=fmtp:96 profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1\r\n\
+        a=setup:actpass\r\n\
+        a=ice-ufrag:VrFM\r\n\
+        a=ice-pwd:kzaq2oz4dMVSJbeJzzTNA8\r\n";
+
+        let sdp_resolver = init_sdp_resolver();
+        sdp_resolver
+            .accept_stream_offer(sdp_offer)
+            .expect("Should unwrap SDP");
+    }
 }
