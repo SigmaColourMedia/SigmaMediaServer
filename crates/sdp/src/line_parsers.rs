@@ -63,7 +63,6 @@ pub(crate) enum Attribute {
     Candidate(Candidate),
 }
 
-
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) struct MediaDescription {
     pub(crate) media_type: MediaType,
@@ -259,7 +258,7 @@ impl From<Attribute> for String {
             Attribute::ICELite => "ice-lite".to_string(),
             Attribute::EndOfCandidates => "end-of-candidates".to_string(),
             Attribute::ICEOptions(ice_options) => String::from(ice_options),
-            Attribute::Feedback(feedback) => String::from(feedback)
+            Attribute::Feedback(feedback) => String::from(feedback),
         };
         format!("a={attribute_name}")
     }
@@ -270,7 +269,9 @@ impl From<Feedback> for String {
         match value.feedback_type {
             FeedbackType::NACK => format!("rtcp-fb:{} nack", value.payload_type),
             FeedbackType::PLI => format!("rtcp-fb:{} nack pli", value.payload_type),
-            FeedbackType::Unsupported => panic!("Attempted to map unsupported FeedbackType to String")
+            FeedbackType::Unsupported => {
+                panic!("Attempted to map unsupported FeedbackType to String")
+            }
         }
     }
 }
@@ -510,7 +511,7 @@ impl TryFrom<&str> for SDPLine {
         let (sdp_type, value) = input
             .split_once("=")
             .ok_or(SDPParseError::MalformedSDPLine)?;
-
+        
         match sdp_type {
             "v" => Ok(SDPLine::ProtocolVersion(value.to_string())),
             "c" => Ok(SDPLine::ConnectionData(ConnectionData::try_from(input)?)),
@@ -530,13 +531,8 @@ impl TryFrom<&str> for Attribute {
     type Error = SDPParseError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let (_, value) = value
-            .split_once("a=")
-            .ok_or(Self::Error::MalformedAttribute)?;
-        let key = value
-            .split(":")
-            .next()
-            .ok_or(Self::Error::MalformedAttribute)?;
+        let (_, value) = value.split_once("a=").ok_or(MalformedAttribute)?;
+        let key = value.split(":").next().ok_or(MalformedAttribute)?;
 
         match key {
             "ice-ufrag" => Ok(Attribute::ICEUsername(ICEUsername::try_from(value)?)),
@@ -829,11 +825,13 @@ impl TryFrom<&str> for Feedback {
             .split_once(" ")
             .ok_or(SDPParseError::MalformedAttribute)?;
         Ok(Feedback {
-            payload_type: payload_type.parse::<usize>().or(Err(SDPParseError::MalformedAttribute))?,
+            payload_type: payload_type
+                .parse::<usize>()
+                .or(Err(SDPParseError::MalformedAttribute))?,
             feedback_type: match feedback_type {
                 "nack" => FeedbackType::NACK,
                 "nack pli" => FeedbackType::PLI,
-                _ => FeedbackType::Unsupported
+                _ => FeedbackType::Unsupported,
             },
         })
     }
@@ -1038,210 +1036,3 @@ impl TryFrom<&str> for ICEPassword {
         })
     }
 }
-
-// #[cfg(tests)]
-// mod tests {
-//
-//     mod parse_fmtp {
-//         use crate::line_parsers::parse_fmtp;
-//
-//         #[tests]
-//         fn rejects_malformed_line() {
-//             let attr = "96-profile-level-id other-attributes:1";
-//             let parse_result = parse_fmtp(attr);
-//             assert!(parse_result.is_err(), "Should reject FMTP attribute")
-//         }
-//
-//         #[tests]
-//         fn resolves_all_capabilities() {
-//             let attr = "96 profile-level-id=42e01f;packetization-mode=1;level-asymmetry-allowed=1";
-//             let fmtp = parse_fmtp(attr).expect("FMTP should be OK");
-//             assert_eq!(
-//                 fmtp.payload_number, 96,
-//                 "Should resolve correct payload number"
-//             );
-//
-//             assert_eq!(
-//                 fmtp.format_capability,
-//                 vec![
-//                     "profile-level-id=42e01f",
-//                     "packetization-mode=1",
-//                     "level-asymmetry-allowed=1"
-//                 ]
-//             )
-//         }
-//     }
-//
-//     mod parse_media_descriptor {
-//         use crate::line_parsers::{
-//             LineParseError, MediaTransportProtocol, MediaType, parse_media_descriptor,
-//         };
-//
-//         #[tests]
-//         fn rejects_unsupported_media_type() {
-//             let media_descriptor = "text 52000 UDP 96";
-//
-//             let parse_error =
-//                 parse_media_descriptor(media_descriptor).expect_err("Should fail to parse");
-//             assert!(
-//                 matches!(parse_error, LineParseError::UnsupportedMediaType),
-//                 "Should reject with UnsupportedMediaType error"
-//             )
-//         }
-//
-//         #[tests]
-//         fn rejects_unsupported_media_transport_protocol() {
-//             let media_descriptor = "video 52000 UDP 96";
-//
-//             let parse_error =
-//                 parse_media_descriptor(media_descriptor).expect_err("Should fail to parse");
-//             assert!(
-//                 matches!(parse_error, LineParseError::UnsupportedMediaProtocol),
-//                 "Should reject with UnsupportedMediaType error"
-//             )
-//         }
-//
-//         #[tests]
-//         fn resolves_supported_media_with_single_payload_number() {
-//             let media_descriptor = "video 52000 UDP/TLS/RTP/SAVPF 96";
-//
-//             let media =
-//                 parse_media_descriptor(media_descriptor).expect("Should parse to MediaDescription");
-//             assert!(
-//                 matches!(media.media_type, MediaType::Video),
-//                 "Should resolve media_type to Video"
-//             );
-//
-//             assert!(
-//                 matches!(media.transport_protocol, MediaTransportProtocol::DtlsSrtp),
-//                 "Should resolve transport_protocol to DTLS_RTP"
-//             );
-//
-//             assert_eq!(
-//                 media.transport_port, 52000,
-//                 "Should resolve transport port to 52000"
-//             );
-//             assert_eq!(
-//                 media.media_format_description,
-//                 vec![96],
-//                 "Should resolve to single payload number: 96"
-//             )
-//         }
-//
-//         #[tests]
-//         fn resolves_supported_media_with_multiple_payload_numbers() {
-//             let media_descriptor = "video 52000 UDP/TLS/RTP/SAVPF 96 102 112";
-//
-//             let media =
-//                 parse_media_descriptor(media_descriptor).expect("Should parse to MediaDescription");
-//             assert!(
-//                 matches!(media.media_type, MediaType::Video),
-//                 "Should resolve media_type to Video"
-//             );
-//
-//             assert!(
-//                 matches!(media.transport_protocol, MediaTransportProtocol::DtlsSrtp),
-//                 "Should resolve transport_protocol to DTLS_RTP"
-//             );
-//
-//             assert_eq!(
-//                 media.transport_port, 52000,
-//                 "Should resolve transport port to 52000"
-//             );
-//             assert_eq!(
-//                 media.media_format_description,
-//                 vec![96, 102, 112],
-//                 "Should resolve to multiple payload numbers: 96, 102, 112"
-//             )
-//         }
-//     }
-//     mod parse_rtpmap {
-//         use crate::line_parsers::{MediaCodec, parse_rtpmap, VideoCodec};
-//
-//         #[tests]
-//         fn recognizes_unsupported_codec() {
-//             let rtp_attr = "96 myCodec";
-//
-//             let rtp_map = parse_rtpmap(rtp_attr).expect("Should parse to RTPMap");
-//
-//             assert_eq!(rtp_map.payload_number, 96, "Payload number should match");
-//             assert!(
-//                 matches!(rtp_map.codec, MediaCodec::Unsupported),
-//                 "Codec should be unsupported"
-//             )
-//         }
-//
-//         #[tests]
-//         fn rejects_malformed_attribute() {
-//             let rtp_attr = "96-myCodec";
-//
-//             let rtp_map = parse_rtpmap(rtp_attr);
-//
-//             assert!(rtp_map.is_err(), "Should reject attribute parse")
-//         }
-//
-//         #[tests]
-//         fn accepts_lowercase_video_codec() {
-//             let rtp_attr = "96 h264/90000";
-//
-//             let rtp_map = parse_rtpmap(rtp_attr).expect("Should parse to RTPMap");
-//
-//             assert_eq!(rtp_map.payload_number, 96, "Payload number should match");
-//             assert!(
-//                 matches!(rtp_map.codec, MediaCodec::Video(VideoCodec::H264)),
-//                 "Codec should be H264"
-//             )
-//         }
-//
-//         #[tests]
-//         fn accepts_uppercase_video_codec() {
-//             let rtp_attr = "96 H264/90000";
-//
-//             let rtp_map = parse_rtpmap(rtp_attr).expect("Should parse to RTPMap");
-//
-//             assert_eq!(rtp_map.payload_number, 96, "Payload number should match");
-//             assert!(
-//                 matches!(rtp_map.codec, MediaCodec::Video(VideoCodec::H264)),
-//                 "Codec should be H264"
-//             )
-//         }
-//     }
-//
-//     mod parse_fingerprint {
-//         use crate::line_parsers::{HashFunction, parse_fingerprint};
-//
-//         #[tests]
-//         fn recognizes_unsupported_fingerprint() {
-//             let unsupported_fingerprint = "sha-tests EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B";
-//             let sdp_parse = parse_fingerprint(unsupported_fingerprint);
-//             let fingerprint = sdp_parse.expect("Fingerprint parse result should be OK");
-//
-//             assert_eq!(fingerprint.hash, "EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B", "Hash should match");
-//             assert!(
-//                 matches!(fingerprint.hash_function, HashFunction::Unsupported),
-//                 "HashFunction should be Unsupported"
-//             )
-//         }
-//
-//         #[tests]
-//         fn fails_on_malformed_attribute() {
-//             let unsupported_fingerprint = "sha-1,EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B";
-//             let sdp_parse = parse_fingerprint(unsupported_fingerprint);
-//             assert!(sdp_parse.is_err(), "Should return Err");
-//         }
-//
-//         #[tests]
-//         fn recognizes_sha_256() {
-//             let unsupported_fingerprint = "sha-256 EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B";
-//             let sdp_parse = parse_fingerprint(unsupported_fingerprint);
-//
-//             let fingerprint = sdp_parse.expect("Fingerprint parse result should be OK");
-//
-//             assert_eq!(fingerprint.hash, "EF:53:C9:F2:E0:A0:4F:1D:5E:99:4C:20:B8:D7:DE:21:3B:58:15:C4:E5:88:87:46:65:27:F7:3B:C6:DC:EF:3B", "Hash should match");
-//             assert!(
-//                 matches!(fingerprint.hash_function, HashFunction::SHA256),
-//                 "HashFunction should be SHA256"
-//             )
-//         }
-//     }
-// }
