@@ -19,12 +19,3 @@ pub async fn rooms_get(_: Request<IncomingBody>) -> RouteResult {
         )))
         .unwrap())
 }
-
-pub async fn rooms_options() -> RouteResult {
-    Ok(Response::builder()
-        .status(200)
-        .header("Access-Control-Allow-Method", "GET")
-        .header("Access-Control-Allow-Headers", "content-type")
-        .body(Full::new(Bytes::new()))
-        .unwrap())
-}

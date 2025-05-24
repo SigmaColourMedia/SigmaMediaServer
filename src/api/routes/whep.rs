@@ -17,15 +17,6 @@ pub async fn whep_post(req: Request<IncomingBody>) -> RouteResult {
     }
 }
 
-pub async fn whep_options() -> RouteResult {
-    Ok(Response::builder()
-        .status(200)
-        .header("Access-Control-Allow-Method", "POST")
-        .header("Access-Control-Allow-Headers", "content-type")
-        .body(Full::new(Bytes::new()))
-        .unwrap())
-}
-
 async fn whep_resolver(req: Request<IncomingBody>) -> Result<HTTPResponse, HTTPError> {
     let room_id = req
         .uri()
