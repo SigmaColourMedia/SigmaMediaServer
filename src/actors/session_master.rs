@@ -21,7 +21,7 @@ use crate::actors::unset_stun_actor::UnsetSTUNActorHandle;
 use crate::actors::viewer_media_control_actor::ViewerMediaControlActorHandle;
 use crate::actors::{RoomData, SessionPointer};
 use crate::event_bus::{get_event_bus, ServerEvent};
-use crate::ice_registry::SessionUsername;
+use crate::stun::SessionUsername;
 
 #[derive(Debug)]
 pub struct SessionMaster {

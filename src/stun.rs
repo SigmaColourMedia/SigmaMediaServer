@@ -8,7 +8,6 @@ use openssl::sign::Signer;
 
 use sdp::ICECredentials;
 
-use crate::ice_registry::SessionUsername;
 
 // todo Refactor this and move into internal crate
 
@@ -337,6 +336,12 @@ enum StunAttributeType {
 enum StunType {
     BindingRequest = 0x0001,
     SuccessResponse = 0x0101,
+}
+
+#[derive(Hash, Eq, PartialEq, Debug, Clone)]
+pub struct SessionUsername {
+    pub remote: String,
+    pub host: String,
 }
 
 #[derive(Debug)]

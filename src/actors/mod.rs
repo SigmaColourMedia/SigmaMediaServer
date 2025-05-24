@@ -6,8 +6,8 @@ use uuid::Uuid;
 
 use sdp::NegotiatedSession;
 use thumbnail_image_extractor::ImageData;
+use crate::stun::SessionUsername;
 
-use crate::ice_registry::SessionUsername;
 
 pub mod dtls_actor;
 pub mod get_packet_type;
